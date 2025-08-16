@@ -1,0 +1,14 @@
+# Node
+node_modules/
+npm-debug.log*
+yarn.lock
+package-lock.json
+
+# OS / editor junk
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Env
+.env
