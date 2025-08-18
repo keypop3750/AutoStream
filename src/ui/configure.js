@@ -144,6 +144,16 @@ function configureHtml(origin) {
     keyEl.addEventListener('input', function(){ buildUrl(); save(); });
     fallbackEl.addEventListener('change', function(){ buildUrl(); save(); });
 
+    // Force custom protocol navigation on click (like AIO Streams)
+    installApp.addEventListener('click', function(e) {
+      e.preventDefault();
+      try {
+        window.location.href = this.getAttribute('href');
+      } catch (err) {
+        // noop; user can use "Install (Web)" as fallback
+      }
+    });
+
     // init (default fallback ON unless previously saved)
     var st = load();
     if (st.p) providerEl.value = st.p;
