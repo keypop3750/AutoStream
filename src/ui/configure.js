@@ -37,7 +37,7 @@ function configureHtml(origin) {
   .apikey-wrap.visible { opacity:1; pointer-events:auto; }
 
   .checkbox { display:flex; align-items:center; gap:10px; margin:10px 0 10px; }
-  .checkbox input { width:18px; height:28px; accent-color: var(--check); }
+  .checkbox input { width:18px; height:18px; accent-color: var(--check); }
 
   .btns { display:flex; gap:12px; flex-wrap:wrap; margin:8px 0 12px; }
   .btn  { appearance:none; border:0; border-radius:12px; padding:12px 18px; background:var(--primary);
