@@ -85,9 +85,8 @@ function configureHtml(origin) {
     </div>
 
     <div class="btns">
-    var hostPath = url.replace(/^https?:\/\//, '');
-     installApp.setAttribute('href', 'stremio://' + hostPath);
-     installWeb.setAttribute('href', 'https://web.stremio.com/#/addons?addon=' + encodeURIComponent(url));
+      <a id="installApp" class="btn">Install (App)</a>
+      <a id="installWeb" class="btn secondary" target="_blank" rel="noopener">Install (Web)</a>
     </div>
 
     <div class="urlbox">
@@ -124,9 +123,16 @@ function configureHtml(origin) {
       if (fallbackEl.checked) sp.set('fallback', '1');
       var qs = sp.toString();
       var url = qs ? (base + '?' + qs) : base;
+
+      // Set buttons properly:
+      // App deep link must be stremio://<host-and-path> (no http/https)
+      var hostPath = url.replace(/^https?:\/\//, '');
+      installApp.setAttribute('href', 'stremio://' + hostPath);
+
+      // Web install goes through Stremio Web installer page
+      installWeb.setAttribute('href', 'https://web.stremio.com/#/addons?addon=' + encodeURIComponent(url));
+
       urlBox.value = url;
-      installApp.setAttribute('href', 'stremio://' + url);
-      installWeb.setAttribute('href', url);
     }
 
     function toggleKey() {
