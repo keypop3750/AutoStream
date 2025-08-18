@@ -85,8 +85,9 @@ function configureHtml(origin) {
     </div>
 
     <div class="btns">
-      <a id="installApp" class="btn">Install (App)</a>
-      <a id="installWeb" class="btn secondary" target="_blank" rel="noopener">Install (Web)</a>
+    var hostPath = url.replace(/^https?:\/\//, '');
+     installApp.setAttribute('href', 'stremio://' + hostPath);
+     installWeb.setAttribute('href', 'https://web.stremio.com/#/addons?addon=' + encodeURIComponent(url));
     </div>
 
     <div class="urlbox">
