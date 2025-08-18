@@ -37,7 +37,7 @@ function configureHtml(origin) {
   .apikey-wrap.visible { opacity:1; pointer-events:auto; }
 
   .checkbox { display:flex; align-items:center; gap:10px; margin:10px 0 10px; }
-  .checkbox input { width:18px; height:18px; accent-color: var(--check); }
+  .checkbox input { width:18px; height:28px; accent-color: var(--check); }
 
   .btns { display:flex; gap:12px; flex-wrap:wrap; margin:8px 0 12px; }
   .btn  { appearance:none; border:0; border-radius:12px; padding:12px 18px; background:var(--primary);
@@ -97,9 +97,6 @@ function configureHtml(origin) {
 
   <script>
   (function() {
-    // Lock the base origin in a variable to avoid collisions with window.origin
-    var BASE_ORIGIN = ${JSON.stringify(origin)};
-
     var providerEl = document.getElementById('provider');
     var keyWrap    = document.getElementById('apikeyWrap');
     var keyEl      = document.getElementById('apikey');
@@ -119,21 +116,16 @@ function configureHtml(origin) {
     }
 
     function buildUrl() {
-      var base = BASE_ORIGIN + '/manifest.json';
+      var base = '${origin.replace(/'/g, "\\'")}/manifest.json';
       var sp = new URLSearchParams();
       var prov = providerEl.value;
       if (prov && PARAM_MAP[prov] && keyEl.value.trim()) sp.set(PARAM_MAP[prov], keyEl.value.trim());
       if (fallbackEl.checked) sp.set('fallback', '1');
-
-      var qs  = sp.toString();
+      var qs = sp.toString();
       var url = qs ? (base + '?' + qs) : base;
-
-      // Corrected deep links:
-      var hostPath = url.replace(/^https?:\/\//, '');
-      installApp.setAttribute('href', 'stremio://' + hostPath);
-      installWeb.setAttribute('href', 'https://web.stremio.com/#/addons?addon=' + encodeURIComponent(url));
-
       urlBox.value = url;
+      installApp.setAttribute('href', 'stremio://' + url);
+      installWeb.setAttribute('href', url);
     }
 
     function toggleKey() {
