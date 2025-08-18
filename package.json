@@ -2,9 +2,9 @@
   "name": "autostream",
   "version": "0.1.0",
   "description": "Stremio proxy add-on that merges Torrentio and ThePirateBay+ streams and returns a curated stream list with optional debrid support and a 1080p fallback.",
-  "main": "../autostream_addon.js",
+  "main": "src/index.js",
   "scripts": {
-    "start": "node autostream_addon.js"
+    "start": "node src/index.js"
   },
   "keywords": [
     "stremio",

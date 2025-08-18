@@ -1,66 +1,89 @@
-# AutoStream – Proxy Stremio Add‑on
+# AutoStream Addon for Stremio
 
-AutoStream is a proxy‑style [Stremio](https://www.strem.io/) add‑on that merges streams from **Torrentio** and **ThePirateBay+** and returns at most two curated streams for each title.  The goal is to present a single, high‑quality stream rather than dozens of options.  When a debrid API key is provided, AutoStream prioritises video quality more heavily; otherwise speed and swarm health (seeders) are more important.  If the best pick is above 1080p, AutoStream can optionally include a 1080p fallback.
+AutoStream is a **Stremio addon** that automatically picks the best available stream for movies and TV shows.  
+Instead of showing you a long list of duplicate or low-quality streams, AutoStream **filters, prioritises, and selects** the best option based on quality, reliability, and speed.
+
+---
 
 ## Features
 
-* **Proxy aggregator** combining Torrentio and TPB+ without maintaining a database.
-* **Quality vs. seeds weighting** that shifts depending on whether you supply a debrid API key.
-* **Cinemeta title beautifier** (e.g. “Show — S02E05 – 4K” or “Movie – 1080p”).
-* **Optional 1080p fallback** when the best stream is 2K, 4K or 8K.
-* **Debrid provider support** for Real‑Debrid (rd), All‑Debrid (ad), Premiumize (pm), Debrid‑Link (dl), Easy‑Debrid (easy), Offcloud (oc) and Put.io (put).
-* **Configuration page** accessible at `/configure` to generate a custom manifest URL with your API keys and fallback preferences.
+- Automatically selects the best stream available  
+- Works for both **movies and TV shows**  
+- Prefers high-quality streams (BluRay, WEB, Remux) with good speed/seed counts  
+- Provides fallback options (e.g., best 1080p stream if the top option is 2K/4K)  
+- Clean, simplified output — no cluttered lists
 
-## Getting Started
+---
 
-### Running locally
+## Installation (End Users)
 
-AutoStream requires [Node.js](https://nodejs.org/) (v18 or later recommended for built‑in `fetch`).  Clone the repository and run:
+1. Open Stremio.  
+2. Go to **Add-ons → Community Add-ons**.  
+3. Paste the following URL into the **addon install** box:
+
+   ```
+   https://stremio-addons.net/addons/autostream
+   ```
+
+4. Click **Install**.
+
+That’s it! AutoStream will now automatically enhance your Stremio experience.
+
+---
+
+## Usage
+
+- Simply browse movies or TV shows in Stremio as usual.  
+- When you click “Watch,” AutoStream will fetch the best stream and play it automatically.  
+- You don’t need to configure anything — it works out of the box.  
+
+---
+
+## FAQ
+
+**Q: Do I need a Real-Debrid/AllDebrid account?**  
+A: No. AutoStream works without debrid accounts, but adding one improves reliability and access to higher quality streams.  
+
+**Q: Can I still see multiple stream options?**  
+A: AutoStream is designed to simplify your experience by picking the best stream automatically.  
+
+---
+
+## Developer Setup
+
+If you’d like to run AutoStream locally or contribute to development:
 
 ```bash
-node autostream_addon.js
+# Clone the repository
+git clone https://github.com/YOUR_USERNAME/AutoStreamAddon.git
+cd AutoStreamAddon
+
+# Install dependencies
+npm install
+
+# Start the addon server
+npm start
 ```
 
-The service starts on port `7010` by default.  You can override the port by setting the `PORT` environment variable:
+The addon will run on:
 
-```bash
-PORT=7020 node autostream_addon.js
+```
+http://localhost:7000/manifest.json
 ```
 
-### Installing in Stremio
+You can then install it in Stremio by pasting that local URL.
 
-To install AutoStream in the Stremio desktop client:
+---
 
-1. Open **Stremio** (desktop version).  
-2. Go to **Add‑ons** → **Community Add‑ons**.  
-3. Paste the manifest URL into the **Add‑on URL** field (it's the search box on the Add‑ons page) and press **Enter**:
 
-   ```
-   http://127.0.0.1:7010/manifest.json
-   ```
+## Disclaimer
 
-   Stremio will display “AutoStream” as an installable add‑on.  Note: local HTTP add‑ons only install on the desktop app using `127.0.0.1`; the web app requires HTTPS or a tunnel.
+- This addon does not host or store any content. It simply provides links that are already available on the internet. Use at your own risk.
+- This addon fetches Torrentio streams, curates them and then produces the streams (which causes your debrid to start caching, before you've even clicked the link to watch). This produces a slight delay in loading, and could also produce debrid bloat in the future. I recommend periodically clearing your debrid cache
 
-4. To customise your settings, visit the configuration page at:
-
-   ```
-   http://127.0.0.1:7010/configure
-   ```
-
-   Enter any debrid API keys you wish to use and choose whether to include a 1080p fallback.  The page will generate a unique `manifest.json` URL with your parameters.  Copy that URL and paste it into Stremio’s Add‑on URL field to install your personalised version of AutoStream.
-
-### Deploying on a remote server
-
-AutoStream is designed to be hosted like any other Node.js service.  Deploy it on a server or platform (e.g. Render, Heroku) with outbound internet access.  When hosting for public use, serve over **HTTPS** to allow installation from the Stremio web app.
-
-Example using [localtunnel](https://github.com/localtunnel/localtunnel) for temporary HTTPS access:
-
-```bash
-npx localtunnel --port 7010
-```
-
-This prints a URL like `https://<random>.loca.lt`.  Use `https://<random>.loca.lt/manifest.json` in Stremio to install AutoStream remotely.  You can append query parameters for debrid keys and `fallback=0` as needed.
+---
 
 ## License
 
-This project is licensed under the MIT License.  See the `LICENSE` file for more information.
+MIT License. Feel free to fork, improve, and share.
+
