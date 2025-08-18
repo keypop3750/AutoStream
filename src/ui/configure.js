@@ -97,6 +97,9 @@ function configureHtml(origin) {
 
   <script>
   (function() {
+    // Lock the base origin in a variable to avoid collisions with window.origin
+    var BASE_ORIGIN = ${JSON.stringify(origin)};
+
     var providerEl = document.getElementById('provider');
     var keyWrap    = document.getElementById('apikeyWrap');
     var keyEl      = document.getElementById('apikey');
@@ -116,20 +119,18 @@ function configureHtml(origin) {
     }
 
     function buildUrl() {
-      var base = '${origin.replace(/'/g, "\\'")}/manifest.json';
+      var base = BASE_ORIGIN + '/manifest.json';
       var sp = new URLSearchParams();
       var prov = providerEl.value;
       if (prov && PARAM_MAP[prov] && keyEl.value.trim()) sp.set(PARAM_MAP[prov], keyEl.value.trim());
       if (fallbackEl.checked) sp.set('fallback', '1');
-      var qs = sp.toString();
+
+      var qs  = sp.toString();
       var url = qs ? (base + '?' + qs) : base;
 
-      // Set buttons properly:
-      // App deep link must be stremio://<host-and-path> (no http/https)
+      // Corrected deep links:
       var hostPath = url.replace(/^https?:\/\//, '');
       installApp.setAttribute('href', 'stremio://' + hostPath);
-
-      // Web install goes through Stremio Web installer page
       installWeb.setAttribute('href', 'https://web.stremio.com/#/addons?addon=' + encodeURIComponent(url));
 
       urlBox.value = url;
