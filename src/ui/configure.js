@@ -124,8 +124,9 @@ function configureHtml(origin) {
       var qs = sp.toString();
       var url = qs ? (base + '?' + qs) : base;
       urlBox.value = url;
-      installApp.setAttribute('href', 'stremio://' + url);
-      installWeb.setAttribute('href', url);
+      var hostPath = url.replace(/^https?:\/\//, '');
+       installApp.setAttribute('href', 'stremio://' + hostPath);
+       installWeb.setAttribute('href', 'https://web.stremio.com/#/addons?addon=' + encodeURIComponent(url));
     }
 
     function toggleKey() {
