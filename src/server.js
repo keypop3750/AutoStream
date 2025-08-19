@@ -54,7 +54,8 @@ const parsedUrl = url.parse(req.url);
 const pathname = parsedUrl.pathname;
 
 if (path === '/manifest.json') {
-  const params = querystring.parse(query); // you already have `query` from earlier in server.js
+  // turn search params into plain object
+  const params = Object.fromEntries(q.entries());
 
   const manifest = {
     id: 'com.stremio.autostream.addon',
@@ -70,6 +71,7 @@ if (path === '/manifest.json') {
 
   return writeJson(res, manifest, 200);
 }
+
 
 
 
