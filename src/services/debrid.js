@@ -1,7 +1,7 @@
 'use strict';
 const { fetchWithTimeout } = require('../utils/http');
 
-// Quick in-memory cache per provider (fast hits during a run)
+// Quick in-memory cache per provider
 const debridCache = { ad: new Map(), rd: new Map(), pm: new Map(), tb: new Map(), oc: new Map() };
 
 // Cross-episode TTL caches (60 minutes)
@@ -344,8 +344,8 @@ async function resolveRealDebrid(infoHash, apiKey, log, opts) {
 }
 
 // ----------------------------
-// Premiumize (stub - safe no-op)
-// ----------------------------
+// Premiumize (stub)
+// (kept as stub so code paths remain intact)
 async function resolvePremiumize(infoHash, apiKey, log, opts) {
   return null;
 }
@@ -384,7 +384,6 @@ async function resolveTorBox(infoHashOrMagnet, apiKey, log, opts) {
       pick = findEpisodeFile(files, opts.meta.season, opts.meta.episode);
     }
     if (!pick) {
-      // biggest file
       files.sort(function(x,y){ return (y.size||0)-(x.size||0); });
       pick = files[0];
     }
@@ -512,7 +511,7 @@ async function applyDebridToStreams(streams, params, log, meta) {
       return (async function () {
         const stream = Object.assign({}, s);
         if (!stream.infoHash) return stream;
-        if (idx > 1 && !resolveAll) return stream; // fast path: top 2 unless overridden
+        if (idx > 1 && !resolveAll) return stream; // top 2 unless forced
 
         for (var p = 0; p < providers.length; p++) {
           const prov = providers[p][0];
