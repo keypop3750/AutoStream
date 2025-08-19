@@ -79,7 +79,7 @@ function startServer(port = PORT) {
         const tag = providerTagFromParams(paramsObj);
         const manifest = {
           id: 'com.stremio.autostream.addon',
-          version: '2.2.2',
+          version: '2.3.1',
           name: tag ? `AutoStream (${tag})` : 'AutoStream',
           description: 'Curated best-pick streams with optional debrid; includes 1080p fallback, season-pack acceleration, and pre-warmed next-episode caching.',
           logo: 'https://github.com/keypop3750/AutoStream/blob/main/logo.png?raw=true',
