@@ -50,9 +50,6 @@ function startServer(port = PORT) {
         return res.end(html);
       }
 
-const parsedUrl = url.parse(req.url);
-const pathname = parsedUrl.pathname;
-
 if (path === '/manifest.json') {
   // turn search params into plain object
   const params = Object.fromEntries(q.entries());
