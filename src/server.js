@@ -53,8 +53,8 @@ function startServer(port = PORT) {
 const parsedUrl = url.parse(req.url);
 const pathname = parsedUrl.pathname;
 
-if (pathname === '/manifest.json') {
-  const params = querystring.parse(parsedUrl.query);
+if (path === '/manifest.json') {
+  const params = querystring.parse(query); // you already have `query` from earlier in server.js
 
   const manifest = {
     id: 'com.stremio.autostream.addon',
@@ -68,9 +68,9 @@ if (pathname === '/manifest.json') {
     behaviorHints: { configurable: true, configurationRequired: false }
   };
 
-  writeJson(res, manifest, 200);
-  return;
+  return writeJson(res, manifest, 200);
 }
+
 
 
 
