@@ -58,7 +58,7 @@ if (path === '/manifest.json') {
 
   const manifest = {
     id: 'com.stremio.autostream.addon',
-    version: '2.1.1',
+    version: '2.2.0',
     name: (providerTagFromParams(params) ? ('AutoStream (' + providerTagFromParams(params) + ')') : 'AutoStream'),
     description: 'Curated best-pick streams with optional debrid; includes 1080p fallback, season-pack acceleration, and pre-warmed next-episode caching.',
     logo: 'https://github.com/keypop3750/AutoStream/blob/main/logo.png?raw=true',
