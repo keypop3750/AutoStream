@@ -11,20 +11,25 @@ const { fetchTorrentioStreams, fetchTPBStreams } = require('./services/sources')
 const { applyDebridToStreams } = require('./services/debrid');
 const { filterByMaxSize, sortByLanguagePreference } = require('./core/filters');
 const { pickStreams } = require('./core/score');
-const { formatStreams } = require('./core/format'); // <-- needed for clean titles
+const { formatStreams } = require('./core/format'); // needed for clean titles
 
 // Robust provider tag helper (works with URLSearchParams or plain object)
+// Also supports ?debrid=ad|rd|pm|tb|oc
 function providerTagFromParams(params) {
-  const get = (k) => {
+  const getter = (k) => {
     if (!params) return '';
     if (typeof params.get === 'function') return params.get(k) || '';
     return params[k] || '';
   };
-  if (get('ad')) return 'AD';
-  if (get('rd')) return 'RD';
-  if (get('pm')) return 'PM';
-  if (get('tb')) return 'TB';
-  if (get('oc')) return 'OC';
+  // direct keys (ad/rd/pm/tb/oc)
+  if (getter('ad')) return 'AD';
+  if (getter('rd')) return 'RD';
+  if (getter('pm')) return 'PM';
+  if (getter('tb')) return 'TB';
+  if (getter('oc')) return 'OC';
+  // debrid=ad|rd|pm|tb|oc
+  const d = String(getter('debrid') || '').toLowerCase();
+  if (['ad','rd','pm','tb','oc'].includes(d)) return d.toUpperCase();
   return null;
 }
 
@@ -93,9 +98,9 @@ function startServer(port = PORT) {
         const id = decodeURIComponent(m[2]);
         log('Request:', type, id);
 
-        // Optional meta (for naming in debrid, etc.)
+        // Optional meta (for debrid helpers etc.)
         let meta = null;
-        try { meta = await fetchMeta(type, id); } catch(_) {}
+        try { meta = await fetchMeta(type, id, log); } catch(_) {}
 
         // Fetch from sources in parallel
         const [a, b] = await Promise.all([
@@ -105,20 +110,23 @@ function startServer(port = PORT) {
         let combined = [].concat(a || [], b || []);
         log('Fetched streams:', combined.length);
 
-        // Apply new prefs BEFORE selection
+        // Debrid resolve/mark (if you prefer to resolve only winners, move this below)
+        combined = await applyDebridToStreams(combined, debridParams, log, meta);
+
+        // Apply prefs BEFORE selection
         combined = filterByMaxSize(combined, maxSize);
         combined = sortByLanguagePreference(combined, langPrio);
 
         // Pick winners (respects include1080 + debrid-awareness)
         const selected = pickStreams(combined, useDebrid, include1080, log);
 
-        // Beautify titles (this restores clean titles + "AutoStream (AD)" name)
-        const metaInfo = meta || {};
+        // Clean titles + "AutoStream (AD/RD/...)" name
+        // Ensure we have a proper metaInfo with .name
+        const metaInfo = (meta && meta.name) ? meta : await fetchMeta(type, id, log);
         const providerTag = providerTagFromParams(q); // works with URLSearchParams
         let streams = formatStreams(metaInfo, selected, providerTag);
 
-        // Resolve with Debrid on the final set (doesn’t overwrite titles)
-        streams = await applyDebridToStreams(streams, debridParams, log, meta);
+        // (Optional) If you want debrid resolution only on final list, move applyDebridToStreams here instead.
 
         return writeJson(res, { streams }, 200);
       }
