@@ -12,6 +12,15 @@ const { applyDebridToStreams } = require('./services/debrid');
 const { filterByMaxSize, sortByLanguagePreference } = require('./core/filters');
 const { computeScore, pickStreams } = require('./core/score');
 
+function providerTagFromParams(params) {
+  if (params.ad) return "AD";
+  if (params.rd) return "RD";
+  if (params.pm) return "PM";
+  if (params.tb) return "TB";
+  if (params.oc) return "OC";
+  return null;
+}
+
 function startServer(port = PORT) {
   const server = http.createServer(async (req, res) => {
     try {
