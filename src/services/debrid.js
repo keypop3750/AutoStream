@@ -2,6 +2,26 @@
 const { fetchWithTimeout } = require('../utils/http');
 
 // Quick in-memory cache per provider (fast hits during a run)
+
+// PATCH helpers: finalize direct URL and warm it
+async function _finalizeDirectUrl(u) {
+  try {
+    const res = await fetchWithTimeout(u, { method: 'HEAD', redirect: 'follow' }, 8000);
+    if (res && typeof res.url === 'string' && res.url.startsWith('http')) return res.url;
+  } catch (e) {}
+  return u;
+}
+// Warmup helper: issue a tiny ranged GET to spin up CDN, fallback to HEAD
+function _warmUrl(u) {
+  setTimeout(() => {
+    fetchWithTimeout(u, { 
+      method: 'GET', 
+      headers: { Range: 'bytes=0-0' } 
+    }, 7000).catch(() => {
+      fetchWithTimeout(u, { method: 'HEAD' }, 5000).catch(() => {});
+    });
+  }, 0);
+}
 const debridCache = { ad: new Map(), rd: new Map(), pm: new Map(), tb: new Map(), oc: new Map() };
 
 // Cross-episode TTL caches (60 minutes)
@@ -23,6 +43,27 @@ const adFileUrlCache  = new Map();   // `${apiKey}|${infoHash}|${fileId}` -> { u
 const tbFileUrlCache  = new Map();   // `${apiKey}|${infoHash}|${fileId}` -> { url }
 const ocUrlCache      = new Map();   // `${apiKey}|${infoHashOrMagnet}` -> { url }
 const rdFileUrlCache  = new Map();   // `${apiKey}|${infoHash}|${fileId}` -> { url }
+// Concurrency limiter for debrid unlocks (throttle to ~3)
+const MAX_DEBRID_CONCURRENCY = 3;
+let _debridActive = 0;
+const _debridQueue = [];
+function _withDebridLimit(fn) {
+  return new Promise((resolve, reject) => {
+    const run = async () => {
+      _debridActive++;
+      try { resolve(await fn()); }
+      catch (e) { reject(e); }
+      finally {
+        _debridActive--;
+        const next = _debridQueue.shift();
+        if (next) next();
+      }
+    };
+    if (_debridActive < MAX_DEBRID_CONCURRENCY) run();
+    else _debridQueue.push(run);
+  });
+}
+
 
 // ---------- season-pack heuristics ----------
 const _SEASON_KEYWORDS = ['complete', 'full season'];
@@ -334,8 +375,10 @@ async function resolveRealDebrid(infoHash, apiKey, log, opts) {
     const uj = await unres.json();
     const direct = uj && uj.download;
     if (typeof direct === 'string' && direct.indexOf('http') === 0) {
-      try { _setTTL(rdFileUrlCache, urlKey, direct); } catch (e) {}
-      return direct;
+      const finalUrl = await _finalizeDirectUrl(direct);
+      try { _setTTL(rdFileUrlCache, urlKey, finalUrl); } catch (e) {}
+      _warmUrl(finalUrl);
+      return finalUrl;
     }
     return null;
   } catch (err) {
@@ -404,8 +447,10 @@ async function resolveTorBox(infoHashOrMagnet, apiKey, log, opts) {
     const stream = await streamRes.json();
     const url = (stream && stream.data && stream.data.url) ? stream.data.url : (stream && stream.url) ? stream.url : null;
     if (typeof url === 'string' && url.indexOf('http') === 0) {
-      try { _setTTL(tbFileUrlCache, urlKey, url); } catch (e) {}
-      return url;
+      const finalUrl = await _finalizeDirectUrl(url);
+      try { _setTTL(tbFileUrlCache, urlKey, finalUrl); } catch (e) {}
+      _warmUrl(finalUrl);
+      return finalUrl;
     }
     return null;
   } catch (err) { return null; }
@@ -438,7 +483,11 @@ async function resolveOffcloud(linkOrMagnet, apiKey, log, opts) {
       const body = await st.json();
       const ready = (body && (body.status === 'done' || body.status === 'finished')) || (body && body.result && body.result.status === 'done');
       const url = (body && body.url) || (body && body.result && body.result.url);
-      if (ready && url) { try { _setTTL(ocUrlCache, cacheKey, url); } catch (e) {} return url; }
+      if (ready && url) {
+  try { _setTTL(ocUrlCache, cacheKey, url); } catch (e) {}
+  const finalUrl = await _finalizeDirectUrl(url);
+  _warmUrl(finalUrl);
+  return finalUrl; }
       await new Promise(function(r){ setTimeout(r, 1500); });
     }
     return null;
@@ -457,7 +506,11 @@ async function adUnlock(hosterLink, apiKey) {
     if (!ures.ok) return null;
     const uj = await ures.json();
     const direct = uj && uj.data && uj.data.link;
-    if (typeof direct === 'string' && direct.indexOf('http') === 0) return direct;
+    if (typeof direct === 'string' && direct.indexOf('http') === 0) {
+      const finalUrl = await _finalizeDirectUrl(direct);
+      _warmUrl(finalUrl);
+      return finalUrl;
+    }
     return null;
   } catch (e) { return null; }
 }
@@ -509,7 +562,7 @@ async function applyDebridToStreams(streams, params, log, meta) {
     const resolveAll = (params.get('debridAll') === '1' || params.get('resolveAll') === '1');
 
     const tasks = streams.map(function(s, idx) {
-      return (async function () {
+      return _withDebridLimit(async function () {
         const stream = Object.assign({}, s);
         if (!stream.infoHash) return stream;
         if (idx > 1 && !resolveAll) return stream; // fast path: top 2 unless overridden
