@@ -58,7 +58,7 @@ function startServer(port = PORT) {
       }
       const debridParams = getDebridParams();
       const useDebrid = ['ad','rd','pm','tb','oc'].some(k => debridParams.has(k));
-      const include1080 = q.get('fallback') === '1';
+      const include1080 = q.has('fallback') ? q.get('fallback') === '1' : true;
 
       // New prefs
       const maxSize  = Number(q.get('max_size') || 0);
@@ -110,9 +110,6 @@ function startServer(port = PORT) {
         let combined = [].concat(a || [], b || []);
         log('Fetched streams:', combined.length);
 
-        // Debrid resolve/mark (if you prefer to resolve only winners, move this below)
-        combined = await applyDebridToStreams(combined, debridParams, log, meta);
-
         // Apply prefs BEFORE selection
         combined = filterByMaxSize(combined, maxSize);
         combined = sortByLanguagePreference(combined, langPrio);
@@ -121,14 +118,22 @@ function startServer(port = PORT) {
         const selected = pickStreams(combined, useDebrid, include1080, log);
 
         // Clean titles + "AutoStream (AD/RD/...)" name
-        // Ensure we have a proper metaInfo with .name
         const metaInfo = (meta && meta.name) ? meta : await fetchMeta(type, id, log);
         const providerTag = providerTagFromParams(q); // works with URLSearchParams
         let streams = formatStreams(metaInfo, selected, providerTag);
 
-        // (Optional) If you want debrid resolution only on final list, move applyDebridToStreams here instead.
+        // Fully unlock the final list so Stremio starts from a direct URL
+        const unlockParams = new URLSearchParams(q);
+        unlockParams.set('debridAll', '1'); // resolve every returned stream (not just top 2)
+        streams = await applyDebridToStreams(streams, unlockParams, log, meta);
 
-        return writeJson(res, { streams }, 200);
+        // Cache hints for faster UI (like Torrentio)
+        return writeJson(res, {
+          streams,
+          cacheMaxAge: 3600,      // 1 hour
+          staleRevalidate: 21600, // 6 hours
+          staleError: 86400       // 24 hours
+        }, 200);
       }
 
       // default 404
