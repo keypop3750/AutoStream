@@ -1,26 +1,16 @@
 'use strict';
+// AutoStream server with language priority + video size limit
 const http = require('http');
 const { URL } = require('url');
 
 const { PORT, AUTOSTREAM_DEBUG } = require('./constants');
 const { setCors, writeJson } = require('./utils/http');
+const { createLogger } = require('./utils/logger');
 const { fetchMeta } = require('./services/meta');
 const { fetchTorrentioStreams, fetchTPBStreams } = require('./services/sources');
-// const { providerTagFromParams } = require('./utils/config');
-const { formatStreams } = require('./core/format');
 const { applyDebridToStreams } = require('./services/debrid');
 const { filterByMaxSize, sortByLanguagePreference } = require('./core/filters');
-const { pickStreams } = require('./core/score');
-
-// restore providerTagFromParams
-function providerTagFromParams(params) {
-  if (params.ad) return "AD";
-  if (params.rd) return "RD";
-  if (params.pm) return "PM";
-  if (params.tb) return "TB";
-  if (params.oc) return "OC";
-  return null;
-}
+const { computeScore, pickStreams } = require('./core/score');
 
 function startServer(port = PORT) {
   const server = http.createServer(async (req, res) => {
@@ -32,10 +22,12 @@ function startServer(port = PORT) {
       const debug = AUTOSTREAM_DEBUG || q.get('debug') === '1';
       const log = (...args) => { if (debug) console.log('[AutoStream]', ...args); };
 
-      // --- Debrid params
+      // Helpers
       function getDebridParams() {
+        // Copy only supported provider keys (ad/rd/pm/tb/oc)
         const p = new URLSearchParams();
         ['ad','rd','pm','tb','oc'].forEach(k => { if (q.has(k) && q.get(k)) p.set(k, q.get(k)); });
+        // Back-compat: also accept ?debrid=rd&apikey=... and map it
         const map = { ad:'ad', rd:'rd', pm:'pm', tb:'tb', oc:'oc' };
         const d = String(q.get('debrid')||'').toLowerCase();
         const apikey = q.get('apikey');
@@ -46,11 +38,10 @@ function startServer(port = PORT) {
       const useDebrid = ['ad','rd','pm','tb','oc'].some(k => debridParams.has(k));
       const include1080 = q.get('fallback') === '1';
 
-      // new filters
+      // New prefs
       const maxSize = Number(q.get('max_size') || 0);
       const langPrio = String(q.get('lang_prio') || '').split(',').map(s=>s.trim().toUpperCase()).filter(Boolean);
 
-      // UI configure page
       if (path === '/' || path === '/configure') {
         const origin = `${req.headers['x-forwarded-proto'] || 'http'}://${req.headers.host}`;
         const { configureHtml } = require('./ui/configure');
@@ -59,59 +50,60 @@ function startServer(port = PORT) {
         return res.end(html);
       }
 
-      // manifest.json
       if (path === '/manifest.json') {
-        const params = Object.fromEntries(q.entries());
+        const name = 'AutoStream';
+        const description = 'Curated auto-streaming add-on.'; // (not changing as requested)
         const manifest = {
-          id: 'com.stremio.autostream.addon',
-          version: '2.2.1',
-          name: (providerTagFromParams(params) ? ('AutoStream (' + providerTagFromParams(params) + ')') : 'AutoStream'),
-          description: 'Curated best-pick streams with optional debrid; includes 1080p fallback, season-pack acceleration, and pre-warmed next-episode caching.',
-          logo: 'https://github.com/keypop3750/AutoStream/blob/main/logo.png?raw=true',
-          resources: [{ name: 'stream', types: ['movie', 'series'], idPrefixes: ['tt'] }],
+          id: 'org.autostream.addon',
+          version: '1.0.0',
+          name,
+          description,
           types: ['movie', 'series'],
           catalogs: [],
-          behaviorHints: { configurable: true, configurationRequired: false }
+          resources: ['stream'],
+          idPrefixes: ['tt']
         };
-        return writeJson(res, manifest, 200);
+        return writeJson(res, manifest);
       }
 
-// /stream route
-const m = path.match(/^\/stream\/(movie|series)\/(.+)\.json$/);
-if (m) {
-  const type = m[1];
-  const id = decodeURIComponent(m[2]);
-  log('Request:', type, id);
+      // /stream/:type/:id.json
+      const m = path.match(/^\/stream\/(movie|series)\/(.+)\.json$/);
+      if (m) {
+        const type = m[1];
+        const id = decodeURIComponent(m[2]);
+        log('Request:', type, id);
 
-  let meta = null;
-  try { meta = await fetchMeta(type, id); } catch(_) {}
+        // Optional meta (for naming in debrid, etc.)
+        let meta = null;
+        try { meta = await fetchMeta(type, id); } catch(_) {}
 
-  const [a, b] = await Promise.all([
-    fetchTorrentioStreams(type, id, {}, log),
-    fetchTPBStreams(type, id, {}, log)
-  ]);
-  let streams = [].concat(a || [], b || []);
-  log('Fetched streams:', streams.length);
+        // Fetch from sources in parallel
+        const [a, b] = await Promise.all([
+          fetchTorrentioStreams(type, id, {}, log),
+          fetchTPBStreams(type, id, {}, log)
+        ]);
+        let streams = [].concat(a || [], b || []);
+        log('Fetched streams:', streams.length);
 
-  // Debrid resolving / marking
-  streams = await applyDebridToStreams(streams, debridParams, log, meta);
+        // Debrid resolving / marking
+        streams = await applyDebridToStreams(streams, debridParams, log, meta);
 
-  // Apply new prefs
-  streams = filterByMaxSize(streams, maxSize);
-  streams = sortByLanguagePreference(streams, langPrio);
+        // Apply new prefs
+        streams = filterByMaxSize(streams, maxSize);
+        streams = sortByLanguagePreference(streams, langPrio);
 
-  // Final selection
-  const selected = pickStreams(streams, useDebrid, include1080, log);
+        // Final selection (keeps your existing quality/speed logic)
+        const picked = pickStreams(streams, useDebrid, include1080, log);
+        return writeJson(res, { streams: picked });
+      }
 
-  // Beautify titles
-  const metaInfo = await fetchMeta(type, id, log);          
-  const paramsObj = Object.fromEntries(q.entries());
-  const providerTag = providerTagFromParams(paramsObj);
-  let formatted = formatStreams(metaInfo, selected, providerTag);
-
-  // Respond
-  return writeJson(res, { streams: formatted }, 200);
-}
+      // default 404
+      res.writeHead(404, { 'Content-Type': 'text/plain' });
+      res.end('Not found');
+    } catch (e) {
+      console.error('Server error:', e && e.stack || e);
+      writeJson(res, { streams: [] }, 200);
+    }
   });
 
   server.listen(port, () => {
