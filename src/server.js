@@ -50,8 +50,11 @@ function startServer(port = PORT) {
         return res.end(html);
       }
 
+const parsedUrl = url.parse(req.url);
+const pathname = parsedUrl.pathname;
+
 if (pathname === '/manifest.json') {
-  const params = querystring.parse(url.parse(req.url).query);
+  const params = querystring.parse(parsedUrl.query);
 
   const manifest = {
     id: 'com.stremio.autostream.addon',
@@ -68,6 +71,7 @@ if (pathname === '/manifest.json') {
   writeJson(res, manifest, 200);
   return;
 }
+
 
 
       // /stream/:type/:id.json
