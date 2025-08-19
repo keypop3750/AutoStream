@@ -50,21 +50,25 @@ function startServer(port = PORT) {
         return res.end(html);
       }
 
-      if (pathname === '/manifest.json') {
-        const manifest = {
-          id: 'com.stremio.autostream.addon',
-          version: '2.1.1',
-          name: (providerTagFromParams(params) ? ('AutoStream (' + providerTagFromParams(params) + ')') : 'AutoStream'),
-          description: 'Curated best-pick streams with optional debrid; includes 1080p fallback, season-pack acceleration, and pre-warmed next-episode caching.',
-          logo: 'https://github.com/keypop3750/AutoStream/blob/main/logo.png?raw=true',
-          resources: [ { name: 'stream', types: ['movie','series'], idPrefixes: ['tt'] } ],
-          types: ['movie','series'],
-          catalogs: [],
-          behaviorHints: { configurable: true, configurationRequired: false }
-        };
-        writeJson(res, manifest, 200);
-        return;
-      }
+if (pathname === '/manifest.json') {
+  const params = querystring.parse(url.parse(req.url).query);
+
+  const manifest = {
+    id: 'com.stremio.autostream.addon',
+    version: '2.1.1',
+    name: (providerTagFromParams(params) ? ('AutoStream (' + providerTagFromParams(params) + ')') : 'AutoStream'),
+    description: 'Curated best-pick streams with optional debrid; includes 1080p fallback, season-pack acceleration, and pre-warmed next-episode caching.',
+    logo: 'https://github.com/keypop3750/AutoStream/blob/main/logo.png?raw=true',
+    resources: [{ name: 'stream', types: ['movie', 'series'], idPrefixes: ['tt'] }],
+    types: ['movie', 'series'],
+    catalogs: [],
+    behaviorHints: { configurable: true, configurationRequired: false }
+  };
+
+  writeJson(res, manifest, 200);
+  return;
+}
+
 
       // /stream/:type/:id.json
       const m = path.match(/^\/stream\/(movie|series)\/(.+)\.json$/);
