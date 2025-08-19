@@ -76,37 +76,42 @@ function startServer(port = PORT) {
         return writeJson(res, manifest, 200);
       }
 
-      // /stream route
-      const m = path.match(/^\/stream\/(movie|series)\/(.+)\.json$/);
-      if (m) {
-        const type = m[1];
-        const id = decodeURIComponent(m[2]);
-        log('Request:', type, id);
+// /stream route
+const m = path.match(/^\/stream\/(movie|series)\/(.+)\.json$/);
+if (m) {
+  const type = m[1];
+  const id = decodeURIComponent(m[2]);
+  log('Request:', type, id);
 
-        let meta = null;
-        try { meta = await fetchMeta(type, id); } catch(_) {}
+  let meta = null;
+  try { meta = await fetchMeta(type, id); } catch(_) {}
 
-        const [a, b] = await Promise.all([
-          fetchTorrentioStreams(type, id, {}, log),
-          fetchTPBStreams(type, id, {}, log)
-        ]);
-        let streams = [].concat(a || [], b || []);
-        log('Fetched streams:', streams.length);
+  const [a, b] = await Promise.all([
+    fetchTorrentioStreams(type, id, {}, log),
+    fetchTPBStreams(type, id, {}, log)
+  ]);
+  let streams = [].concat(a || [], b || []);
+  log('Fetched streams:', streams.length);
 
-        streams = await applyDebridToStreams(streams, debridParams, log, meta);
-        streams = filterByMaxSize(streams, maxSize);
-        streams = sortByLanguagePreference(streams, langPrio);
+  // Debrid resolving / marking
+  streams = await applyDebridToStreams(streams, debridParams, log, meta);
 
-        const picked = pickStreams(streams, useDebrid, include1080, log);
-        return writeJson(res, { streams: picked });
-      }
+  // Apply new prefs
+  streams = filterByMaxSize(streams, maxSize);
+  streams = sortByLanguagePreference(streams, langPrio);
 
-      res.writeHead(404, { 'Content-Type': 'text/plain' });
-      res.end('Not found');
-    } catch (e) {
-      console.error('Server error:', e && e.stack || e);
-      writeJson(res, { streams: [] }, 200);
-    }
+  // Final selection
+  const selected = pickStreams(streams, useDebrid, include1080, log);
+
+  // Beautify titles
+  const metaInfo = await fetchMeta(type, id, log);          
+  const paramsObj = Object.fromEntries(q.entries());
+  const providerTag = providerTagFromParams(paramsObj);
+  let formatted = formatStreams(metaInfo, selected, providerTag);
+
+  // Respond
+  return writeJson(res, { streams: formatted }, 200);
+}
   });
 
   server.listen(port, () => {
