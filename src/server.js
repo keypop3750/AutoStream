@@ -7,6 +7,7 @@ const { PORT, AUTOSTREAM_DEBUG } = require('./constants');
 const { setCors, writeJson } = require('./utils/http');
 const { createLogger } = require('./utils/logger');
 const { fetchMeta } = require('./services/meta');
+const { providerTagFromParams, hasDebrid } = require('./utils/config');
 const { fetchTorrentioStreams, fetchTPBStreams } = require('./services/sources');
 const { applyDebridToStreams } = require('./services/debrid');
 const { filterByMaxSize, sortByLanguagePreference } = require('./core/filters');
