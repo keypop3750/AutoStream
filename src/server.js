@@ -6,6 +6,8 @@ const { PORT, AUTOSTREAM_DEBUG } = require('./constants');
 const { setCors, writeJson } = require('./utils/http');
 const { fetchMeta } = require('./services/meta');
 const { fetchTorrentioStreams, fetchTPBStreams } = require('./services/sources');
+const { providerTagFromParams } = require('./utils/config');
+const { formatStreams } = require('./core/format');
 const { applyDebridToStreams } = require('./services/debrid');
 const { filterByMaxSize, sortByLanguagePreference } = require('./core/filters');
 const { pickStreams } = require('./core/score');
@@ -62,7 +64,7 @@ function startServer(port = PORT) {
         const params = Object.fromEntries(q.entries());
         const manifest = {
           id: 'com.stremio.autostream.addon',
-          version: '2.2.0',
+          version: '2.2.1',
           name: (providerTagFromParams(params) ? ('AutoStream (' + providerTagFromParams(params) + ')') : 'AutoStream'),
           description: 'Curated best-pick streams with optional debrid; includes 1080p fallback, season-pack acceleration, and pre-warmed next-episode caching.',
           logo: 'https://github.com/keypop3750/AutoStream/blob/main/logo.png?raw=true',
