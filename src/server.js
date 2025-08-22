@@ -102,49 +102,48 @@ if (path === '/manifest.json') {
     return res.end();
   }
 
+  // Keep your dynamic name (AD/RD/…) exactly as-is
   const paramsObj = Object.fromEntries(q.entries());
   const tag = providerTagFromParams(paramsObj);
 
-  // Broad Android client detection (phones, TV, okhttp)
-  const ua = String(req.headers['user-agent'] || '').toLowerCase();
-  const isAndroidLike = ua.includes('android') || ua.includes('okhttp') || ua.includes('stremio tv');
+  // UA logging is helpful, but not required
+  const uaRaw = String(req.headers['user-agent'] || '');
 
+  // Base manifest (note: no top-level idPrefixes)
   const base = {
     id: 'com.stremio.autostream.addon',
-    version: '2.4.5', // bump so clients refetch the manifest
+    version: '2.4.5',
     name: tag ? `AutoStream (${tag})` : 'AutoStream',
     description: 'Curated best-pick streams with optional debrid; includes 1080p fallback, season-pack acceleration, and pre-warmed next-episode caching.',
     logo: 'https://github.com/keypop3750/AutoStream/blob/main/logo.png?raw=true',
 
-    // Keep top-level declarations for widest compatibility
+    // Torrentio keeps these simple
     types: ['movie', 'series'],
-    idPrefixes: ['tt'],
     catalogs: [],
     behaviorHints: { configurable: true, configurationRequired: false }
   };
 
-  // 👉 Important: always provide an explicit resource object with idPrefixes.
-  // This avoids an Android bug that ends up with idPrefixes = [] and no /stream calls.
-  const streamResource = { name: 'stream', types: ['movie', 'series'], idPrefixes: ['tt'] };
+  // Torrentio-style explicit resource object (critical on Android)
+  const streamResource = {
+    name: 'stream',
+    types: ['movie', 'series'],
+    idPrefixes: ['tt']
+  };
 
-  // You can safely serve only the object form to *all* clients:
+  // Serve ONLY the object-form resource to everyone (Android-safe)
   const manifest = { ...base, resources: [streamResource] };
 
-  // Log what we serve (shows in Render logs)
+  // Debug log (will show in Render logs)
   console.log('[AutoStream] /manifest.json', {
-    ua: String(req.headers['user-agent'] || ''),
-    isAndroidLike,
-    resourcesShape: 'object',
-    idPrefixes: streamResource.idPrefixes
+    ua: uaRaw,
+    resources: manifest.resources.map(r => ({ name: r.name, idPrefixes: r.idPrefixes }))
   });
 
-  // Make sure clients don’t use stale cached manifests while testing
+  // Avoid stale caching while you test
   res.setHeader('Cache-Control', 'no-store, max-age=0');
 
   return writeJson(res, manifest, 200);
 }
-
-
 
 
 
