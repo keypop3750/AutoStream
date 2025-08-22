@@ -138,55 +138,49 @@ function startServer(port = PORT) {
         return res.end(html);
       }
 
-      // Manifest
-      if (path === '/manifest.json') {
-        // If the app/browser tries to "open" the manifest like a page,
-        // show the Configure UI instead (fixes Configure button opening JSON in-app)
-        const accept = String(req.headers['accept'] || '').toLowerCase();
-        const isDocLike = accept.includes('text/html') || accept.includes('text/*');
-        if (isDocLike || q.get('config') === '1') {
-          const origin = `${req.headers['x-forwarded-proto'] || 'http'}://${req.headers.host}`;
-          res.writeHead(302, { Location: origin + '/configure' });
-          return res.end();
-        }
+// Manifest
+if (path === '/manifest.json') {
+  // Redirect HTML-ish requests to Configure UI (so the in-app Configure button opens the page)
+  const accept = String(req.headers['accept'] || '').toLowerCase();
+  const isDocLike = accept.includes('text/html') || accept.includes('text/*');
+  if (isDocLike || q.get('config') === '1') {
+    const origin = `${req.headers['x-forwarded-proto'] || 'http'}://${req.headers.host}`;
+    res.writeHead(302, { Location: origin + '/configure' });
+    return res.end();
+  }
 
-        // Keep your dynamic name (AD/RD/…) exactly as-is
-        const paramsObj = Object.fromEntries(q.entries());
-        const tag = providerTagFromParams(paramsObj);
+  const paramsObj = Object.fromEntries(q.entries());
+  const tag = providerTagFromParams(paramsObj);
 
-        // Base manifest (Torrentio-style simple top-level, but we include tmdb in resource)
-        const base = {
-          id: 'com.stremio.autostream.addon',
-          version: '2.4.8', // bump so Android re-fetches
-          name: tag ? `AutoStream (${tag})` : 'AutoStream',
-          description: 'Curated best-pick streams with optional debrid; includes 1080p fallback, season-pack acceleration, and pre-warmed next-episode caching.',
-          logo: 'https://github.com/keypop3750/AutoStream/blob/main/logo.png?raw=true',
-          types: ['movie', 'series'],
-          catalogs: [],
-          behaviorHints: { configurable: true, configurationRequired: false }
-        };
+  const base = {
+    id: 'com.stremio.autostream.addon',
+    version: '2.4.8', // bump so Android re-fetches the manifest snapshot
+    name: tag ? `AutoStream (${tag})` : 'AutoStream',
+    description: 'Curated best-pick streams with optional debrid; includes 1080p fallback, season-pack acceleration, and pre-warmed next-episode caching.',
+    logo: 'https://github.com/keypop3750/AutoStream/blob/main/logo.png?raw=true',
 
-        // Explicit resource object with both IMDb and TMDB idPrefixes
-        const streamResource = {
-          name: 'stream',
-          types: ['movie', 'series'],
-          idPrefixes: ['tt', 'tmdb']
-        };
+    // CRITICAL for Android: keep idPrefixes at TOP LEVEL
+    idPrefixes: ['tt', 'tmdb'],
 
-        // Serve ONLY the object-form resource to everyone (Android-safe)
-        const manifest = { ...base, resources: [streamResource] };
+    // Use the simple form (Android-safe). No need to also add the object form.
+    resources: ['stream'],
 
-        // Debug log (will show in Render logs)
-        console.log('[AutoStream] /manifest.json', {
-          ua: String(req.headers['user-agent'] || ''),
-          resources: manifest.resources.map(r => ({ name: r.name, idPrefixes: r.idPrefixes }))
-        });
+    types: ['movie', 'series'],
+    catalogs: [],
+    behaviorHints: { configurable: true, configurationRequired: false }
+  };
 
-        // Avoid stale caching while you test
-        res.setHeader('Cache-Control', 'no-store, max-age=0');
+  // Helpful log
+  console.log('[AutoStream] /manifest.json', {
+    ua: String(req.headers['user-agent'] || ''),
+    idPrefixes: base.idPrefixes,
+    resources: base.resources
+  });
 
-        return writeJson(res, manifest, 200);
-      }
+  res.setHeader('Cache-Control', 'no-store, max-age=0');
+  return writeJson(res, base, 200);
+}
+
 
       // Inline handler: some Android builds call /stream/<id>.json (no type)
       {
