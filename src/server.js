@@ -115,11 +115,8 @@ if (path === '/manifest.json') {
     name: tag ? `AutoStream (${tag})` : 'AutoStream',
     description: 'Curated best-pick streams with optional debrid; includes 1080p fallback, season-pack acceleration, and pre-warmed next-episode caching.',
     logo: 'https://github.com/keypop3750/AutoStream/blob/main/logo.png?raw=true',
-
-    // Top-level declarations for widest compatibility
     types: ['movie', 'series'],
     idPrefixes: ['tt'],
-
     catalogs: [],
     behaviorHints: { configurable: true, configurationRequired: false }
   };
@@ -129,8 +126,21 @@ if (path === '/manifest.json') {
     ? { ...base, resources: ['stream'] }
     : { ...base, resources: ['stream', { name: 'stream', types: ['movie', 'series'], idPrefixes: ['tt'] }] };
 
+  // --- LOG what we are serving (shows in Render logs)
+  console.log('[AutoStream] /manifest.json', {
+    ua: String(req.headers['user-agent'] || ''),
+    isAndroidLike,
+    resourcesShape: Array.isArray(manifest.resources)
+      ? manifest.resources.map(r => (typeof r === 'string' ? r : r.name)).join(',')
+      : '(none)'
+  });
+
+  // Make sure clients don’t use stale cached manifests while testing
+  res.setHeader('Cache-Control', 'no-store, max-age=0');
+
   return writeJson(res, manifest, 200);
 }
+
 
 
 // Fallback: some Android builds call /stream/<id>.json without the type segment.
@@ -155,6 +165,8 @@ if (path === '/manifest.json') {
         const type = m[1];
         const id = decodeURIComponent(m[2]);
         log('Request:', type, id);
+		
+  console.log('[AutoStream] /stream', { type, id, ua: String(req.headers['user-agent'] || '') });
 
         // Optional meta (for debrid helpers etc.)
         let meta = null;
