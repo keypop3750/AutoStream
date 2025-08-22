@@ -111,28 +111,31 @@ if (path === '/manifest.json') {
 
   const base = {
     id: 'com.stremio.autostream.addon',
-    version: '2.4.3', // bump so Android refetches
+    version: '2.4.5', // bump so clients refetch the manifest
     name: tag ? `AutoStream (${tag})` : 'AutoStream',
     description: 'Curated best-pick streams with optional debrid; includes 1080p fallback, season-pack acceleration, and pre-warmed next-episode caching.',
     logo: 'https://github.com/keypop3750/AutoStream/blob/main/logo.png?raw=true',
+
+    // Keep top-level declarations for widest compatibility
     types: ['movie', 'series'],
     idPrefixes: ['tt'],
     catalogs: [],
     behaviorHints: { configurable: true, configurationRequired: false }
   };
 
-  // Android gets the simplest form; desktop/web keep both
-  const manifest = isAndroidLike
-    ? { ...base, resources: ['stream'] }
-    : { ...base, resources: ['stream', { name: 'stream', types: ['movie', 'series'], idPrefixes: ['tt'] }] };
+  // 👉 Important: always provide an explicit resource object with idPrefixes.
+  // This avoids an Android bug that ends up with idPrefixes = [] and no /stream calls.
+  const streamResource = { name: 'stream', types: ['movie', 'series'], idPrefixes: ['tt'] };
 
-  // --- LOG what we are serving (shows in Render logs)
+  // You can safely serve only the object form to *all* clients:
+  const manifest = { ...base, resources: [streamResource] };
+
+  // Log what we serve (shows in Render logs)
   console.log('[AutoStream] /manifest.json', {
     ua: String(req.headers['user-agent'] || ''),
     isAndroidLike,
-    resourcesShape: Array.isArray(manifest.resources)
-      ? manifest.resources.map(r => (typeof r === 'string' ? r : r.name)).join(',')
-      : '(none)'
+    resourcesShape: 'object',
+    idPrefixes: streamResource.idPrefixes
   });
 
   // Make sure clients don’t use stale cached manifests while testing
@@ -140,6 +143,8 @@ if (path === '/manifest.json') {
 
   return writeJson(res, manifest, 200);
 }
+
+
 
 
 
