@@ -190,10 +190,10 @@ function startServer(port = PORT) {
 
       // Inline handler: some Android builds call /stream/<id>.json (no type)
       {
-        const m0 = path.match(/^\\/stream\\/([^\\/]+)\\.json$/);
+        const m0 = path.match(/^\/stream\/([^\/]+)\.json$/);
         if (m0 && !/^(movie|series)$/.test(m0[1])) {
           const rawId = decodeURIComponent(m0[1]); // tt... or tmdb:..., may include :S:E
-          const inferredType = rawId.includes(':') && !/^tt\\d+/.test(rawId) ? 'series' : (rawId.includes(':') ? 'series' : 'movie');
+          const inferredType = rawId.includes(':') && !/^tt\d+/.test(rawId) ? 'series' : (rawId.includes(':') ? 'series' : 'movie');
           console.log('[AutoStream] /stream (no-type form)', { type: inferredType, id: rawId, ua: String(req.headers['user-agent'] || '') });
 
           // Normalize TMDB -> IMDb when needed
@@ -238,7 +238,7 @@ function startServer(port = PORT) {
 
       // Existing fallback redirect for no-type form (kept for compatibility)
       {
-        const m0 = path.match(/^\\/stream\\/([^\\/]+)\\.json$/);
+        const m0 = path.match(/^\/stream\/([^\/]+)\.json$/);
         if (m0 && !/^(movie|series)$/.test(m0[1])) {
           const idOnly = decodeURIComponent(m0[1]); // tt... or tt...:S:E
           const inferredType = idOnly.includes(':') ? 'series' : 'movie';
@@ -249,7 +249,7 @@ function startServer(port = PORT) {
       }
 
       // /stream/:type/:id.json
-      const m = path.match(/^\\/stream\\/(movie|series)\\/(.+)\\.json$/);
+      const m = path.match(/^\/stream\/(movie|series)\/(.+)\.json$/);
       if (m) {
         const type = m[1];
         let id = decodeURIComponent(m[2]);
