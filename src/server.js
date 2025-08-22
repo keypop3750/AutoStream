@@ -45,6 +45,23 @@ function startServer(port = PORT) {
       const debug = AUTOSTREAM_DEBUG || q.get('debug') === '1';
       const log = (...args) => { if (debug) console.log('[AutoStream]', ...args); };
 
+      // 1) Quick connectivity check
+      if (path === '/ping') {
+        return writeJson(res, {
+          ok: true,
+          ua: String(req.headers['user-agent'] || ''),
+          ip: req.headers['x-forwarded-for'] || req.socket.remoteAddress
+        }, 200);
+      }
+
+      // 2) What manifest is Android actually getting?
+      if (path === '/manifest.debug') {
+        const ua = String(req.headers['user-agent'] || '');
+        const paramsObj = Object.fromEntries(q.entries());
+        return writeJson(res, { ua, params: paramsObj }, 200);
+      }
+
+
       // Helpers
       function getDebridParams() {
         // Copy only supported provider keys (ad/rd/pm/tb/oc)
