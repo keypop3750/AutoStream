@@ -73,23 +73,64 @@ function startServer(port = PORT) {
         return res.end(html);
       }
 
-      // Manifest
-      if (path === '/manifest.json') {
-        const paramsObj = Object.fromEntries(q.entries());
-        const tag = providerTagFromParams(paramsObj);
-        const manifest = {
-          id: 'com.stremio.autostream.addon',
-          version: '2.3.1',
-          name: tag ? `AutoStream (${tag})` : 'AutoStream',
-          description: 'Curated best-pick streams with optional debrid; includes 1080p fallback, season-pack acceleration, and pre-warmed next-episode caching.',
-          logo: 'https://github.com/keypop3750/AutoStream/blob/main/logo.png?raw=true',
-          resources: [{ name: 'stream', types: ['movie', 'series'], idPrefixes: ['tt'] }],
-          types: ['movie', 'series'],
-          catalogs: [],
-          behaviorHints: { configurable: true, configurationRequired: false }
-        };
-        return writeJson(res, manifest, 200);
-      }
+// Manifest
+if (path === '/manifest.json') {
+  // If the app/browser tries to "open" the manifest like a page,
+  // show the Configure UI instead (fixes Configure button opening JSON in-app)
+  const accept = String(req.headers['accept'] || '').toLowerCase();
+  const isDocLike = accept.includes('text/html') || accept.includes('text/*');
+  if (isDocLike || q.get('config') === '1') {
+    const origin = `${req.headers['x-forwarded-proto'] || 'http'}://${req.headers.host}`;
+    res.writeHead(302, { Location: origin + '/configure' });
+    return res.end();
+  }
+
+  const paramsObj = Object.fromEntries(q.entries());
+  const tag = providerTagFromParams(paramsObj);
+
+  // Broad Android client detection (phones, TV, okhttp)
+  const ua = String(req.headers['user-agent'] || '').toLowerCase();
+  const isAndroidLike = ua.includes('android') || ua.includes('okhttp') || ua.includes('stremio tv');
+
+  const base = {
+    id: 'com.stremio.autostream.addon',
+    version: '2.4.3', // bump so Android refetches
+    name: tag ? `AutoStream (${tag})` : 'AutoStream',
+    description: 'Curated best-pick streams with optional debrid; includes 1080p fallback, season-pack acceleration, and pre-warmed next-episode caching.',
+    logo: 'https://github.com/keypop3750/AutoStream/blob/main/logo.png?raw=true',
+
+    // Top-level declarations for widest compatibility
+    types: ['movie', 'series'],
+    idPrefixes: ['tt'],
+
+    catalogs: [],
+    behaviorHints: { configurable: true, configurationRequired: false }
+  };
+
+  // Android gets the simplest form; desktop/web keep both
+  const manifest = isAndroidLike
+    ? { ...base, resources: ['stream'] }
+    : { ...base, resources: ['stream', { name: 'stream', types: ['movie', 'series'], idPrefixes: ['tt'] }] };
+
+  return writeJson(res, manifest, 200);
+}
+
+
+// Fallback: some Android builds call /stream/<id>.json without the type segment.
+// We infer type: ID with `:season:episode` -> series, otherwise movie.
+{
+  const m0 = path.match(/^\/stream\/([^\/]+)\.json$/);
+  if (m0 && !/^(movie|series)$/.test(m0[1])) {
+    const idOnly = decodeURIComponent(m0[1]); // tt... or tt...:S:E
+    const inferredType = idOnly.includes(':') ? 'series' : 'movie';
+    const redirectTo = `/stream/${inferredType}/${encodeURIComponent(idOnly)}.json${url.search || ''}`;
+    res.writeHead(302, { Location: redirectTo });
+    return res.end();
+  }
+}
+
+
+
 
       // /stream/:type/:id.json
       const m = path.match(/^\/stream\/(movie|series)\/(.+)\.json$/);
