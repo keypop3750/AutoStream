@@ -138,7 +138,6 @@ function startServer(port = PORT) {
         return res.end(html);
       }
 
-<<<<<<< HEAD
       // Manifest
       if (path === '/manifest.json') {
         const paramsObj = Object.fromEntries(q.entries());
@@ -155,7 +154,7 @@ function startServer(port = PORT) {
           behaviorHints: { configurable: true, configurationRequired: false }
         };
         return writeJson(res, manifest, 200);
->>>>>>> parent of bfc5d08 (Update server.js)
+         parent of bfc5d08 (Update server.js)
       }
 
 
