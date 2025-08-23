@@ -9,7 +9,7 @@ const { createLogger } = require('./utils/logger');
 const { fetchMeta } = require('./services/meta');
 const { fetchTorrentioStreams, fetchTPBStreams } = require('./services/sources');
 const { applyDebridToStreams } = require('./services/debrid');
-const { filterByMaxSize, sortByLanguagePreference } = require('./core/filters');
+const { filterByMaxSize, sortByLanguagePreference, isPreferredLanguage } = require('./core/filters');
 const { pickStreams } = require('./core/score');
 const { formatStreams } = require('./core/format'); // needed for clean titles
 
@@ -60,17 +60,16 @@ function startServer(port = PORT) {
       const useDebrid = ['ad','rd','pm','tb','oc'].some(k => debridParams.has(k));
       const include1080 = q.has('fallback') ? q.get('fallback') === '1' : true;
 
-// New prefs
-const maxSize = Number(q.get('max_size') || 0);
+      // New prefs
+      const maxSize = Number(q.get('max_size') || 0);
 
-let langPrio = String(q.get('lang_prio') || '')
-  .split(',')
-  .map(s => s.trim().toUpperCase())
-  .filter(Boolean);
+      let langPrio = String(q.get('lang_prio') || '')
+        .split(',')
+        .map(s => s.trim().toUpperCase())
+        .filter(Boolean);
 
-// Default to English when empty
-if (!langPrio.length) langPrio = ['EN'];
-
+      // Default to English when empty
+      if (!langPrio.length) langPrio = ['EN'];
 
       // Configure UI
       if (path === '/' || path === '/configure') {
@@ -87,7 +86,7 @@ if (!langPrio.length) langPrio = ['EN'];
         const tag = providerTagFromParams(paramsObj);
         const manifest = {
           id: 'com.stremio.autostream.addon',
-          version: '2.3.1',
+          version: '2.3.2',
           name: tag ? `AutoStream (${tag})` : 'AutoStream',
           description: 'Curated best-pick streams with optional debrid; includes 1080p fallback, season-pack acceleration, and pre-warmed next-episode caching.',
           logo: 'https://github.com/keypop3750/AutoStream/blob/main/logo.png?raw=true',
@@ -118,13 +117,20 @@ if (!langPrio.length) langPrio = ['EN'];
         let combined = [].concat(a || [], b || []);
         log('Fetched streams:', combined.length);
 
-        // Apply prefs BEFORE selection
+        // Filter size first (not order-sensitive)
         combined = filterByMaxSize(combined, maxSize);
-        combined = sortByLanguagePreference(combined, langPrio);
 
-        // Pick winners (respects include1080 + debrid-awareness)
-        const selected = pickStreams(combined, useDebrid, include1080, log);
+        // LANGUAGE FIRST: restrict pool to preferred language if we have any matches
+        const preferredPool = combined.filter(s => isPreferredLanguage(s, langPrio));
+        const pool = preferredPool.length ? preferredPool : combined;
 
+        // Put preferred ones first (stable)
+        const preordered = sortByLanguagePreference(pool, langPrio);
+
+        // Pick winners (quality/seed/speed), from the language-prioritized pool
+        let selected = pickStreams(preordered, useDebrid, include1080, log);
+
+        // Enforce language order again in the final set (stable)
         selected = sortByLanguagePreference(selected, langPrio);
 
         // Clean titles + "AutoStream (AD/RD/...)" name
@@ -133,9 +139,9 @@ if (!langPrio.length) langPrio = ['EN'];
         let streams = formatStreams(metaInfo, selected, providerTag);
 
         // Fully unlock the final list so Stremio starts from a direct URL
-const unlockParams = new URLSearchParams(debridParams); // ← important
-unlockParams.set('debridAll', '1');
-streams = await applyDebridToStreams(streams, unlockParams, log, meta);
+        const unlockParams = new URLSearchParams(debridParams); // mapped keys
+        unlockParams.set('debridAll', '1'); // resolve every returned stream (not just top 2)
+        streams = await applyDebridToStreams(streams, unlockParams, log, meta);
 
         // Cache hints for faster UI (like Torrentio)
         return writeJson(res, {
