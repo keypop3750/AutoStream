@@ -83,26 +83,27 @@ function textHasLang(text, code) {
   return re.test(text);
 }
 
-function languageScore(stream, prefs) {
-  // Build a searchable blob from typical fields + structured language hints
+function collectSearchText(stream) {
   const chunks = [];
   const push = v => { if (v) chunks.push(String(v)); };
 
-  push(stream && (stream.title || stream.name || stream.tag));
-  push(stream && (stream.description || stream.info));
-
-  // structured fields some scrapers expose
   if (stream) {
-    if (stream.lang) push(stream.lang);
-    if (stream.language) push(stream.language);
+    push(stream.title || stream.name || stream.tag);
+    push(stream.description || stream.info);
+    // structured fields some scrapers expose
+    push(stream.lang);
+    push(stream.language);
     if (Array.isArray(stream.languages)) push(stream.languages.join(' '));
-    if (stream.audio) push(stream.audio);
-    if (stream.audioLang) push(stream.audioLang);
+    push(stream.audio);
+    push(stream.audioLang);
     if (Array.isArray(stream.subtitles)) push(stream.subtitles.join(' '));
     if (Array.isArray(stream.subtitleLangs)) push(stream.subtitleLangs.join(' '));
   }
+  return chunks.join(' ');
+}
 
-  const title = chunks.join(' ');
+function languageScore(stream, prefs) {
+  const title = collectSearchText(stream);
   const isMulti = /\bMULTI\b/i.test(title);
   const textU = title.toUpperCase();
 
@@ -126,6 +127,20 @@ function languageScore(stream, prefs) {
   return isMulti ? 0 : 1;
 }
 
+function isPreferredLanguage(stream, prefList) {
+  const prefs = (Array.isArray(prefList) ? prefList : [])
+    .map(normalizePref)
+    .filter(Boolean);
+  const finalPrefs = prefs.length ? prefs : ['EN'];
+  const txt = collectSearchText(stream).toUpperCase();
+  for (let i = 0; i < finalPrefs.length; i++) {
+    if (textHasLang(txt, finalPrefs[i])) return true;
+  }
+  // Also accept EN when preferred but not explicitly matched above
+  if (finalPrefs.includes('EN') && textHasLang(txt, 'EN')) return true;
+  return false;
+}
+
 function sortByLanguagePreference(streams, prefList) {
   // normalize preference list
   let prefs = (Array.isArray(prefList) ? prefList : [])
@@ -144,4 +159,4 @@ function sortByLanguagePreference(streams, prefList) {
     .map(x => x.s);
 }
 
-module.exports = { filterByMaxSize, sortByLanguagePreference };
+module.exports = { filterByMaxSize, sortByLanguagePreference, isPreferredLanguage };
