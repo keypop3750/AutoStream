@@ -139,48 +139,24 @@ function startServer(port = PORT) {
       }
 
 <<<<<<< HEAD
-// Manifest
-if (path === '/manifest.json') {
-  // Redirect HTML-ish requests to Configure UI (so the in-app Configure button opens the page)
-  const accept = String(req.headers['accept'] || '').toLowerCase();
-  const isDocLike = accept.includes('text/html') || accept.includes('text/*');
-  if (isDocLike || q.get('config') === '1') {
-    const origin = `${req.headers['x-forwarded-proto'] || 'http'}://${req.headers.host}`;
-    res.writeHead(302, { Location: origin + '/configure' });
-    return res.end();
-  }
-
-  const paramsObj = Object.fromEntries(q.entries());
-  const tag = providerTagFromParams(paramsObj);
-
-  const base = {
-    id: 'com.stremio.autostream.addon',
-    version: '2.4.8', // bump so Android re-fetches the manifest snapshot
-    name: tag ? `AutoStream (${tag})` : 'AutoStream',
-    description: 'Curated best-pick streams with optional debrid; includes 1080p fallback, season-pack acceleration, and pre-warmed next-episode caching.',
-    logo: 'https://github.com/keypop3750/AutoStream/blob/main/logo.png?raw=true',
-
-    // CRITICAL for Android: keep idPrefixes at TOP LEVEL
-    idPrefixes: ['tt', 'tmdb'],
-
-    // Use the simple form (Android-safe). No need to also add the object form.
-    resources: ['stream'],
-
-    types: ['movie', 'series'],
-    catalogs: [],
-    behaviorHints: { configurable: true, configurationRequired: false }
-  };
-
-  // Helpful log
-  console.log('[AutoStream] /manifest.json', {
-    ua: String(req.headers['user-agent'] || ''),
-    idPrefixes: base.idPrefixes,
-    resources: base.resources
-  });
-
-  res.setHeader('Cache-Control', 'no-store, max-age=0');
-  return writeJson(res, base, 200);
-}
+      // Manifest
+      if (path === '/manifest.json') {
+        const paramsObj = Object.fromEntries(q.entries());
+        const tag = providerTagFromParams(paramsObj);
+        const manifest = {
+          id: 'com.stremio.autostream.addon',
+          version: '2.3.1',
+          name: tag ? `AutoStream (${tag})` : 'AutoStream',
+          description: 'Curated best-pick streams with optional debrid; includes 1080p fallback, season-pack acceleration, and pre-warmed next-episode caching.',
+          logo: 'https://github.com/keypop3750/AutoStream/blob/main/logo.png?raw=true',
+          resources: [{ name: 'stream', types: ['movie', 'series'], idPrefixes: ['tt'] }],
+          types: ['movie', 'series'],
+          catalogs: [],
+          behaviorHints: { configurable: true, configurationRequired: false }
+        };
+        return writeJson(res, manifest, 200);
+>>>>>>> parent of bfc5d08 (Update server.js)
+      }
 
 
       // Inline handler: some Android builds call /stream/<id>.json (no type)
@@ -241,25 +217,6 @@ if (path === '/manifest.json') {
           res.writeHead(302, { Location: redirectTo });
           return res.end();
         }
-=======
-      // Manifest
-      if (path === '/manifest.json') {
-        const paramsObj = Object.fromEntries(q.entries());
-        const tag = providerTagFromParams(paramsObj);
-        const manifest = {
-          id: 'com.stremio.autostream.addon',
-          version: '2.3.1',
-          name: tag ? `AutoStream (${tag})` : 'AutoStream',
-          description: 'Curated best-pick streams with optional debrid; includes 1080p fallback, season-pack acceleration, and pre-warmed next-episode caching.',
-          logo: 'https://github.com/keypop3750/AutoStream/blob/main/logo.png?raw=true',
-          resources: [{ name: 'stream', types: ['movie', 'series'], idPrefixes: ['tt'] }],
-          types: ['movie', 'series'],
-          catalogs: [],
-          behaviorHints: { configurable: true, configurationRequired: false }
-        };
-        return writeJson(res, manifest, 200);
->>>>>>> parent of bfc5d08 (Update server.js)
-      }
 
       // /stream/:type/:id.json
       const m = path.match(/^\/stream\/(movie|series)\/(.+)\.json$/);
