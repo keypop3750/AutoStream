@@ -12,6 +12,7 @@ const { applyDebridToStreams } = require('./services/debrid');
 const { filterByMaxSize, sortByLanguagePreference } = require('./core/filters');
 const { pickStreams } = require('./core/score');
 const { formatStreams } = require('./core/format'); // needed for clean titles
+const { orderByTorrentioLanguage } = require('./core/lang'); // NEW: Torrentio-like ordering
 
 // Robust provider tag helper (works with URLSearchParams or plain object)
 // Also supports ?debrid=ad|rd|pm|tb|oc
@@ -62,7 +63,11 @@ function startServer(port = PORT) {
 
       // New prefs
       const maxSize  = Number(q.get('max_size') || 0);
-      const langPrio = String(q.get('lang_prio') || '').split(',').map(s=>s.trim().toUpperCase()).filter(Boolean);
+      let langPrio = String(q.get('lang_prio') || '')
+        .split(',')
+        .map(s => s.trim().toUpperCase())
+        .filter(Boolean);
+      if (!langPrio.length) langPrio = ['EN']; // default EN like Torrentio's common default
 
       // Configure UI
       if (path === '/' || path === '/configure') {
@@ -79,7 +84,7 @@ function startServer(port = PORT) {
         const tag = providerTagFromParams(paramsObj);
         const manifest = {
           id: 'com.stremio.autostream.addon',
-          version: '2.3.1',
+          version: '2.3.2',
           name: tag ? `AutoStream (${tag})` : 'AutoStream',
           description: 'Curated best-pick streams with optional debrid; includes 1080p fallback, season-pack acceleration, and pre-warmed next-episode caching.',
           logo: 'https://github.com/keypop3750/AutoStream/blob/main/logo.png?raw=true',
@@ -110,12 +115,14 @@ function startServer(port = PORT) {
         let combined = [].concat(a || [], b || []);
         log('Fetched streams:', combined.length);
 
-        // Apply prefs BEFORE selection
+        // Apply size limit BEFORE language/quality selection
         combined = filterByMaxSize(combined, maxSize);
-        combined = sortByLanguagePreference(combined, langPrio);
 
-        // Pick winners (respects include1080 + debrid-awareness)
-        const selected = pickStreams(combined, useDebrid, include1080, log);
+        // Torrentio-like language pool ordering/filtering
+        const langOrdered = orderByTorrentioLanguage(combined, langPrio);
+
+        // Then run the original scoring/selection (keeps your quality/speed logic)
+        const selected = pickStreams(langOrdered, useDebrid, include1080, log);
 
         // Clean titles + "AutoStream (AD/RD/...)" name
         const metaInfo = (meta && meta.name) ? meta : await fetchMeta(type, id, log);
@@ -123,11 +130,11 @@ function startServer(port = PORT) {
         let streams = formatStreams(metaInfo, selected, providerTag);
 
         // Fully unlock the final list so Stremio starts from a direct URL
-        const unlockParams = new URLSearchParams(q);
-        unlockParams.set('debridAll', '1'); // resolve every returned stream (not just top 2)
+        const unlockParams = new URLSearchParams(debridParams); // ← important
+        unlockParams.set('debridAll', '1');
         streams = await applyDebridToStreams(streams, unlockParams, log, meta);
 
-        // Cache hints for faster UI (like Torrentio)
+        // Cache hints for faster UI
         return writeJson(res, {
           streams,
           cacheMaxAge: 3600,      // 1 hour
