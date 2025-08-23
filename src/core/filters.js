@@ -17,6 +17,7 @@ function filterByMaxSize(streams, maxBytes) {
 /**
  * Language prioritization
  * - Keeps user's full regex coverage for many languages (EN/ES/PT-BR/PT-PT/FR/IT/DE/RU/TR/PL/LT/AR/HI/JA/KO/ZH)
+ * - Looks into structured fields (lang, languages, audio, subtitles) when present
  * - Understands MULTi packs
  * - Stable sort: preserves original order on ties
  */
@@ -83,11 +84,25 @@ function textHasLang(text, code) {
 }
 
 function languageScore(stream, prefs) {
-  const title = String(
-    (stream && (stream.title || stream.name || stream.tag || '')) + ' ' +
-    (stream && (stream.description || stream.info || ''))
-  );
+  // Build a searchable blob from typical fields + structured language hints
+  const chunks = [];
+  const push = v => { if (v) chunks.push(String(v)); };
 
+  push(stream && (stream.title || stream.name || stream.tag));
+  push(stream && (stream.description || stream.info));
+
+  // structured fields some scrapers expose
+  if (stream) {
+    if (stream.lang) push(stream.lang);
+    if (stream.language) push(stream.language);
+    if (Array.isArray(stream.languages)) push(stream.languages.join(' '));
+    if (stream.audio) push(stream.audio);
+    if (stream.audioLang) push(stream.audioLang);
+    if (Array.isArray(stream.subtitles)) push(stream.subtitles.join(' '));
+    if (Array.isArray(stream.subtitleLangs)) push(stream.subtitleLangs.join(' '));
+  }
+
+  const title = chunks.join(' ');
   const isMulti = /\bMULTI\b/i.test(title);
   const textU = title.toUpperCase();
 
