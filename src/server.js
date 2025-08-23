@@ -123,9 +123,9 @@ function startServer(port = PORT) {
         let streams = formatStreams(metaInfo, selected, providerTag);
 
         // Fully unlock the final list so Stremio starts from a direct URL
-        const unlockParams = new URLSearchParams(q);
-        unlockParams.set('debridAll', '1'); // resolve every returned stream (not just top 2)
-        streams = await applyDebridToStreams(streams, unlockParams, log, meta);
+const unlockParams = new URLSearchParams(debridParams); // ← important
+unlockParams.set('debridAll', '1');
+streams = await applyDebridToStreams(streams, unlockParams, log, meta);
 
         // Cache hints for faster UI (like Torrentio)
         return writeJson(res, {
