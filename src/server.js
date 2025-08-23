@@ -125,6 +125,8 @@ if (!langPrio.length) langPrio = ['EN'];
         // Pick winners (respects include1080 + debrid-awareness)
         const selected = pickStreams(combined, useDebrid, include1080, log);
 
+        selected = sortByLanguagePreference(selected, langPrio);
+
         // Clean titles + "AutoStream (AD/RD/...)" name
         const metaInfo = (meta && meta.name) ? meta : await fetchMeta(type, id, log);
         const providerTag = providerTagFromParams(q); // works with URLSearchParams
