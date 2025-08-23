@@ -60,9 +60,17 @@ function startServer(port = PORT) {
       const useDebrid = ['ad','rd','pm','tb','oc'].some(k => debridParams.has(k));
       const include1080 = q.has('fallback') ? q.get('fallback') === '1' : true;
 
-      // New prefs
-      const maxSize  = Number(q.get('max_size') || 0);
-      const langPrio = String(q.get('lang_prio') || '').split(',').map(s=>s.trim().toUpperCase()).filter(Boolean);
+// New prefs
+const maxSize = Number(q.get('max_size') || 0);
+
+let langPrio = String(q.get('lang_prio') || '')
+  .split(',')
+  .map(s => s.trim().toUpperCase())
+  .filter(Boolean);
+
+// Default to English when empty
+if (!langPrio.length) langPrio = ['EN'];
+
 
       // Configure UI
       if (path === '/' || path === '/configure') {
