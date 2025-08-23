@@ -138,6 +138,7 @@ function startServer(port = PORT) {
         return res.end(html);
       }
 
+<<<<<<< HEAD
 // Manifest
 if (path === '/manifest.json') {
   // Redirect HTML-ish requests to Configure UI (so the in-app Configure button opens the page)
@@ -240,6 +241,24 @@ if (path === '/manifest.json') {
           res.writeHead(302, { Location: redirectTo });
           return res.end();
         }
+=======
+      // Manifest
+      if (path === '/manifest.json') {
+        const paramsObj = Object.fromEntries(q.entries());
+        const tag = providerTagFromParams(paramsObj);
+        const manifest = {
+          id: 'com.stremio.autostream.addon',
+          version: '2.3.1',
+          name: tag ? `AutoStream (${tag})` : 'AutoStream',
+          description: 'Curated best-pick streams with optional debrid; includes 1080p fallback, season-pack acceleration, and pre-warmed next-episode caching.',
+          logo: 'https://github.com/keypop3750/AutoStream/blob/main/logo.png?raw=true',
+          resources: [{ name: 'stream', types: ['movie', 'series'], idPrefixes: ['tt'] }],
+          types: ['movie', 'series'],
+          catalogs: [],
+          behaviorHints: { configurable: true, configurationRequired: false }
+        };
+        return writeJson(res, manifest, 200);
+>>>>>>> parent of bfc5d08 (Update server.js)
       }
 
       // /stream/:type/:id.json
