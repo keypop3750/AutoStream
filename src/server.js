@@ -2,7 +2,7 @@
 // AutoStream server with language priority + video size limit
 const http = require('http');
 const { URL } = require('url');
-
+const { preferPrimaryLanguage } = require('./core/lang-primary');
 const { PORT, AUTOSTREAM_DEBUG } = require('./constants');
 const { setCors, writeJson } = require('./utils/http');
 const { createLogger } = require('./utils/logger');
@@ -117,9 +117,12 @@ function startServer(port = PORT) {
 
         // Apply size limit BEFORE language/quality selection
         combined = filterByMaxSize(combined, maxSize);
-
+        
+        // New: strong primary-language nudge that respects the user's lang_prio
+        combined = preferPrimaryLanguage(combined, langPrio);
+        
         // Torrentio-like language pool ordering/filtering
-        const langOrdered = orderByTorrentioLanguage(combined, langPrio);
+        combined = sortByLanguagePreference(combined, langPrio);
 
         // Then run the original scoring/selection (keeps your quality/speed logic)
         const selected = pickStreams(langOrdered, useDebrid, include1080, log);
