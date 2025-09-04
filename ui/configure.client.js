@@ -1,0 +1,434 @@
+(function(){
+  'use strict';
+  const BYTES_IN_GB = 1024 ** 3;
+  const originHost = window.location.origin;
+  const hostNoScheme = window.location.host;
+
+  const LANG_OPTIONS = [
+    ['EN','English'], ['ES','Spanish'], ['LT','Lithuanian'], ['RU','Russian'],
+    ['DE','German'], ['IT','Italian'], ['FR','French'], ['PL','Polish'],
+    ['TR','Turkish'], ['PT-PT','Portuguese (PT)'], ['PT-BR','Portuguese (BR)'],
+    ['AR','Arabic'], ['JA','Japanese'], ['KO','Korean'], ['ZH','Chinese']
+  ];
+  const NAME_BY_CODE = Object.fromEntries(LANG_OPTIONS);
+
+  const SIZE_PRESETS = [
+    ['0', 'Unlimited'],
+    [String((1.5 * BYTES_IN_GB)|0), '1.5 GB'],
+    [String(2 * BYTES_IN_GB), '2 GB'],
+    [String(4 * BYTES_IN_GB), '4 GB'],
+    [String(8 * BYTES_IN_GB), '8 GB'],
+    [String(10 * BYTES_IN_GB), '10 GB'],
+    [String(12 * BYTES_IN_GB), '12 GB'],
+    [String(15 * BYTES_IN_GB), '15 GB'],
+    [String(20 * BYTES_IN_GB), '20 GB']
+  ];
+
+  const MAX_LANGS = 6;
+
+  const state = {
+    provider: '',
+    apiKey: '',
+    fallback: false,
+    langs: [],
+    maxSizeBytes: 0,
+    nuvioEnabled: false,
+    nuvioCookie: '',
+    conserveCookie: true
+  };
+  try { Object.assign(state, JSON.parse(localStorage.getItem('autostream_config')||'{}')); } catch {}
+
+  const $ = sel => document.querySelector(sel);
+  const providerEl = $('#provider');
+  const apikeyEl = $('#apikey');
+  const fallbackEl = $('#fallback1080');
+  const langPickerEl = $('#langPicker');
+  const langAddEl = $('#langAdd');
+  const langClearEl = $('#langClear');
+  const langPillsEl = $('#langPills');
+  const nuvioEnabledEl = $('#nuvioEnabled');
+  const nuvioCookieEl = $('#nuvioCookie');
+  const conserveCookieEl = $('#conserveCookie');
+  const sizePresetEl = $('#sizePreset');
+  const sizeCustomEl = $('#sizeCustom');
+  const manifestEl = $('#manifestUrl');
+  const appBtn = $('#installApp');
+  const webBtn = $('#installWeb');
+  const cookieSection = document.getElementById('cookieSection');
+
+  // Init selects
+  sizePresetEl.innerHTML = SIZE_PRESETS.map(([v,t])=>`<option value="${v}">${t}</option>`).join('');
+  langPickerEl.innerHTML = LANG_OPTIONS.map(([v,t])=>`<option value="${v}">${t}</option>`).join('');
+
+  // Hydrate fields
+  providerEl.value = state.provider || '';
+  apikeyEl.value = state.apiKey || '';
+  fallbackEl.checked = !!state.fallback;
+  nuvioEnabledEl.checked = !!state.nuvioEnabled;
+  nuvioCookieEl.value = state.nuvioCookie || '';
+  conserveCookieEl.checked = state.conserveCookie !== false; // Default true
+
+  function persist(){ localStorage.setItem('autostream_config', JSON.stringify(state)); }
+
+  function renderLangPills(){
+    langPillsEl.innerHTML = '';
+    const count = state.langs.length;
+    langPillsEl.classList.toggle('one', count <= 2);
+    langPillsEl.classList.toggle('two', count >= 3);
+
+    const atCap = count >= MAX_LANGS;
+    if (atCap) { langAddEl.classList.add('disabled'); langAddEl.setAttribute('disabled','disabled'); }
+    else { langAddEl.classList.remove('disabled'); langAddEl.removeAttribute('disabled'); }
+
+    state.langs.forEach((code, idx) => {
+      const pill = document.createElement('div');
+      pill.className = 'pill';
+      pill.draggable = true;
+      pill.dataset.index = String(idx);
+      const label = NAME_BY_CODE[code] || code;
+      pill.innerHTML = `<div class="num">${idx+1}</div><div class="txt">${label}</div><div class="handle">≡</div>`;
+      pill.addEventListener('dragstart', (e)=>{
+        e.dataTransfer.setData('text/plain', pill.dataset.index);
+        pill.classList.add('dragging');
+      });
+      pill.addEventListener('dragend', ()=> pill.classList.remove('dragging'));
+      pill.addEventListener('dragover', (e)=> e.preventDefault());
+      pill.addEventListener('drop', (e)=>{
+        e.preventDefault();
+        const from = Number(e.dataTransfer.getData('text/plain'));
+        const to = Number(pill.dataset.index);
+        if (!Number.isNaN(from) && !Number.isNaN(to) && from !== to) {
+          const item = state.langs.splice(from,1)[0];
+          state.langs.splice(to,0,item);
+          persist(); renderLangPills(); rerender();
+        }
+      });
+      langPillsEl.appendChild(pill);
+    });
+  }
+
+  function syncSize(){
+    const preset = sizePresetEl.value;
+    const custom = sizeCustomEl.value;
+    if (Number(preset) > 0 && !custom) {
+      state.maxSizeBytes = Number(preset);
+    } else if (custom) {
+      const gb = Number(custom);
+      state.maxSizeBytes = isFinite(gb) && gb>0 ? Math.round(gb * BYTES_IN_GB) : 0;
+      sizePresetEl.value = '0';
+    } else {
+      state.maxSizeBytes = 0;
+    }
+  }
+
+  // events
+  providerEl.onchange = ()=>{ state.provider = providerEl.value; persist(); rerender(); };
+  apikeyEl.oninput   = ()=>{ state.apiKey  = apikeyEl.value;   persist(); rerender(); };
+  fallbackEl.onchange= ()=>{ state.fallback= !!fallbackEl.checked; persist(); rerender(); };
+
+  langAddEl.onclick = ()=>{
+    if (state.langs.length >= MAX_LANGS) return;
+    const code = String(langPickerEl.value || '').trim();
+    if (code && !state.langs.includes(code)) state.langs.push(code);
+    persist(); renderLangPills(); rerender();
+  };
+  langClearEl.onclick = ()=>{ state.langs = []; persist(); renderLangPills(); rerender(); };
+
+  sizePresetEl.onchange = ()=>{ sizeCustomEl.value=''; syncSize(); persist(); rerender(); };
+  sizeCustomEl.oninput  = ()=>{ syncSize(); persist(); rerender(); };
+
+  nuvioEnabledEl.onchange = ()=>{
+    state.nuvioEnabled = !!nuvioEnabledEl.checked; 
+    persist(); 
+    rerender();
+    refreshCookieVisibility();
+  };
+  nuvioCookieEl.oninput = ()=>{ state.nuvioCookie = (nuvioCookieEl.value||'').trim(); persist(); rerender(); };
+  conserveCookieEl.onchange = ()=>{ state.conserveCookie = !!conserveCookieEl.checked; persist(); rerender(); };
+
+  // Clickable toggle boxes
+  function wireToggle(boxId, inputEl){
+    const box = document.getElementById(boxId);
+    if (!box) return;
+    const updateAria = ()=> box.setAttribute('aria-pressed', inputEl.checked ? 'true' : 'false');
+    box.addEventListener('click', (e)=>{
+      if (e.target === inputEl) return;
+      inputEl.checked = !inputEl.checked;
+      inputEl.dispatchEvent(new Event('change'));
+      updateAria();
+    });
+    box.addEventListener('keydown', (e)=>{
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        inputEl.checked = !inputEl.checked;
+        inputEl.dispatchEvent(new Event('change'));
+        updateAria();
+      }
+    });
+    updateAria();
+  }
+  wireToggle('toggleFallback', fallbackEl);
+  wireToggle('toggleNuvio', nuvioEnabledEl);
+  wireToggle('toggleConserveCookie', conserveCookieEl);
+
+  function refreshCookieVisibility(){
+    if (!cookieSection) return;
+    if (nuvioEnabledEl.checked) cookieSection.classList.remove('hidden');
+    else cookieSection.classList.add('hidden');
+  }
+
+  
+  
+  function buildUrl(){
+    const params = new URLSearchParams();
+
+    // Fallback only if enabled
+    if (state.fallback) params.set('fallback', '1');
+
+    // Debrid: include exactly one provider param ONLY when provider + key are provided
+    const key = (state.apiKey || '').trim();
+    const prov = (state.provider || '').trim(); // AD, RD, PM, TB, OC
+    if (prov && key) {
+      const map = { AD: 'ad', RD: 'rd', PM: 'pm', TB: 'tb', OC: 'oc' };
+      const pk = map[prov];
+      if (pk) params.set(pk, key);
+    }
+
+    // Size only if > 0 (send as GB, not bytes)
+    if (state.maxSizeBytes && Number(state.maxSizeBytes) > 0) {
+      const sizeGB = state.maxSizeBytes / BYTES_IN_GB;
+      params.set('max_size', String(sizeGB));
+    }
+
+    // Priority languages only when set
+    if (state.langs && state.langs.length) {
+      params.set('lang_prio', state.langs.join(','));
+    }
+
+    // Nuvio only if enabled
+    if (state.nuvioEnabled) {
+      params.set('include_nuvio', '1');
+      params.set('nuvio', '1'); // explicit enable flag; omit entirely when disabled
+      const ck = (state.nuvioCookie || '').trim();
+      if (ck) params.set('nuvio_cookie', ck);
+      
+      // Cookie conservation setting (default true, only set if false)
+      if (!state.conserveCookie) {
+        params.set('conserve_cookie', '0');
+      }
+    }
+
+    const qs = params.toString();
+    return originHost + '/manifest.json' + (qs ? ('?' + qs) : '');
+  }
+
+function rerender(){
+    const url = buildUrl();
+    const redacted = url.replace(/^https?:\/\//, '').replace(/(nuvio_cookie=)[^&]+/i, '$1[hidden]');
+    manifestEl.textContent = redacted;
+    const q = url.split('?')[1] || '';
+    appBtn.href = 'stremio://' + hostNoScheme + '/manifest.json?' + q;
+    webBtn.href = url;
+  }
+
+  renderLangPills();
+  syncSize();
+  refreshCookieVisibility();
+  rerender();
+
+  appBtn.addEventListener('click', function(){
+    const currentWeb = webBtn.href;
+    setTimeout(function(){ window.open(currentWeb, '_blank', 'noopener'); }, 600);
+  });
+
+  // ==================================================
+  // PENALTY RELIABILITY MANAGEMENT FUNCTIONS
+  // ==================================================
+
+  // Initialize penalty manager
+  let penaltyManager = null;
+  
+  async function initPenaltyManager() {
+    if (penaltyManager) return penaltyManager;
+    
+    // Simple penalty manager class
+    penaltyManager = {
+      serverUrl: originHost,
+      
+      async request(endpoint, options = {}) {
+        try {
+          const response = await fetch(`${this.serverUrl}${endpoint}`, {
+            headers: { 'Content-Type': 'application/json' },
+            ...options
+          });
+          return await response.json();
+        } catch (e) {
+          console.error('Penalty request failed:', e.message);
+          return { success: false, error: e.message };
+        }
+      },
+      
+      async getStats() {
+        return await this.request('/reliability/stats');
+      },
+      
+      async getPenalties() {
+        const result = await this.request('/reliability/penalties');
+        return result.penalties || {};
+      },
+      
+      async clearPenalty(url) {
+        return await this.request('/reliability/clear', {
+          method: 'POST',
+          body: JSON.stringify({ url })
+        });
+      },
+      
+      async clearAllPenalties() {
+        return await this.request('/reliability/clear', {
+          method: 'POST',
+          body: JSON.stringify({})
+        });
+      }
+    };
+    
+    return penaltyManager;
+  }
+
+  // Penalty management functions (called from HTML)
+  window.showReliabilityStats = async function() {
+    const manager = await initPenaltyManager();
+    const stats = await manager.getStats();
+    
+    if (!stats) {
+      showPenaltyMessage('Failed to load statistics', 'error');
+      return;
+    }
+    
+    const display = $('#penaltyDisplay');
+    if (!display) return;
+    
+    const penaltyStats = stats.penaltySystem?.stats || {};
+    display.innerHTML = `
+      <div style="background: var(--box); padding: 12px; border-radius: 8px; margin-top: 8px;">
+        <strong>⚖️ Penalty System Statistics</strong><br>
+        <small>
+          • Penalized Hosts: ${penaltyStats.total_penalized_hosts || 0}<br>
+          • Total Penalty Points: ${penaltyStats.total_penalty_points || 0}<br>
+          • Max Penalty: ${penaltyStats.max_penalty || 0} (-${penaltyStats.max_penalty || 0} points)<br>
+          • Average Penalty: ${penaltyStats.avg_penalty || 0} points
+        </small>
+      </div>
+    `;
+  };
+
+  window.showPenalizedHosts = async function() {
+    const manager = await initPenaltyManager();
+    const penalties = await manager.getPenalties();
+    
+    const display = $('#penaltyDisplay');
+    if (!display) return;
+    
+    const hosts = Object.keys(penalties);
+    if (hosts.length === 0) {
+      display.innerHTML = `
+        <div style="background: var(--box); padding: 12px; border-radius: 8px; margin-top: 8px;">
+          <strong>⚖️ Penalized Hosts</strong><br>
+          <small>No hosts currently have penalties.</small>
+        </div>
+      `;
+      return;
+    }
+    
+    const sortedHosts = hosts.sort((a, b) => penalties[b] - penalties[a]);
+    
+    display.innerHTML = `
+      <div style="background: var(--box); padding: 12px; border-radius: 8px; margin-top: 8px;">
+        <strong>⚖️ Penalized Hosts (${hosts.length})</strong><br>
+        <div style="margin-top: 8px; max-height: 120px; overflow-y: auto;">
+          ${sortedHosts.map(host => `
+            <div style="display: flex; justify-content: space-between; align-items: center; padding: 2px 0; font-size: 13px;">
+              <span style="font-family: monospace;">${host}</span>
+              <span style="color: var(--muted); font-size: 11px;">-${penalties[host]} pts</span>
+              <button onclick="clearHostPenalty('${host}')" 
+                      style="background: #4CAF50; color: white; border: none; padding: 2px 6px; border-radius: 4px; cursor: pointer; font-size: 11px;">
+                Clear
+              </button>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    `;
+  };
+
+  window.clearHostPenalty = async function(host) {
+    const manager = await initPenaltyManager();
+    const url = `http://${host}/`; // Create dummy URL for host
+    const result = await manager.clearPenalty(url);
+    
+    if (result.success) {
+      showPenaltyMessage('✅ Penalty cleared for host', 'success');
+      showPenalizedHosts(); // Refresh display
+    } else {
+      showPenaltyMessage('❌ Failed to clear penalty: ' + (result.error || 'Unknown error'), 'error');
+    }
+  };
+
+  window.clearAllPenalties = async function() {
+    if (!confirm('Are you sure you want to clear all host penalties? This action cannot be undone.')) {
+      return;
+    }
+    
+    const manager = await initPenaltyManager();
+    const result = await manager.clearAllPenalties();
+    
+    if (result.success) {
+      showPenaltyMessage('✅ All penalties cleared', 'success');
+      
+      // Clear display
+      const display = $('#penaltyDisplay');
+      if (display) display.innerHTML = '';
+    } else {
+      showPenaltyMessage('❌ Failed to clear penalties: ' + (result.error || 'Unknown error'), 'error');
+    }
+  };
+
+  function showPenaltyMessage(text, type = 'info') {
+    const display = $('#penaltyDisplay');
+    if (!display) return;
+    
+    const colorMap = {
+      success: '#4CAF50',
+      error: '#f44336',
+      info: '#2196F3'
+    };
+    
+    const messageDiv = document.createElement('div');
+    messageDiv.style.cssText = `
+      background: ${colorMap[type] || colorMap.info};
+      color: white;
+      padding: 8px 12px;
+      border-radius: 6px;
+      margin-top: 8px;
+      font-size: 13px;
+      font-weight: 600;
+      opacity: 1;
+      transition: opacity 0.3s;
+    `;
+    messageDiv.textContent = text;
+    
+    display.appendChild(messageDiv);
+    
+    setTimeout(() => {
+      messageDiv.style.opacity = '0';
+      setTimeout(() => {
+        if (messageDiv.parentNode) {
+          messageDiv.parentNode.removeChild(messageDiv);
+        }
+      }, 300);
+    }, 3000);
+  }
+
+  // Initialize penalty manager on page load
+  initPenaltyManager().catch(console.error);
+})();
