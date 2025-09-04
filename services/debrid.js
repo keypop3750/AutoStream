@@ -162,6 +162,26 @@ async function handlePlay(req, res, defaults = {}) {
           log('Upload result: ' + (uploadResult?.status || 'failed'));
           if (uploadResult?.error) {
             log('Upload error details: ' + JSON.stringify(uploadResult.error));
+            
+            // Check for permanent upload errors
+            const errorCode = uploadResult.error.code;
+            const permanentUploadErrors = [
+              'MAGNET_MUST_BE_PREMIUM',
+              'AUTH_BLOCKED',
+              'AUTH_BAD_APIKEY', 
+              'AUTH_USER_BANNED'
+            ];
+            
+            if (permanentUploadErrors.includes(errorCode)) {
+              log('❌ Permanent upload error: ' + errorCode + ' - stopping immediately');
+              res.writeHead(400, {'Content-Type':'application/json'});
+              return res.end(JSON.stringify({ 
+                ok: false, 
+                error: errorCode,
+                message: uploadResult.error.message || 'AllDebrid service error',
+                permanent: true 
+              }));
+            }
           }
           if (uploadResult?.message) {
             log('Upload message: ' + uploadResult.message);
@@ -193,6 +213,33 @@ async function handlePlay(req, res, defaults = {}) {
         const sj = await jsonSafe(st);
         
         log('Status response: status=' + st.status + ', ok=' + st.ok + ', body=' + JSON.stringify(sanitizeResponseForLogging(sj)));
+        
+        // Check for permanent errors that should stop polling immediately
+        if (sj && sj.status === 'error' && sj.error && sj.error.code) {
+          const errorCode = sj.error.code;
+          const permanentErrors = [
+            'MAGNET_MUST_BE_PREMIUM',
+            'AUTH_BLOCKED',
+            'AUTH_BAD_APIKEY', 
+            'AUTH_USER_BANNED',
+            'MAGNET_TOO_MANY',
+            'MAGNET_INVALID_ID'
+          ];
+          
+          if (permanentErrors.includes(errorCode)) {
+            log('❌ Permanent AllDebrid error: ' + errorCode + ' - ' + (sj.error.message || 'Unknown error'));
+            log('Stopping polling - this error cannot be resolved by waiting');
+            
+            // Return appropriate error response
+            res.writeHead(400, {'Content-Type':'application/json'});
+            return res.end(JSON.stringify({ 
+              ok: false, 
+              error: errorCode,
+              message: sj.error.message || 'AllDebrid service error',
+              permanent: true 
+            }));
+          }
+        }
         
         if (sj && sj.status === 'success' && sj.data && Array.isArray(sj.data.magnets)) {
           // Find the magnet that matches our hash
