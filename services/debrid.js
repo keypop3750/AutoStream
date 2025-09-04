@@ -1,6 +1,36 @@
 
 'use strict';
 
+// Security functions to prevent API key leakage in logs
+function sanitizeUrlForLogging(url) {
+  if (!url) return url;
+  return url.replace(/([?&]apikey=)[^&]+/gi, '$1***HIDDEN***');
+}
+
+function sanitizeResponseForLogging(responseData) {
+  if (!responseData || typeof responseData !== 'object') return responseData;
+  
+  const sanitized = JSON.parse(JSON.stringify(responseData));
+  
+  // Remove any fields that might contain sensitive data
+  const sensitiveFields = ['apikey', 'token', 'key', 'auth', 'password', 'secret'];
+  
+  function recursiveSanitize(obj) {
+    if (obj && typeof obj === 'object') {
+      for (const [key, value] of Object.entries(obj)) {
+        if (sensitiveFields.some(field => key.toLowerCase().includes(field))) {
+          obj[key] = '***HIDDEN***';
+        } else if (typeof value === 'object') {
+          recursiveSanitize(value);
+        }
+      }
+    }
+  }
+  
+  recursiveSanitize(sanitized);
+  return sanitized;
+}
+
 /**
  * Click-time AllDebrid resolver.
  * - buildPlayUrl(meta, { origin, ad }) ->    // 1) upload magnet
@@ -137,8 +167,8 @@ async function handlePlay(req, res, defaults = {}) {
           if (!uploadResult) {
             log('Upload result was null/undefined - possible network issue');
           }
-          // Log the full response for debugging on Render
-          log('Full upload response: ' + JSON.stringify(uploadResult));
+          // Log the full response for debugging on Render (SANITIZED FOR SECURITY)
+          log('Full upload response: ' + JSON.stringify(sanitizeResponseForLogging(uploadResult)));
         }
       }
     } catch (e) {
@@ -160,7 +190,7 @@ async function handlePlay(req, res, defaults = {}) {
         const st = await fetchWithTimeout(statusUrl, { method: 'GET' }, 10000);
         const sj = await jsonSafe(st);
         
-        log('Status response: status=' + st.status + ', ok=' + st.ok + ', body=' + JSON.stringify(sj));
+        log('Status response: status=' + st.status + ', ok=' + st.ok + ', body=' + JSON.stringify(sanitizeResponseForLogging(sj)));
         
         if (sj && sj.status === 'success' && sj.data && Array.isArray(sj.data.magnets)) {
           // Find the magnet that matches our hash
@@ -201,7 +231,7 @@ async function handlePlay(req, res, defaults = {}) {
           const f = await fetchWithTimeout(filesUrl, { method: 'GET' }, 10000);
           const fj = await jsonSafe(f);
           
-          log('Files API response (with ID): status=' + f.status + ', ok=' + f.ok + ', body=' + JSON.stringify(fj));
+          log('Files API response (with ID): status=' + f.status + ', ok=' + f.ok + ', body=' + JSON.stringify(sanitizeResponseForLogging(fj)));
           
           if (fj && fj.status === 'success' && fj.data && Array.isArray(fj.data.files) && fj.data.files.length) { 
             log('Found files via files API: ' + fj.data.files.length);
@@ -218,7 +248,7 @@ async function handlePlay(req, res, defaults = {}) {
           const f = await fetchWithTimeout(filesUrl, { method: 'GET' }, 10000);
           const fj = await jsonSafe(f);
           
-          log('Files API response (fallback): status=' + f.status + ', ok=' + f.ok + ', body=' + JSON.stringify(fj));
+          log('Files API response (fallback): status=' + f.status + ', ok=' + f.ok + ', body=' + JSON.stringify(sanitizeResponseForLogging(fj)));
           
           if (fj && fj.status === 'success' && fj.data && Array.isArray(fj.data.files) && fj.data.files.length) { 
             log('Found files via files API (fallback): ' + fj.data.files.length);
@@ -296,7 +326,7 @@ async function handlePlay(req, res, defaults = {}) {
       const unl = await fetchWithTimeout(unlockUrl, { method: 'GET' }, 10000);
       const uj = await jsonSafe(unl);
       
-      log('Unlock response: status=' + unl.status + ', ok=' + unl.ok + ', body=' + JSON.stringify(uj));
+      log('Unlock response: status=' + unl.status + ', ok=' + unl.ok + ', body=' + JSON.stringify(sanitizeResponseForLogging(uj)));
       
       finalUrl = (uj && uj.status === 'success' && uj.data && (uj.data.link || uj.data.download || uj.data.downloadLink)) || finalUrl;
       log('✅ Unlocked successfully, final URL length: ' + finalUrl.length);

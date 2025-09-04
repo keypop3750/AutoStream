@@ -28,6 +28,9 @@ const REMEMBER_KEYS = new Set([
   'label_origin','lang_prio','max_size','debrid','rd','pm','tb','oc','fallback'
 ]);
 
+// Cache for AllDebrid API key validation
+const adKeyValidationCache = new Map(); // key -> { isValid: boolean, timestamp: number }
+
 // utils
 function setCors(res) {
   try {
@@ -198,6 +201,37 @@ function __finalize(list, { nuvioCookie, labelOrigin }) {
   if (labelOrigin) out.forEach(s => s.name = badgeName(s));
   return out;
 }
+
+// AllDebrid API key validation function
+async function validateAllDebridKey(apiKey) {
+  if (!apiKey) return false;
+  
+  // Check cache first (valid for 5 minutes)
+  const cached = adKeyValidationCache.get(apiKey);
+  if (cached && (Date.now() - cached.timestamp) < 5 * 60 * 1000) {
+    return cached.isValid;
+  }
+  
+  try {
+    // Test the API key with a simple user info request
+    const { fetchWithTimeout } = require('./utils/http');
+    const testUrl = `https://api.alldebrid.com/v4/user?apikey=${encodeURIComponent(apiKey)}`;
+    const response = await fetchWithTimeout(testUrl, { method: 'GET' }, 5000);
+    const data = await response.json();
+    
+    const isValid = data && data.status === 'success' && data.data && data.data.user;
+    
+    // Cache the result
+    adKeyValidationCache.set(apiKey, { isValid, timestamp: Date.now() });
+    
+    return isValid;
+  } catch (error) {
+    // Cache failure as invalid for 1 minute (shorter cache for failures)
+    adKeyValidationCache.set(apiKey, { isValid: false, timestamp: Date.now() - 4 * 60 * 1000 });
+    return false;
+  }
+}
+
 function getQ(q, k){ return (q && typeof q.get==='function' && q.get(k)) || MANIFEST_DEFAULTS[k] || ''; }
 function resOf(s) {
   const t = ((s?.title||'') + ' ' + (s?.name||'') + ' ' + (s?.tag||'')).toLowerCase();
@@ -281,25 +315,61 @@ function startServer(port = PORT) {
         for (const [k, v] of Object.entries(paramsObj)) if (REMEMBER_KEYS.has(k)) remembered[k] = String(v);
         remembered.ad = remembered.ad || remembered.apikey || remembered.alldebrid || remembered.ad_apikey || MANIFEST_DEFAULTS.ad || '';
         MANIFEST_DEFAULTS = Object.assign({}, MANIFEST_DEFAULTS, remembered);
+        
+        // Validate AllDebrid key if provided to ensure it actually works
+        const adKey = remembered.ad || MANIFEST_DEFAULTS.ad || paramsObj.ad || paramsObj.apikey || paramsObj.alldebrid || paramsObj.ad_apikey;
+        let adKeyWorking = false;
+        if (adKey) {
+          try {
+            adKeyWorking = await validateAllDebridKey(adKey);
+          } catch (e) {
+            console.log('AllDebrid key validation failed:', e.message);
+            adKeyWorking = false;
+          }
+        }
+        
+        // Build the tag based on WORKING debrid services (not just configured ones)
         const tag = (()=>{
-          if (paramsObj.ad) return 'AD';
-          if (paramsObj.rd) return 'RD';
-          if (paramsObj.pm) return 'PM';
-          if (paramsObj.tb) return 'TB';
-          if (paramsObj.oc) return 'OC';
+          if (adKeyWorking) return 'AD';
+          if (remembered.rd || MANIFEST_DEFAULTS.rd || paramsObj.rd || paramsObj['real-debrid'] || paramsObj.realdebrid) return 'RD';
+          if (remembered.pm || MANIFEST_DEFAULTS.pm || paramsObj.pm || paramsObj.premiumize) return 'PM';
+          if (remembered.tb || MANIFEST_DEFAULTS.tb || paramsObj.tb || paramsObj.torbox) return 'TB';
+          if (remembered.oc || MANIFEST_DEFAULTS.oc || paramsObj.oc || paramsObj.offcloud) return 'OC';
           return null;
         })();
+        
+        // Build query string for preserved parameters
+        const queryParams = new URLSearchParams();
+        for (const [k, v] of Object.entries(remembered)) {
+          if (v && REMEMBER_KEYS.has(k)) queryParams.set(k, v);
+        }
+        const queryString = queryParams.toString();
+        const baseUrl = `${req.protocol || 'http'}://${req.headers.host || 'localhost:7010'}`;
+        
         const manifest = {
           id: 'com.stremio.autostream.addon',
           version: '3.0.0',
           name: tag ? `AutoStream (${tag})` : 'AutoStream',
           description: 'Curated best-pick streams with optional debrid; Nuvio direct-host supported.',
           logo: 'https://github.com/keypop3750/AutoStream/blob/main/logo.png?raw=true',
-          resources: [{ name: 'stream', types: ['movie','series'], idPrefixes: ['tt','tmdb'] }],
+          resources: [{ 
+            name: 'stream', 
+            types: ['movie','series'], 
+            idPrefixes: ['tt','tmdb']
+          }],
           types: ['movie','series'],
           catalogs: [],
-          behaviorHints: { configurable: true, configurationRequired: false }
+          behaviorHints: { 
+            configurable: true, 
+            configurationRequired: false
+          }
         };
+        
+        // Add query string to resources if we have parameters
+        if (queryString) {
+          manifest.resources[0].endpoint = `${baseUrl}/stream/{type}/{id}.json?${queryString}`;
+        }
+        
         return writeJson(res, manifest, 200);
       }
 
@@ -314,7 +384,7 @@ function startServer(port = PORT) {
 
       const labelOrigin = q.get('label_origin') === '1';
       const onlySource = (q.get('only') || '').toLowerCase();
-      const nuvioCookie = sanitizeCookieVal(getQ(q,'nuvio_cookie') || getQ(q,'dcookie') || getQ(q,'cookie') || '');
+      const nuvioCookie = sanitizeCookieVal(getQ(q,'nuvio_cookie') || getQ(q,'dcookie') || getQ(q,'cookie') || MANIFEST_DEFAULTS.nuvio_cookie || MANIFEST_DEFAULTS.dcookie || MANIFEST_DEFAULTS.cookie || '');
       
       // Generate unique request ID for log isolation
       const reqId = Math.random().toString(36).substr(2, 9);
@@ -323,19 +393,19 @@ function startServer(port = PORT) {
       log(`📍 Stream request: ${type}/${id}`);
       
       // Parse enhanced configuration parameters
-      const langPrioStr = getQ(q, 'lang_prio') || '';
+      const langPrioStr = getQ(q, 'lang_prio') || MANIFEST_DEFAULTS.lang_prio || '';
       const preferredLanguages = langPrioStr ? langPrioStr.split(',').map(l => l.trim()).filter(Boolean) : [];
-      const maxSizeStr = getQ(q, 'max_size') || '';
+      const maxSizeStr = getQ(q, 'max_size') || MANIFEST_DEFAULTS.max_size || '';
       const maxSizeBytes = maxSizeStr ? parseFloat(maxSizeStr) * (1024 ** 3) : 0; // Convert GB to bytes
-      const fallbackEnabled = getQ(q, 'fallback') === '1';
+      const fallbackEnabled = getQ(q, 'fallback') === '1' || MANIFEST_DEFAULTS.fallback === '1';
       const conserveCookie = getQ(q, 'conserve_cookie') !== '0'; // Default to true unless explicitly disabled
 
       // Fetch metadata for proper titles (async, don't block stream fetching)
       const metaPromise = fetchMeta(type, id, (msg) => log('Meta: ' + msg));
 
       // which sources
-      const dhosts = String(getQ(q,'dhosts') || '').toLowerCase().split(',').map(s=>s.trim()).filter(Boolean);
-      const nuvioEnabled = dhosts.includes('nuvio') || q.get('nuvio') === '1' || q.get('include_nuvio') === '1' || onlySource === 'nuvio' || 
+      const dhosts = String(getQ(q,'dhosts') || MANIFEST_DEFAULTS.dhosts || '').toLowerCase().split(',').map(s=>s.trim()).filter(Boolean);
+      const nuvioEnabled = dhosts.includes('nuvio') || q.get('nuvio') === '1' || q.get('include_nuvio') === '1' || MANIFEST_DEFAULTS.nuvio === '1' || MANIFEST_DEFAULTS.include_nuvio === '1' || onlySource === 'nuvio' || 
                           (!onlySource && dhosts.length === 0); // Enable by default when no specific sources requested
 
       // fetch sources (no debrid here) - parallel execution with timeout for faster response
@@ -411,7 +481,23 @@ function startServer(port = PORT) {
 
       // CRITICAL FIX: Don't auto-convert ALL torrents to debrid
       // Instead, let sources compete first, then convert winners to debrid URLs
-      const adParam = (getQ(q,'ad') || getQ(q,'apikey') || '');
+      const adParam = (getQ(q,'ad') || getQ(q,'apikey') || getQ(q,'alldebrid') || getQ(q,'ad_apikey') || MANIFEST_DEFAULTS.ad || '');
+      
+      // Validate AllDebrid key if provided - fall back to non-debrid if invalid
+      let adKeyWorking = false;
+      if (adParam) {
+        try {
+          adKeyWorking = await validateAllDebridKey(adParam);
+          if (!adKeyWorking) {
+            log('⚠️ AllDebrid key provided but not working (blocked/invalid) - falling back to non-debrid mode');
+          }
+        } catch (e) {
+          log('⚠️ AllDebrid key validation failed - falling back to non-debrid mode: ' + e.message);
+          adKeyWorking = false;
+        }
+      }
+      
+      const effectiveAdParam = adKeyWorking ? adParam : ''; // Only use AD if key is validated
       
       // Step 1: Score streams without converting to debrid yet
       combined = sortByOriginPriority(combined, { labelOrigin: false });
@@ -438,14 +524,14 @@ function startServer(port = PORT) {
       let allScoredStreams = scoring.filterAndScoreStreams(combined, req, scoringOptions);
       
       // Apply stream limits based on fallback setting
-      const streamLimit = fallbackEnabled ? 4 : 1;
+      const streamLimit = fallbackEnabled ? 4 : 2; // Show 2 streams by default, 4 with fallback
       let selectedStreams = allScoredStreams.slice(0, streamLimit);
       
       // Define originBase for URL building (used in multiple places)
       const originBase = `${req.headers['x-forwarded-proto'] || 'http'}://${req.headers.host}`;
       
       // Step 3: NOW convert torrent winners to debrid URLs (only the selected ones)
-      if (adParam && selectedStreams.length > 0) {
+      if (effectiveAdParam && selectedStreams.length > 0) {
         for (const s of selectedStreams) {
           if (!s) continue;
           
@@ -461,7 +547,7 @@ function startServer(port = PORT) {
               magnet: isMagnetish ? s.url : '',
               idx: (typeof s.fileIdx === 'number' ? s.fileIdx : 0),
               imdb: id
-            }, { origin: originBase, ad: adParam });
+            }, { origin: originBase, ad: effectiveAdParam });
             
             // Note: Removed notWebReady flag to fix playback issues in Stremio v5
             // s.behaviorHints = Object.assign({}, s.behaviorHints, { notWebReady: true });
@@ -472,14 +558,14 @@ function startServer(port = PORT) {
       // Step 4: Apply beautified names and finalize
       let streams = __finalize(selectedStreams, { nuvioCookie, labelOrigin });
       
-      // Detect which debrid provider is being used
+      // Detect which debrid provider is being used (only if actually working)
       const debridProvider = (() => {
-        if (getQ(q,'ad') || getQ(q,'apikey') || getQ(q,'alldebrid') || getQ(q,'ad_apikey')) return 'ad';
-        if (getQ(q,'rd') || getQ(q,'real-debrid') || getQ(q,'realdebrid')) return 'rd';
-        if (getQ(q,'pm') || getQ(q,'premiumize')) return 'pm';
-        if (getQ(q,'tb') || getQ(q,'torbox')) return 'tb';
-        if (getQ(q,'oc') || getQ(q,'offcloud')) return 'oc';
-        return 'ad'; // Default to AllDebrid
+        if (effectiveAdParam) return 'ad'; // Only show AD if key is validated and working
+        if (getQ(q,'rd') || getQ(q,'real-debrid') || getQ(q,'realdebrid') || MANIFEST_DEFAULTS.rd || MANIFEST_DEFAULTS['real-debrid'] || MANIFEST_DEFAULTS.realdebrid) return 'rd';
+        if (getQ(q,'pm') || getQ(q,'premiumize') || MANIFEST_DEFAULTS.pm || MANIFEST_DEFAULTS.premiumize) return 'pm';
+        if (getQ(q,'tb') || getQ(q,'torbox') || MANIFEST_DEFAULTS.tb || MANIFEST_DEFAULTS.torbox) return 'tb';
+        if (getQ(q,'oc') || getQ(q,'offcloud') || MANIFEST_DEFAULTS.oc || MANIFEST_DEFAULTS.offcloud) return 'oc';
+        return null; // No working debrid provider
       })();
       
       // Apply beautified names and titles
@@ -532,13 +618,13 @@ function startServer(port = PORT) {
           
           if (additional) {
             // Process additional stream same way as primary was processed
-            if (adParam && (additional.autostreamOrigin === 'torrentio' || additional.autostreamOrigin === 'tpb') && additional.infoHash) {
+            if (effectiveAdParam && (additional.autostreamOrigin === 'torrentio' || additional.autostreamOrigin === 'tpb') && additional.infoHash) {
               additional.url = buildPlayUrl({
                 ih: additional.infoHash,
                 magnet: additional.url && /^magnet:/i.test(additional.url) ? additional.url : '',
                 idx: (typeof additional.fileIdx === 'number' ? additional.fileIdx : 0),
                 imdb: id
-              }, { origin: originBase, ad: adParam });
+              }, { origin: originBase, ad: effectiveAdParam });
             }
             
             // Finalize additional stream
@@ -561,10 +647,8 @@ function startServer(port = PORT) {
         }
       }
       
-      // Ensure correct stream limit
-      if (!fallbackEnabled) {
-        streams = streams.slice(0, 1);
-      }
+      // Ensure correct stream limit (already handled above, this override is removed)
+      // Streams are already limited by streamLimit logic above
 
       // Step 6: Background preload next episode for series
       if (seriesCache.shouldPreloadNext(type, id)) {
@@ -595,7 +679,7 @@ function startServer(port = PORT) {
             // Apply same processing as main request: scoring + filtering + selection
             rawStreams = sortByOriginPriority(rawStreams, { labelOrigin: false });
             const allScoredStreams = scoring.filterAndScoreStreams(rawStreams, preloadReq, preloadScoringOptions);
-            const streamLimit = fallbackEnabled ? 4 : 1;
+            const streamLimit = fallbackEnabled ? 4 : 2; // Show 2 streams by default, 4 with fallback
             const processedStreams = allScoredStreams.slice(0, streamLimit);
             
             // Cache only the final processed streams (top 1-4), not all raw streams
