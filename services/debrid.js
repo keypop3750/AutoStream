@@ -61,7 +61,9 @@ function discoverADKey(params, defaults, headers) {
   const usp = params instanceof URLSearchParams ? params : new URLSearchParams(params || {});
   const get = (k)=> (usp.get(k) || '').trim();
   const headerKey = headers && (headers['x-ad-key'] || headers['authorization'] && headers['authorization'].replace(/^bearer\s+/i,'').trim()) || '';
-  return get('ad') || get('apikey') || get('alldebrid') || get('ad_apikey') || defaults.ad || headerKey || process.env.ALLDEBRID_KEY || process.env.AD_KEY || '';
+  // SECURITY FIX: Removed environment variable fallbacks to prevent accidental credential sharing
+  // OLD CODE: return get('ad') || get('apikey') || get('alldebrid') || get('ad_apikey') || defaults.ad || headerKey || process.env.ALLDEBRID_KEY || process.env.AD_KEY || '';
+  return get('ad') || get('apikey') || get('alldebrid') || get('ad_apikey') || defaults.ad || headerKey || '';
 }
 
 function buildPlayUrl(meta, { origin, ad }) {
