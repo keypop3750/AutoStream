@@ -245,6 +245,70 @@ async function validateAllDebridKey(apiKey) {
   }
 }
 
+// Generic debrid key validation function
+async function validateDebridKey(provider, apiKey) {
+  if (!apiKey) return false;
+  
+  const cacheKey = `${provider}:${apiKey}`;
+  const cached = adKeyValidationCache.get(cacheKey);
+  if (cached && (Date.now() - cached.timestamp) < 5 * 60 * 1000) {
+    return cached.isValid;
+  }
+  
+  try {
+    const { fetchWithTimeout } = require('./utils/http');
+    let testUrl, expectedResponse;
+    
+    switch (provider.toLowerCase()) {
+      case 'rd':
+      case 'real-debrid':
+        testUrl = `https://api.real-debrid.com/rest/1.0/user`;
+        break;
+      case 'pm':
+      case 'premiumize':
+        testUrl = `https://www.premiumize.me/api/account/info?apikey=${encodeURIComponent(apiKey)}`;
+        break;
+      case 'tb':
+      case 'torbox':
+        testUrl = `https://api.torbox.app/v1/api/user/me`;
+        break;
+      case 'oc':
+      case 'offcloud':
+        testUrl = `https://offcloud.com/api/account/info`;
+        break;
+      default:
+        return false;
+    }
+    
+    const headers = { 'User-Agent': 'AutoStream/3.0' };
+    
+    // Add auth headers based on provider
+    if (provider.toLowerCase() === 'rd') {
+      headers['Authorization'] = `Bearer ${apiKey}`;
+    } else if (provider.toLowerCase() === 'tb') {
+      headers['Authorization'] = `Bearer ${apiKey}`;
+    } else if (provider.toLowerCase() === 'oc') {
+      headers['Authorization'] = `Bearer ${apiKey}`;
+    }
+    
+    const response = await fetchWithTimeout(testUrl, { 
+      method: 'GET',
+      headers 
+    }, 5000);
+    
+    const isValid = response.status === 200;
+    
+    // Cache the result
+    adKeyValidationCache.set(cacheKey, { isValid, timestamp: Date.now() });
+    
+    return isValid;
+  } catch (error) {
+    // Cache failure as invalid for 1 minute
+    adKeyValidationCache.set(cacheKey, { isValid: false, timestamp: Date.now() - 4 * 60 * 1000 });
+    return false;
+  }
+}
+
 function getQ(q, k){ return (q && typeof q.get==='function' && q.get(k)) || MANIFEST_DEFAULTS[k] || ''; }
 function resOf(s) {
   const t = ((s?.title||'') + ' ' + (s?.name||'') + ' ' + (s?.tag||'')).toLowerCase();
@@ -327,6 +391,21 @@ function startServer(port = PORT) {
         const remembered = {};
         for (const [k, v] of Object.entries(paramsObj)) if (REMEMBER_KEYS.has(k)) remembered[k] = String(v);
         remembered.ad = remembered.ad || remembered.apikey || remembered.alldebrid || remembered.ad_apikey || MANIFEST_DEFAULTS.ad || '';
+        
+        // Clear old debrid defaults when new addon is being configured
+        if (!remembered.ad && !remembered.rd && !remembered.pm && !remembered.tb && !remembered.oc) {
+          // No debrid providers specified - clear cached debrid values
+          delete MANIFEST_DEFAULTS.rd;
+          delete MANIFEST_DEFAULTS.pm; 
+          delete MANIFEST_DEFAULTS.tb;
+          delete MANIFEST_DEFAULTS.oc;
+          delete MANIFEST_DEFAULTS['real-debrid'];
+          delete MANIFEST_DEFAULTS.realdebrid;
+          delete MANIFEST_DEFAULTS.premiumize;
+          delete MANIFEST_DEFAULTS.torbox;
+          delete MANIFEST_DEFAULTS.offcloud;
+        }
+        
         MANIFEST_DEFAULTS = Object.assign({}, MANIFEST_DEFAULTS, remembered);
         
         // Validate AllDebrid key if provided to ensure it actually works
@@ -341,14 +420,55 @@ function startServer(port = PORT) {
           }
         }
         
-        // Build the tag based on WORKING debrid services (not just configured ones)
+        // Validate other debrid providers
+        const rdKey = paramsObj.rd || paramsObj['real-debrid'] || paramsObj.realdebrid || MANIFEST_DEFAULTS.rd;
+        const pmKey = paramsObj.pm || paramsObj.premiumize || MANIFEST_DEFAULTS.pm;
+        const tbKey = paramsObj.tb || paramsObj.torbox || MANIFEST_DEFAULTS.tb;
+        const ocKey = paramsObj.oc || paramsObj.offcloud || MANIFEST_DEFAULTS.oc;
+        
+        let rdKeyWorking = false, pmKeyWorking = false, tbKeyWorking = false, ocKeyWorking = false;
+        
+        if (rdKey) {
+          try {
+            rdKeyWorking = await validateDebridKey('rd', rdKey);
+          } catch (e) {
+            console.log('RealDebrid key validation failed:', e.message);
+          }
+        }
+        
+        if (pmKey) {
+          try {
+            pmKeyWorking = await validateDebridKey('pm', pmKey);
+          } catch (e) {
+            console.log('Premiumize key validation failed:', e.message);
+          }
+        }
+        
+        if (tbKey) {
+          try {
+            tbKeyWorking = await validateDebridKey('tb', tbKey);
+          } catch (e) {
+            console.log('TorBox key validation failed:', e.message);
+          }
+        }
+        
+        if (ocKey) {
+          try {
+            ocKeyWorking = await validateDebridKey('oc', ocKey);
+          } catch (e) {
+            console.log('OffCloud key validation failed:', e.message);
+          }
+        }
+
+        // Build the tag based on WORKING debrid services only
         const tag = (()=>{
+          // Show provider only if API key is actually working
           if (adKeyWorking) return 'AD';
-          if (remembered.rd || MANIFEST_DEFAULTS.rd || paramsObj.rd || paramsObj['real-debrid'] || paramsObj.realdebrid) return 'RD';
-          if (remembered.pm || MANIFEST_DEFAULTS.pm || paramsObj.pm || paramsObj.premiumize) return 'PM';
-          if (remembered.tb || MANIFEST_DEFAULTS.tb || paramsObj.tb || paramsObj.torbox) return 'TB';
-          if (remembered.oc || MANIFEST_DEFAULTS.oc || paramsObj.oc || paramsObj.offcloud) return 'OC';
-          return null;
+          if (rdKeyWorking) return 'RD';
+          if (pmKeyWorking) return 'PM';
+          if (tbKeyWorking) return 'TB';
+          if (ocKeyWorking) return 'OC';
+          return null; // No working debrid provider
         })();
         
         // Build query string for preserved parameters
@@ -361,7 +481,7 @@ function startServer(port = PORT) {
         
         const manifest = {
           id: 'com.stremio.autostream.addon',
-          version: '3.0.1',
+          version: '3.0.2',
           name: tag ? `AutoStream (${tag})` : 'AutoStream',
           description: 'Curated best-pick streams with optional debrid; Nuvio direct-host supported.',
           logo: 'https://github.com/keypop3750/AutoStream/blob/main/logo.png?raw=true',
@@ -635,12 +755,12 @@ function startServer(port = PORT) {
       
       // Detect which debrid provider is being used (only if actually working)
       const debridProvider = (() => {
-        if (effectiveAdParam) return 'ad'; // Only show AD if key is validated and working
-        if (getQ(q,'rd') || getQ(q,'real-debrid') || getQ(q,'realdebrid') || MANIFEST_DEFAULTS.rd || MANIFEST_DEFAULTS['real-debrid'] || MANIFEST_DEFAULTS.realdebrid) return 'rd';
-        if (getQ(q,'pm') || getQ(q,'premiumize') || MANIFEST_DEFAULTS.pm || MANIFEST_DEFAULTS.premiumize) return 'pm';
-        if (getQ(q,'tb') || getQ(q,'torbox') || MANIFEST_DEFAULTS.tb || MANIFEST_DEFAULTS.torbox) return 'tb';
-        if (getQ(q,'oc') || getQ(q,'offcloud') || MANIFEST_DEFAULTS.oc || MANIFEST_DEFAULTS.offcloud) return 'oc';
-        return null; // No working debrid provider
+        // Only return provider if we have a working key for it
+        if (effectiveAdParam) return 'ad'; // AllDebrid is already validated above
+        
+        // For other providers, we need to validate them too in stream processing
+        // For now, return null if no working AllDebrid (other providers not implemented for stream processing yet)
+        return null;
       })();
       
       // Apply beautified names and titles
