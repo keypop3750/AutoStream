@@ -110,13 +110,42 @@ async function handlePlay(req, res, defaults = {}) {
 
     // 1) upload
     if (isFirstRequest) log('Step 1: Uploading magnet to AllDebrid...');
+    let uploadSuccess = false;
     try {
       const uploadUrl = 'https://api.alldebrid.com/v4/magnet/upload?apikey=' + encodeURIComponent(adKey) + '&magnets[]=' + encodeURIComponent(magnet);
       const up = await fetchWithTimeout(uploadUrl, { method: 'GET' }, 10000);
+      
+      if (isFirstRequest) {
+        log('Upload response status: ' + up.status);
+        log('Upload response ok: ' + up.ok);
+      }
+      
       const uploadResult = await jsonSafe(up);
-      if (isFirstRequest) log('Upload result: ' + (uploadResult?.status || 'unknown'));
+      
+      if (isFirstRequest) {
+        if (uploadResult && uploadResult.status === 'success') {
+          log('Upload result: success');
+          uploadSuccess = true;
+        } else {
+          log('Upload result: ' + (uploadResult?.status || 'failed'));
+          if (uploadResult?.error) {
+            log('Upload error details: ' + JSON.stringify(uploadResult.error));
+          }
+          if (uploadResult?.message) {
+            log('Upload message: ' + uploadResult.message);
+          }
+          if (!uploadResult) {
+            log('Upload result was null/undefined - possible network issue');
+          }
+          // Log the full response for debugging on Render
+          log('Full upload response: ' + JSON.stringify(uploadResult));
+        }
+      }
     } catch (e) {
-      if (isFirstRequest) log('Upload error (non-fatal): ' + e.message);
+      if (isFirstRequest) {
+        log('Upload error (exception): ' + e.message);
+        log('Upload error stack: ' + e.stack);
+      }
     }
 
     // 2) poll a few times for files
@@ -131,6 +160,8 @@ async function handlePlay(req, res, defaults = {}) {
         const st = await fetchWithTimeout(statusUrl, { method: 'GET' }, 10000);
         const sj = await jsonSafe(st);
         
+        log('Status response: status=' + st.status + ', ok=' + st.ok + ', body=' + JSON.stringify(sj));
+        
         if (sj && sj.status === 'success' && sj.data && Array.isArray(sj.data.magnets)) {
           // Find the magnet that matches our hash
           const targetHash = (ih || '').toLowerCase();
@@ -139,7 +170,7 @@ async function handlePlay(req, res, defaults = {}) {
           );
           
           if (matchingMagnet) {
-            log('Found matching magnet: ' + matchingMagnet.id + ' ' + matchingMagnet.hash);
+            log('Found matching magnet: ' + matchingMagnet.id + ' ' + matchingMagnet.hash + ' status=' + matchingMagnet.status);
             magnetId = matchingMagnet.id;
             
             if (matchingMagnet.status === 'Ready' && matchingMagnet.links && matchingMagnet.links.length > 0) {
@@ -153,10 +184,14 @@ async function handlePlay(req, res, defaults = {}) {
               log('Found files via status (Ready magnet): ' + files.length);
               break;
             }
+          } else {
+            log('No matching magnet found for hash: ' + targetHash + ', available magnets: ' + sj.data.magnets.map(m => m.hash).join(','));
           }
+        } else {
+          log('Invalid status response structure: ' + JSON.stringify(sj));
         }
       } catch (e) {
-        log('Status API error: ' + e.message);
+        log('Status API error: ' + e.message + ', stack: ' + e.stack);
       }
       
       // If we have a magnet ID, try the Files API with the correct ID
@@ -165,13 +200,16 @@ async function handlePlay(req, res, defaults = {}) {
           const filesUrl = 'https://api.alldebrid.com/v4/magnet/files?apikey=' + encodeURIComponent(adKey) + '&id=' + encodeURIComponent(magnetId);
           const f = await fetchWithTimeout(filesUrl, { method: 'GET' }, 10000);
           const fj = await jsonSafe(f);
+          
+          log('Files API response (with ID): status=' + f.status + ', ok=' + f.ok + ', body=' + JSON.stringify(fj));
+          
           if (fj && fj.status === 'success' && fj.data && Array.isArray(fj.data.files) && fj.data.files.length) { 
             log('Found files via files API: ' + fj.data.files.length);
             files = fj.data.files; 
             break; 
           }
         } catch (e) {
-          log('Files API error: ' + e.message);
+          log('Files API error: ' + e.message + ', stack: ' + e.stack);
         }
       } else {
         // Fallback: try Files API with hash/magnet (will likely fail but worth trying)
@@ -179,13 +217,16 @@ async function handlePlay(req, res, defaults = {}) {
           const filesUrl = 'https://api.alldebrid.com/v4/magnet/files?apikey=' + encodeURIComponent(adKey) + '&id=' + encodeURIComponent(ih || magnet);
           const f = await fetchWithTimeout(filesUrl, { method: 'GET' }, 10000);
           const fj = await jsonSafe(f);
+          
+          log('Files API response (fallback): status=' + f.status + ', ok=' + f.ok + ', body=' + JSON.stringify(fj));
+          
           if (fj && fj.status === 'success' && fj.data && Array.isArray(fj.data.files) && fj.data.files.length) { 
             log('Found files via files API (fallback): ' + fj.data.files.length);
             files = fj.data.files; 
             break; 
           }
         } catch (e) {
-          log('Files API error (fallback): ' + e.message);
+          log('Files API error (fallback): ' + e.message + ', stack: ' + e.stack);
         }
       }
       
@@ -254,10 +295,13 @@ async function handlePlay(req, res, defaults = {}) {
       const unlockUrl = 'https://api.alldebrid.com/v4/link/unlock?apikey=' + encodeURIComponent(adKey) + '&link=' + encodeURIComponent(chosen.link);
       const unl = await fetchWithTimeout(unlockUrl, { method: 'GET' }, 10000);
       const uj = await jsonSafe(unl);
+      
+      log('Unlock response: status=' + unl.status + ', ok=' + unl.ok + ', body=' + JSON.stringify(uj));
+      
       finalUrl = (uj && uj.status === 'success' && uj.data && (uj.data.link || uj.data.download || uj.data.downloadLink)) || finalUrl;
-      log('✅ Unlocked successfully');
+      log('✅ Unlocked successfully, final URL length: ' + finalUrl.length);
     } catch (e) {
-      log('Unlock error (non-fatal): ' + e.message);
+      log('Unlock error (non-fatal): ' + e.message + ', stack: ' + e.stack);
     }
 
     // Cache the result for future requests
