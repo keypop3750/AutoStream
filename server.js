@@ -558,15 +558,26 @@ function startServer(port = PORT) {
       // Use new enhanced scoring system with penalty filtering
       let allScoredStreams = scoring.filterAndScoreStreams(combined, req, scoringOptions);
       
-      // Apply stream limits based on fallback setting
+      // Apply stream limits based on fallback setting and debrid availability
       const streamLimit = fallbackEnabled ? 4 : 2; // Show 2 streams by default, 4 with fallback
-      let selectedStreams = allScoredStreams.slice(0, streamLimit);
+      
+      let selectedStreams;
+      if (effectiveAdParam) {
+        // Debrid mode: take top streams as usual
+        selectedStreams = allScoredStreams.slice(0, streamLimit);
+        log(`🔧 Debrid mode: selected top ${selectedStreams.length} streams for conversion`);
+      } else {
+        // Non-debrid mode: take top streams of ANY type (torrents + direct)
+        selectedStreams = allScoredStreams.slice(0, streamLimit);
+        log(`📺 Non-debrid mode: selected top ${selectedStreams.length} streams (torrents + direct)`);
+      }
       
       // Define originBase for URL building (used in multiple places)
       const originBase = `${req.headers['x-forwarded-proto'] || 'http'}://${req.headers.host}`;
       
-      // Step 3: NOW convert torrent winners to debrid URLs (only the selected ones)
+      // Step 3: Convert torrents to debrid URLs if debrid is available
       if (effectiveAdParam && selectedStreams.length > 0) {
+        log(`🔧 Converting ${selectedStreams.length} torrents to AllDebrid URLs...`);
         for (const s of selectedStreams) {
           if (!s) continue;
           
@@ -588,10 +599,39 @@ function startServer(port = PORT) {
             // s.behaviorHints = Object.assign({}, s.behaviorHints, { notWebReady: true });
           }
         }
+      } else {
+        // No debrid available - keep ALL streams (magnets + direct)
+        log('ℹ️ No debrid available - providing raw magnet URLs for external torrent clients');
       }
 
       // Step 4: Apply beautified names and finalize
       let streams = __finalize(selectedStreams, { nuvioCookie, labelOrigin });
+      
+      // CRITICAL: Validate stream format for Stremio compatibility
+      streams = streams.filter(s => {
+        if (!s || !s.url) return false;
+        
+        // Ensure required Stremio properties exist
+        if (!s.name) s.name = 'Stream';
+        if (!s.title) s.title = 'Content';
+        
+        // Validate URL format
+        try {
+          const url = new URL(s.url);
+          if (!['http:', 'https:', 'magnet:'].includes(url.protocol)) {
+            return false;
+          }
+        } catch (e) {
+          return false; // Invalid URL
+        }
+        
+        // Ensure stream has proper structure
+        if (typeof s.name !== 'string' || typeof s.title !== 'string') {
+          return false;
+        }
+        
+        return true;
+      });
       
       // Detect which debrid provider is being used (only if actually working)
       const debridProvider = (() => {
@@ -724,6 +764,21 @@ function startServer(port = PORT) {
             return [];
           }
         }).catch(err => console.warn('Preload failed:', err.message));
+      }
+
+      // Final validation and safe response
+      if (!Array.isArray(streams)) {
+        console.warn('Streams is not an array, converting');
+        streams = [];
+      }
+      
+      // Ensure all streams are valid objects
+      streams = streams.filter(s => s && typeof s === 'object' && s.url);
+      
+      // Limit streams to prevent mobile crashes (max 10 streams)
+      if (streams.length > 10) {
+        streams = streams.slice(0, 10);
+        console.log(`[${reqId}] ⚠️ Limited to 10 streams to prevent mobile crashes (had ${streams.length + (streams.length - 10)})`);
       }
 
       return writeJson(res, { streams, cacheMaxAge: 3600, staleRevalidate: 21600, staleError: 86400 }, 200);

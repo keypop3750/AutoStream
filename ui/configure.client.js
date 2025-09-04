@@ -36,7 +36,85 @@
     nuvioCookie: '',
     conserveCookie: true
   };
+  
+  // Load from localStorage first
   try { Object.assign(state, JSON.parse(localStorage.getItem('autostream_config')||'{}')); } catch {}
+  
+  // Then override with URL parameters if present (for existing installations)
+  function loadFromURL() {
+    const params = new URLSearchParams(window.location.search);
+    
+    // Load debrid provider and API key
+    if (params.get('ad')) { state.provider = 'AD'; state.apiKey = params.get('ad'); }
+    else if (params.get('rd')) { state.provider = 'RD'; state.apiKey = params.get('rd'); }
+    else if (params.get('pm')) { state.provider = 'PM'; state.apiKey = params.get('pm'); }
+    else if (params.get('tb')) { state.provider = 'TB'; state.apiKey = params.get('tb'); }
+    else if (params.get('oc')) { state.provider = 'OC'; state.apiKey = params.get('oc'); }
+    
+    // Load size limit (convert from GB to bytes)
+    if (params.get('max_size')) {
+      const sizeGB = parseFloat(params.get('max_size'));
+      if (sizeGB > 0) {
+        state.maxSizeBytes = Math.round(sizeGB * BYTES_IN_GB);
+      }
+    }
+    
+    // Load language priorities
+    if (params.get('lang_prio')) {
+      const langs = params.get('lang_prio').split(',').map(s => s.trim().toUpperCase()).filter(Boolean);
+      if (langs.length > 0) state.langs = langs.slice(0, MAX_LANGS);
+    }
+    
+    // Load fallback setting
+    if (params.get('fallback')) {
+      state.fallback = params.get('fallback') === '1' || params.get('fallback') === 'true';
+    }
+    
+    // Load Nuvio settings
+    if (params.get('include_nuvio') || params.get('nuvio')) {
+      state.nuvioEnabled = true;
+      if (params.get('nuvio_cookie')) {
+        state.nuvioCookie = params.get('nuvio_cookie');
+      }
+      if (params.get('conserve_cookie') === '0') {
+        state.conserveCookie = false;
+      }
+    }
+  }
+  
+  // Load URL parameters on page load
+  loadFromURL();
+  
+  // Update UI after loading from URL
+  function updateUIFromState() {
+    providerEl.value = state.provider || '';
+    apikeyEl.value = state.apiKey || '';
+    fallbackEl.checked = !!state.fallback;
+    nuvioEnabledEl.checked = !!state.nuvioEnabled;
+    nuvioCookieEl.value = state.nuvioCookie || '';
+    conserveCookieEl.checked = state.conserveCookie !== false;
+    
+    // Update size preset from state
+    if (state.maxSizeBytes > 0) {
+      const bytesStr = String(state.maxSizeBytes);
+      const found = SIZE_PRESETS.find(([v]) => v === bytesStr);
+      if (found) {
+        sizePresetEl.value = bytesStr;
+        sizeCustomEl.value = '';
+      } else {
+        sizePresetEl.value = '0';
+        sizeCustomEl.value = String(state.maxSizeBytes / BYTES_IN_GB);
+      }
+    } else {
+      sizePresetEl.value = '0';
+      sizeCustomEl.value = '';
+    }
+    
+    renderLangPills(); // Update language pills
+    refreshCookieVisibility(); // Update Nuvio section visibility
+  }
+  
+  updateUIFromState(); // Apply state to UI
 
   const $ = sel => document.querySelector(sel);
   const providerEl = $('#provider');
@@ -67,6 +145,23 @@
   nuvioEnabledEl.checked = !!state.nuvioEnabled;
   nuvioCookieEl.value = state.nuvioCookie || '';
   conserveCookieEl.checked = state.conserveCookie !== false; // Default true
+  
+  // Hydrate size preset from state
+  if (state.maxSizeBytes > 0) {
+    const bytesStr = String(state.maxSizeBytes);
+    const found = SIZE_PRESETS.find(([v]) => v === bytesStr);
+    if (found) {
+      sizePresetEl.value = bytesStr;
+      sizeCustomEl.value = '';
+    } else {
+      // Custom size - convert bytes to GB
+      sizePresetEl.value = '0';
+      sizeCustomEl.value = String(state.maxSizeBytes / BYTES_IN_GB);
+    }
+  } else {
+    sizePresetEl.value = '0'; // Unlimited
+    sizeCustomEl.value = '';
+  }
 
   function persist(){ localStorage.setItem('autostream_config', JSON.stringify(state)); }
 
