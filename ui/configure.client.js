@@ -85,36 +85,8 @@
   // Load URL parameters on page load
   loadFromURL();
   
-  // Update UI after loading from URL
-  function updateUIFromState() {
-    providerEl.value = state.provider || '';
-    apikeyEl.value = state.apiKey || '';
-    fallbackEl.checked = !!state.fallback;
-    nuvioEnabledEl.checked = !!state.nuvioEnabled;
-    nuvioCookieEl.value = state.nuvioCookie || '';
-    conserveCookieEl.checked = state.conserveCookie !== false;
-    
-    // Update size preset from state
-    if (state.maxSizeBytes > 0) {
-      const bytesStr = String(state.maxSizeBytes);
-      const found = SIZE_PRESETS.find(([v]) => v === bytesStr);
-      if (found) {
-        sizePresetEl.value = bytesStr;
-        sizeCustomEl.value = '';
-      } else {
-        sizePresetEl.value = '0';
-        sizeCustomEl.value = String(state.maxSizeBytes / BYTES_IN_GB);
-      }
-    } else {
-      sizePresetEl.value = '0';
-      sizeCustomEl.value = '';
-    }
-    
-    renderLangPills(); // Update language pills
-    refreshCookieVisibility(); // Update Nuvio section visibility
-  }
-  
-  updateUIFromState(); // Apply state to UI
+  // Load URL parameters on page load
+  loadFromURL();
 
   const $ = sel => document.querySelector(sel);
   const providerEl = $('#provider');
@@ -138,7 +110,7 @@
   sizePresetEl.innerHTML = SIZE_PRESETS.map(([v,t])=>`<option value="${v}">${t}</option>`).join('');
   langPickerEl.innerHTML = LANG_OPTIONS.map(([v,t])=>`<option value="${v}">${t}</option>`).join('');
 
-  // Hydrate fields
+  // Hydrate fields from state (after URL loading)
   providerEl.value = state.provider || '';
   apikeyEl.value = state.apiKey || '';
   fallbackEl.checked = !!state.fallback;
