@@ -19,6 +19,19 @@ const penaltyReliability = require('./services/penaltyReliability');
 
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 7010;
 
+// Security: Force secure mode on Render
+const FORCE_SECURE_MODE = process.env.FORCE_SECURE_MODE === 'true' || process.env.NODE_ENV === 'production';
+const BLOCK_ENV_CREDENTIALS = process.env.BLOCK_ENV_CREDENTIALS !== 'false'; // Default to blocking
+const EMERGENCY_DISABLE_DEBRID = process.env.EMERGENCY_DISABLE_DEBRID === 'true';
+
+if (FORCE_SECURE_MODE) {
+  console.log('🔒 SECURE MODE: Environment credential fallbacks disabled');
+}
+
+if (EMERGENCY_DISABLE_DEBRID) {
+  console.log('🚨 EMERGENCY MODE: All debrid features disabled');
+}
+
 // ----- remember manifest params -----
 let MANIFEST_DEFAULTS = Object.create(null);
 const REMEMBER_KEYS = new Set([
@@ -487,6 +500,22 @@ function startServer(port = PORT) {
       // SECURITY CHECK: Refuse to use environment variables for API keys
       if (!adParam && (process.env.AD_KEY || process.env.ALLDEBRID_KEY || process.env.ALLDEBRID_API_KEY)) {
         log('🚨 SECURITY: Environment variable API keys detected but ignored. Users must provide their own keys.');
+      }
+      
+      // RENDER-LEVEL SECURITY: Additional protection against environment credential usage
+      if (BLOCK_ENV_CREDENTIALS && (process.env.ALLDEBRID_KEY || process.env.AD_KEY || process.env.APIKEY)) {
+        log('🔒 RENDER SECURITY: Dangerous environment variables detected and blocked');
+      }
+      
+      // FORCE SECURE MODE: In production, never allow environment fallbacks
+      if (FORCE_SECURE_MODE && !adParam) {
+        log('🔒 SECURE MODE: Only user-provided API keys allowed, no environment fallbacks');
+      }
+      
+      // EMERGENCY DEBRID DISABLE: Server-wide debrid shutdown capability
+      if (EMERGENCY_DISABLE_DEBRID) {
+        log('🚨 EMERGENCY: All debrid features disabled server-wide');
+        adParam = ''; // Force no debrid for ALL users
       }
       
       // Validate AllDebrid key if provided - fall back to non-debrid if invalid
