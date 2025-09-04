@@ -481,7 +481,13 @@ function startServer(port = PORT) {
 
       // CRITICAL FIX: Don't auto-convert ALL torrents to debrid
       // Instead, let sources compete first, then convert winners to debrid URLs
+      // SECURITY: Only use API keys explicitly provided by users, never from environment
       const adParam = (getQ(q,'ad') || getQ(q,'apikey') || getQ(q,'alldebrid') || getQ(q,'ad_apikey') || MANIFEST_DEFAULTS.ad || '');
+      
+      // SECURITY CHECK: Refuse to use environment variables for API keys
+      if (!adParam && (process.env.AD_KEY || process.env.ALLDEBRID_KEY || process.env.ALLDEBRID_API_KEY)) {
+        log('🚨 SECURITY: Environment variable API keys detected but ignored. Users must provide their own keys.');
+      }
       
       // Validate AllDebrid key if provided - fall back to non-debrid if invalid
       let adKeyWorking = false;

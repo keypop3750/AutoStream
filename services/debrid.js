@@ -1,6 +1,24 @@
 
 'use strict';
 
+// SECURITY: Check for dangerous environment variables and refuse to use them
+(function securityCheck() {
+  const dangerousEnvVars = ['AD_KEY', 'ALLDEBRID_KEY', 'ALLDEBRID_API_KEY', 'AUTOSTREAM_AD_KEY'];
+  const foundVars = dangerousEnvVars.filter(varName => process.env[varName]);
+  
+  if (foundVars.length > 0) {
+    console.error('🚨 SECURITY WARNING: Dangerous environment variables detected:', foundVars);
+    console.error('🚨 These variables could leak credentials to all users. They have been disabled.');
+    console.error('🚨 Users must provide their own API keys via the addon configuration.');
+    
+    // Actively remove these variables to prevent accidental usage
+    foundVars.forEach(varName => {
+      delete process.env[varName];
+      console.error(`🚨 Removed dangerous environment variable: ${varName}`);
+    });
+  }
+})();
+
 // Security functions to prevent API key leakage in logs
 function sanitizeUrlForLogging(url) {
   if (!url) return url;
