@@ -207,7 +207,10 @@ function __finalize(list, { nuvioCookie, labelOrigin }) {
     
     const isHttp = /^https?:/i.test(String(s.url||''));
     const isMagnet = !isHttp && (s.infoHash || /^magnet:/i.test(String(s.url||'')));
-    if (isMagnet) s.behaviorHints = Object.assign({}, s.behaviorHints, { notWebReady: true });
+    // Web Stremio can handle magnet URLs just fine - remove notWebReady flag if present
+    if (s.behaviorHints && s.behaviorHints.notWebReady) {
+      delete s.behaviorHints.notWebReady;
+    }
     if (s.autostreamOrigin === 'nuvio' && nuvioCookie) s._usedCookie = true;
   });
   out = attachNuvioCookie(out, nuvioCookie);
@@ -481,7 +484,7 @@ function startServer(port = PORT) {
         
         const manifest = {
           id: 'com.stremio.autostream.addon',
-          version: '3.0.2',
+          version: '3.0.3',
           name: tag ? `AutoStream (${tag})` : 'AutoStream',
           description: 'Curated best-pick streams with optional debrid; Nuvio direct-host supported.',
           logo: 'https://github.com/keypop3750/AutoStream/blob/main/logo.png?raw=true',
@@ -750,6 +753,11 @@ function startServer(port = PORT) {
           return false;
         }
         
+        // Remove notWebReady flag - web Stremio can handle magnet URLs fine
+        if (s.behaviorHints && s.behaviorHints.notWebReady) {
+          delete s.behaviorHints.notWebReady;
+        }
+        
         return true;
       });
       
@@ -900,6 +908,13 @@ function startServer(port = PORT) {
         streams = streams.slice(0, 10);
         console.log(`[${reqId}] ⚠️ Limited to 10 streams to prevent mobile crashes (had ${streams.length + (streams.length - 10)})`);
       }
+
+      // Final cleanup: Remove notWebReady flags - web Stremio can handle magnet URLs
+      streams.forEach(s => {
+        if (s && s.behaviorHints && s.behaviorHints.notWebReady) {
+          delete s.behaviorHints.notWebReady;
+        }
+      });
 
       return writeJson(res, { streams, cacheMaxAge: 3600, staleRevalidate: 21600, staleError: 86400 }, 200);
     } catch (e) {
