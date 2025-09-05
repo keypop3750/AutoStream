@@ -197,12 +197,11 @@ function __finalize(list, { nuvioCookie, labelOrigin }) {
     // First try existing URLs
     s.url = s.url || s.externalUrl || s.link || (s.sources && s.sources[0] && s.sources[0].url) || '';
     
-    // If no URL but has infoHash, create magnet URL for non-debrid users
-    if (!s.url && s.infoHash) {
-      s.url = `magnet:?xt=urn:btih:${s.infoHash}`;
-      if (s.title) {
-        s.url += `&dn=${encodeURIComponent(s.title)}`;
-      }
+    // For web Stremio compatibility: if we have infoHash, don't set magnet URL
+    // Web Stremio prefers infoHash-only streams for torrent handling
+    if (s.infoHash && (!s.url || /^magnet:/i.test(s.url))) {
+      // Keep infoHash, remove magnet URL for web compatibility
+      delete s.url;
     }
     
     const isHttp = /^https?:/i.test(String(s.url||''));
@@ -484,7 +483,7 @@ function startServer(port = PORT) {
         
         const manifest = {
           id: 'com.stremio.autostream.addon',
-          version: '3.0.3',
+          version: '3.0.4',
           name: tag ? `AutoStream (${tag})` : 'AutoStream',
           description: 'Curated best-pick streams with optional debrid; Nuvio direct-host supported.',
           logo: 'https://github.com/keypop3750/AutoStream/blob/main/logo.png?raw=true',
@@ -732,20 +731,22 @@ function startServer(port = PORT) {
       
       // CRITICAL: Validate stream format for Stremio compatibility
       streams = streams.filter(s => {
-        if (!s || !s.url) return false;
+        if (!s || (!s.url && !s.infoHash)) return false;
         
         // Ensure required Stremio properties exist
         if (!s.name) s.name = 'Stream';
         if (!s.title) s.title = 'Content';
         
-        // Validate URL format
-        try {
-          const url = new URL(s.url);
-          if (!['http:', 'https:', 'magnet:'].includes(url.protocol)) {
-            return false;
+        // Validate URL format (if URL exists)
+        if (s.url) {
+          try {
+            const url = new URL(s.url);
+            if (!['http:', 'https:', 'magnet:'].includes(url.protocol)) {
+              return false;
+            }
+          } catch (e) {
+            return false; // Invalid URL
           }
-        } catch (e) {
-          return false; // Invalid URL
         }
         
         // Ensure stream has proper structure
@@ -774,7 +775,7 @@ function startServer(port = PORT) {
       // Apply beautified names and titles
       const showOriginTags = shouldShowOriginTags(labelOrigin);
       streams.forEach(s => {
-        if (s && s.url) {
+        if (s && (s.url || s.infoHash)) {
           // Set addon name (e.g., "AutoStream (AD)")
           s.name = beautifyStreamName(s, { 
             type, 
@@ -833,7 +834,7 @@ function startServer(port = PORT) {
             // Finalize additional stream
             const finalizedAdditional = __finalize([additional], { nuvioCookie, labelOrigin })[0];
             
-            if (finalizedAdditional && finalizedAdditional.url) {
+            if (finalizedAdditional && (finalizedAdditional.url || finalizedAdditional.infoHash)) {
               // Apply same beautification as primary
               finalizedAdditional.name = beautifyStreamName(finalizedAdditional, { 
                 type, 
@@ -900,8 +901,8 @@ function startServer(port = PORT) {
         streams = [];
       }
       
-      // Ensure all streams are valid objects
-      streams = streams.filter(s => s && typeof s === 'object' && s.url);
+      // Ensure all streams are valid objects with either URL or infoHash
+      streams = streams.filter(s => s && typeof s === 'object' && (s.url || s.infoHash));
       
       // Limit streams to prevent mobile crashes (max 10 streams)
       if (streams.length > 10) {
