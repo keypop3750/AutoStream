@@ -65,6 +65,8 @@
   .pill .num{display:inline-flex;align-items:center;justify-content:center;background:transparent;border:1px solid transparent;width:24px;height:24px;border-radius:8px;margin-right:10px;opacity:1;font-size:12px;color:var(--fg)}
   .pill .txt{font-weight:600;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .pill .handle{opacity:.55;user-select:none;font-size:18px;letter-spacing:1px;margin-left:auto;padding-left:12px;color:var(--preview) !important}
+  .pill .handle.remove{opacity:.8;cursor:pointer;font-size:16px;color:#f44336 !important;border-radius:50%;width:20px;height:20px;display:flex;align-items:center;justify-content:center;transition:all 0.2s ease}
+  .pill .handle.remove:hover{background:rgba(244,67,54,0.1);transform:scale(1.1)}
   .pill[draggable="true"]{cursor:grab}
   .pill.dragging{opacity:.75;border-color:rgba(124,110,255,.5)}
   .buttons{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:32px}
@@ -154,20 +156,6 @@
             <input id="nuvioCookie" class="control" type="text" placeholder="Paste FebBox/ShowBox cookie or token" />
             <div class="help">Without personalization, you'll share cookies with other addon users, which can exhaust the 100GB quota quickly and result in slow streams. When not using a personal cookie, Nuvio streams are limited to sizes below 9GB.</div>
           </div>
-
-          <!-- Hidden but functional penalty management -->
-          <div id="penaltySection" class="hidden">
-            <label>⚖️ Stream Reliability Management</label>
-            <div class="help">View and manage host penalties. Failed streams get -50 points permanently until they succeed (+50 recovery per success).</div>
-            <div class="penalty-controls stack" style="gap: 12px; margin-top: 12px;">
-              <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-                <button class="btn btn-sm btn-outline" onclick="showReliabilityStats()" type="button">Statistics</button>
-                <button class="btn btn-sm btn-outline" onclick="showPenalizedHosts()" type="button">View Penalties</button>
-                <button class="btn btn-sm btn-outline" onclick="clearAllPenalties()" type="button" style="color: #f44336;">Clear All Penalties</button>
-              </div>
-              <div id="penaltyDisplay" style="margin-top: 12px; font-size: 14px; color: var(--muted);"></div>
-            </div>
-          </div>
         </div>
       </div>
 
@@ -178,6 +166,84 @@
 
       <div class="footline">
         <div class="muted">Manifest URL: <code id="manifestUrl" class="inline"></code></div>
+      </div>
+    </div>
+
+    <!-- Separate Blacklist Section -->
+    <div class="card" style="margin-top: 32px;">
+      <h2 style="font-weight: 700; font-size: 24px; margin: 0 0 8px; color: var(--fg);">🚫 Blacklist</h2>
+      <p style="margin: 0 0 16px; font-size: 14px; color: var(--muted); text-align: left;">Exclude streams containing these terms. Order doesn't matter - any matching stream will be filtered out. <span class="muted">(Max 10)</span></p>
+      
+      <div id="blacklistSection">
+        <div class="lang-controls">
+          <select id="blacklistPicker" class="control">
+            <option value="">Select items to exclude...</option>
+            <optgroup label="Resolution">
+              <option value="4K">4K / 2160p</option>
+              <option value="1080p">1080p</option>
+              <option value="720p">720p</option>
+              <option value="480p">480p</option>
+            </optgroup>
+            <optgroup label="Audio & Video">
+              <option value="Dolby">Dolby (Vision/Atmos)</option>
+              <option value="HDR">HDR</option>
+              <option value="DV">DV (Dolby Vision)</option>
+              <option value="Atmos">Atmos</option>
+              <option value="TrueHD">TrueHD</option>
+              <option value="DTS">DTS</option>
+            </optgroup>
+            <optgroup label="Source Quality">
+              <option value="CAM">CAM</option>
+              <option value="TS">TS (Telesync)</option>
+              <option value="TC">TC (Telecine)</option>
+              <option value="HDTS">HDTS</option>
+              <option value="HDTC">HDTC</option>
+              <option value="WEBRip">WEBRip</option>
+              <option value="WEB-DL">WEB-DL</option>
+              <option value="BluRay">BluRay</option>
+              <option value="REMUX">REMUX</option>
+            </optgroup>
+            <optgroup label="Codec">
+              <option value="x264">x264</option>
+              <option value="x265">x265</option>
+              <option value="AV1">AV1</option>
+              <option value="HEVC">HEVC</option>
+              <option value="H.264">H.264</option>
+              <option value="H.265">H.265</option>
+            </optgroup>
+            <optgroup label="Torrent Sources">
+              <option value="1337x">1337x</option>
+              <option value="YTS">YTS</option>
+              <option value="EZTV">EZTV</option>
+              <option value="RARBG">RARBG</option>
+              <option value="TorrentGalaxy">TorrentGalaxy</option>
+              <option value="Nyaa">Nyaa</option>
+              <option value="LimeTorrents">LimeTorrents</option>
+              <option value="Torrentz2">Torrentz2</option>
+              <option value="Pirate Bay">Pirate Bay</option>
+              <option value="TPB">TPB</option>
+              <option value="Torrent">Torrent</option>
+              <option value="Rutor">Rutor</option>
+              <option value="ilCorSaRo">ilCorSaRo</option>
+              <option value="Best1000">Best1000</option>
+              <option value="MeGusta">MeGusta</option>
+              <option value="AMZN">AMZN</option>
+            </optgroup>
+            <optgroup label="Release Groups">
+              <option value="YIFY">YIFY</option>
+              <option value="FGT">FGT</option>
+              <option value="PSA">PSA</option>
+              <option value="CMRG">CMRG</option>
+              <option value="SPARKS">SPARKS</option>
+              <option value="DEFLATE">DEFLATE</option>
+              <option value="ION10">ION10</option>
+              <option value="STUTTERSHIT">STUTTERSHIT</option>
+            </optgroup>
+          </select>
+          <button class="btn btn-sm btn-outline" id="blacklistAdd" type="button">Add</button>
+          <button class="btn btn-sm btn-outline" id="blacklistClear" type="button">Clear</button>
+        </div>
+        <div id="blacklistPills" class="lang-grid one" style="margin-top: 16px;"></div>
       </div>
     </div>
   </div>

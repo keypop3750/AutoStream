@@ -25,12 +25,14 @@
   ];
 
   const MAX_LANGS = 6;
+  const MAX_BLACKLIST = 10;
 
   const state = {
     provider: '',
     apiKey: '',
     fallback: false,
     langs: [],
+    blacklist: [],
     maxSizeBytes: 0,
     nuvioEnabled: false,
     nuvioCookie: '',
@@ -65,6 +67,12 @@
       if (langs.length > 0) state.langs = langs.slice(0, MAX_LANGS);
     }
     
+    // Load blacklist
+    if (params.get('blacklist')) {
+      const blacklist = params.get('blacklist').split(',').map(s => s.trim()).filter(Boolean);
+      if (blacklist.length > 0) state.blacklist = blacklist.slice(0, MAX_BLACKLIST);
+    }
+    
     // Load fallback setting
     if (params.get('fallback')) {
       state.fallback = params.get('fallback') === '1' || params.get('fallback') === 'true';
@@ -96,6 +104,10 @@
   const langAddEl = $('#langAdd');
   const langClearEl = $('#langClear');
   const langPillsEl = $('#langPills');
+  const blacklistPickerEl = $('#blacklistPicker');
+  const blacklistAddEl = $('#blacklistAdd');
+  const blacklistClearEl = $('#blacklistClear');
+  const blacklistPillsEl = $('#blacklistPills');
   const nuvioEnabledEl = $('#nuvioEnabled');
   const nuvioCookieEl = $('#nuvioCookie');
   const conserveCookieEl = $('#conserveCookie');
@@ -174,6 +186,33 @@
     });
   }
 
+  function renderBlacklistPills(){
+    blacklistPillsEl.innerHTML = '';
+    const count = state.blacklist.length;
+    blacklistPillsEl.classList.toggle('one', count <= 2);
+    blacklistPillsEl.classList.toggle('two', count >= 3);
+
+    const atCap = count >= MAX_BLACKLIST;
+    if (atCap) { blacklistAddEl.classList.add('disabled'); blacklistAddEl.setAttribute('disabled','disabled'); }
+    else { blacklistAddEl.classList.remove('disabled'); blacklistAddEl.removeAttribute('disabled'); }
+
+    state.blacklist.forEach((term, idx) => {
+      const pill = document.createElement('div');
+      pill.className = 'pill';
+      pill.dataset.index = String(idx);
+      pill.innerHTML = `<div class="num">🚫</div><div class="txt">${term}</div><div class="handle remove" onclick="removeBlacklistItem(${idx})" title="Remove ${term}">✕</div>`;
+      blacklistPillsEl.appendChild(pill);
+    });
+  }
+
+  // Helper function to remove blacklist item
+  window.removeBlacklistItem = function(idx) {
+    state.blacklist.splice(idx, 1);
+    persist();
+    renderBlacklistPills();
+    rerender();
+  };
+
   function syncSize(){
     const preset = sizePresetEl.value;
     const custom = sizeCustomEl.value;
@@ -200,6 +239,17 @@
     persist(); renderLangPills(); rerender();
   };
   langClearEl.onclick = ()=>{ state.langs = []; persist(); renderLangPills(); rerender(); };
+
+  blacklistAddEl.onclick = ()=>{
+    if (state.blacklist.length >= MAX_BLACKLIST) return;
+    const term = String(blacklistPickerEl.value || '').trim();
+    if (term && !state.blacklist.includes(term)) {
+      state.blacklist.push(term);
+      blacklistPickerEl.value = ''; // Reset selector
+    }
+    persist(); renderBlacklistPills(); rerender();
+  };
+  blacklistClearEl.onclick = ()=>{ state.blacklist = []; persist(); renderBlacklistPills(); rerender(); };
 
   sizePresetEl.onchange = ()=>{ sizeCustomEl.value=''; syncSize(); persist(); rerender(); };
   sizeCustomEl.oninput  = ()=>{ syncSize(); persist(); rerender(); };
@@ -272,6 +322,11 @@
       params.set('lang_prio', state.langs.join(','));
     }
 
+    // Blacklist terms only when set
+    if (state.blacklist && state.blacklist.length) {
+      params.set('blacklist', state.blacklist.join(','));
+    }
+
     // Nuvio only if enabled
     if (state.nuvioEnabled) {
       params.set('include_nuvio', '1');
@@ -299,6 +354,7 @@ function rerender(){
   }
 
   renderLangPills();
+  renderBlacklistPills();
   syncSize();
   refreshCookieVisibility();
   rerender();

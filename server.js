@@ -37,7 +37,7 @@ let MANIFEST_DEFAULTS = Object.create(null);
 const REMEMBER_KEYS = new Set([
   'cookie','nuvio_cookie','dcookie',
   'include_nuvio','nuvio','dhosts','nuvio_base',
-  'label_origin','lang_prio','max_size','fallback'
+  'label_origin','lang_prio','max_size','fallback','blacklist'
   // SECURITY: API keys removed from remember list to prevent global caching
 ]);
 
@@ -560,6 +560,8 @@ function startServer(port = PORT) {
       const maxSizeBytes = maxSizeStr ? parseFloat(maxSizeStr) * (1024 ** 3) : 0; // Convert GB to bytes
       const fallbackEnabled = getQ(q, 'fallback') === '1' || MANIFEST_DEFAULTS.fallback === '1';
       const conserveCookie = getQ(q, 'conserve_cookie') !== '0'; // Default to true unless explicitly disabled
+      const blacklistStr = getQ(q, 'blacklist') || MANIFEST_DEFAULTS.blacklist || '';
+      const blacklistTerms = blacklistStr ? blacklistStr.split(',').map(t => t.trim()).filter(Boolean) : [];
 
       // Fetch metadata for proper titles (async, don't block stream fetching)
       const metaPromise = fetchMeta(type, id, (msg) => log('Meta: ' + msg));
@@ -640,6 +642,33 @@ function startServer(port = PORT) {
       // Skip pre-filtering for better performance - apply scoring directly
       log(`📊 Processing ${combined.length} streams from all sources`);
 
+      // Apply blacklist filtering if configured
+      if (blacklistTerms.length > 0) {
+        const beforeCount = combined.length;
+        combined = combined.filter(stream => {
+          const streamText = [
+            stream.name || '',
+            stream.title || '',
+            stream.description || '',
+            stream.url || '',
+            (stream.behaviorHints && stream.behaviorHints.filename) || ''
+          ].join(' ').toLowerCase();
+          
+          // Return false if ANY blacklist term is found (exclude stream)
+          for (const term of blacklistTerms) {
+            if (streamText.includes(term.toLowerCase())) {
+              return false;
+            }
+          }
+          return true;
+        });
+        
+        const filteredCount = beforeCount - combined.length;
+        if (filteredCount > 0) {
+          log(`🚫 Blacklist filtered out ${filteredCount} streams containing: ${blacklistTerms.join(', ')}`);
+        }
+      }
+
       // CRITICAL FIX: Don't auto-convert ALL torrents to debrid
       // Instead, let sources compete first, then convert winners to debrid URLs
       // SECURITY: Only use API keys explicitly provided by users, never from environment
@@ -701,6 +730,7 @@ function startServer(port = PORT) {
         preferredLanguages,
         maxSizeBytes,
         conservativeCookie: conserveCookie,
+        blacklistTerms,
         debug: false // Set to true for detailed scoring logs
       };
       
