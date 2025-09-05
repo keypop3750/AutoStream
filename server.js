@@ -48,8 +48,11 @@ const adKeyValidationCache = new Map(); // key -> { isValid: boolean, timestamp:
 function setCors(res) {
   try {
     res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Range, Accept, X-Requested-With');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS, POST');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Range, Accept, X-Requested-With, User-Agent');
+    res.setHeader('Access-Control-Max-Age', '86400');
+    // Mobile Stremio compatibility headers
+    res.setHeader('Cache-Control', 'public, max-age=3600');
   } catch {}
 }
 function writeJson(res, obj, code = 200) {
@@ -341,6 +344,14 @@ function startServer(port = PORT) {
       const q = url.searchParams;
 
       if (pathname === '/health') return writeJson(res, { ok:true }, 200);
+      
+      // Additional compatibility endpoints for mobile Stremio
+      if (pathname === '/') {
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+        return res.end('<!DOCTYPE html><html><head><title>AutoStream</title></head><body><h1>AutoStream Addon</h1><p>Running and ready.</p></body></html>');
+      }
+      
+      if (pathname === '/status') return writeJson(res, { status: 'ok', addon: 'AutoStream', version: '3.0.5' }, 200);
 
       // Penalty reliability API endpoints
       if (pathname === '/reliability/stats') {
@@ -501,6 +512,8 @@ function startServer(port = PORT) {
           name: tag ? `AutoStream (${tag})` : 'AutoStream',
           description: 'Curated best-pick streams with optional debrid; Nuvio direct-host supported.',
           logo: 'https://github.com/keypop3750/AutoStream/blob/main/logo.png?raw=true',
+          background: 'https://github.com/keypop3750/AutoStream/blob/main/logo.png?raw=true',
+          contactEmail: 'autostream@example.com',
           resources: [{ 
             name: 'stream', 
             types: ['movie','series'], 
