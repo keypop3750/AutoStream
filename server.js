@@ -35,10 +35,10 @@ if (EMERGENCY_DISABLE_DEBRID) {
 // ----- remember manifest params -----
 let MANIFEST_DEFAULTS = Object.create(null);
 const REMEMBER_KEYS = new Set([
-  'ad','apikey','alldebrid','ad_apikey',
   'cookie','nuvio_cookie','dcookie',
   'include_nuvio','nuvio','dhosts','nuvio_base',
-  'label_origin','lang_prio','max_size','debrid','rd','pm','tb','oc','fallback'
+  'label_origin','lang_prio','max_size','fallback'
+  // SECURITY: API keys removed from remember list to prevent global caching
 ]);
 
 // Cache for AllDebrid API key validation
@@ -311,7 +311,13 @@ async function validateDebridKey(provider, apiKey) {
   }
 }
 
-function getQ(q, k){ return (q && typeof q.get==='function' && q.get(k)) || MANIFEST_DEFAULTS[k] || ''; }
+function getQ(q, k){ 
+  // SECURITY: Never return API keys from global defaults
+  if (['ad', 'apikey', 'alldebrid', 'ad_apikey', 'rd', 'real-debrid', 'realdebrid', 'pm', 'premiumize', 'tb', 'torbox', 'oc', 'offcloud'].includes(k)) {
+    return (q && typeof q.get==='function' && q.get(k)) || '';
+  }
+  return (q && typeof q.get==='function' && q.get(k)) || MANIFEST_DEFAULTS[k] || ''; 
+}
 function resOf(s) {
   const t = ((s?.title||'') + ' ' + (s?.name||'') + ' ' + (s?.tag||'')).toLowerCase();
   if (/\b(2160p|2160|4k|uhd)\b/.test(t)) return 2160;
@@ -408,10 +414,18 @@ function startServer(port = PORT) {
           delete MANIFEST_DEFAULTS.offcloud;
         }
         
-        MANIFEST_DEFAULTS = Object.assign({}, MANIFEST_DEFAULTS, remembered);
+        // SECURITY: Never store API keys in global defaults
+        const rememberedSafe = {};
+        for (const [k, v] of Object.entries(remembered)) {
+          // Only remember non-sensitive configuration
+          if (!['ad', 'apikey', 'alldebrid', 'ad_apikey', 'rd', 'real-debrid', 'realdebrid', 'pm', 'premiumize', 'tb', 'torbox', 'oc', 'offcloud'].includes(k)) {
+            rememberedSafe[k] = v;
+          }
+        }
+        MANIFEST_DEFAULTS = Object.assign({}, MANIFEST_DEFAULTS, rememberedSafe);
         
-        // Validate AllDebrid key if provided to ensure it actually works
-        const adKey = remembered.ad || MANIFEST_DEFAULTS.ad || paramsObj.ad || paramsObj.apikey || paramsObj.alldebrid || paramsObj.ad_apikey;
+        // SECURITY: Only use user-provided API keys, never from global defaults
+        const adKey = paramsObj.ad || paramsObj.apikey || paramsObj.alldebrid || paramsObj.ad_apikey;
         let adKeyWorking = false;
         if (adKey) {
           try {
@@ -422,11 +436,11 @@ function startServer(port = PORT) {
           }
         }
         
-        // Validate other debrid providers
-        const rdKey = paramsObj.rd || paramsObj['real-debrid'] || paramsObj.realdebrid || MANIFEST_DEFAULTS.rd;
-        const pmKey = paramsObj.pm || paramsObj.premiumize || MANIFEST_DEFAULTS.pm;
-        const tbKey = paramsObj.tb || paramsObj.torbox || MANIFEST_DEFAULTS.tb;
-        const ocKey = paramsObj.oc || paramsObj.offcloud || MANIFEST_DEFAULTS.oc;
+        // SECURITY: Only use user-provided API keys, never from global defaults
+        const rdKey = paramsObj.rd || paramsObj['real-debrid'] || paramsObj.realdebrid;
+        const pmKey = paramsObj.pm || paramsObj.premiumize;
+        const tbKey = paramsObj.tb || paramsObj.torbox;
+        const ocKey = paramsObj.oc || paramsObj.offcloud;
         
         let rdKeyWorking = false, pmKeyWorking = false, tbKeyWorking = false, ocKeyWorking = false;
         
@@ -483,7 +497,7 @@ function startServer(port = PORT) {
         
         const manifest = {
           id: 'com.stremio.autostream.addon',
-          version: '3.0.4',
+          version: '3.0.5',
           name: tag ? `AutoStream (${tag})` : 'AutoStream',
           description: 'Curated best-pick streams with optional debrid; Nuvio direct-host supported.',
           logo: 'https://github.com/keypop3750/AutoStream/blob/main/logo.png?raw=true',
@@ -617,7 +631,8 @@ function startServer(port = PORT) {
       // CRITICAL FIX: Don't auto-convert ALL torrents to debrid
       // Instead, let sources compete first, then convert winners to debrid URLs
       // SECURITY: Only use API keys explicitly provided by users, never from environment
-      const adParam = (getQ(q,'ad') || getQ(q,'apikey') || getQ(q,'alldebrid') || getQ(q,'ad_apikey') || MANIFEST_DEFAULTS.ad || '');
+      // SECURITY: Only use user-provided API keys, never from global defaults  
+      const adParam = (getQ(q,'ad') || getQ(q,'apikey') || getQ(q,'alldebrid') || getQ(q,'ad_apikey') || '');
       
       // SECURITY CHECK: Refuse to use environment variables for API keys
       if (!adParam && (process.env.AD_KEY || process.env.ALLDEBRID_KEY || process.env.ALLDEBRID_API_KEY)) {
