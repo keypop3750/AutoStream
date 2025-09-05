@@ -351,7 +351,7 @@ function startServer(port = PORT) {
         return res.end('<!DOCTYPE html><html><head><title>AutoStream</title></head><body><h1>AutoStream Addon</h1><p>Running and ready.</p></body></html>');
       }
       
-      if (pathname === '/status') return writeJson(res, { status: 'ok', addon: 'AutoStream', version: '3.0.5' }, 200);
+      if (pathname === '/status') return writeJson(res, { status: 'ok', addon: 'AutoStream', version: '3.1.0' }, 200);
 
       // Penalty reliability API endpoints
       if (pathname === '/reliability/stats') {
@@ -508,7 +508,7 @@ function startServer(port = PORT) {
         
         const manifest = {
           id: 'com.stremio.autostream.addon',
-          version: '3.0.5',
+          version: '3.1.0',
           name: tag ? `AutoStream (${tag})` : 'AutoStream',
           description: 'Curated best-pick streams with optional debrid; Nuvio direct-host supported.',
           logo: 'https://github.com/keypop3750/AutoStream/blob/main/logo.png?raw=true',
@@ -527,10 +527,9 @@ function startServer(port = PORT) {
           }
         };
         
-        // Add query string to resources if we have parameters
-        if (queryString) {
-          manifest.resources[0].endpoint = `${baseUrl}/stream/{type}/{id}.json?${queryString}`;
-        }
+        // MOBILE FIX: Never add query parameters to manifest endpoint
+        // This prevents mobile installation issues. Configuration is stored server-side.
+        // The manifest endpoint always stays clean: /stream/{type}/{id}.json
         
         return writeJson(res, manifest, 200);
       }
