@@ -350,23 +350,25 @@ function rerender(){
     manifestEl.textContent = redacted;
     const q = url.split('?')[1] || '';
     
-    // Detect platform for proper install methods
-    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-    const isHTTPS = window.location.protocol === 'https:';
+    // Detect platform using Torrentio's method
+    const isTvMedia = window.matchMedia("tv").matches;
+    const isTvAgent = /\b(?:tv|wv)\b/i.test(navigator.userAgent);
+    const isDesktopMedia = window.matchMedia("(pointer:fine)").matches;
+    const isMobile = !isDesktopMedia || isTvMedia || isTvAgent;
+    
+    // Set up URLs - always use stremio:// protocol for install button
+    const stremioUrl = 'stremio://' + url.replace(/^https?:\/\//, '');
+    const httpUrl = url;
+    
+    appBtn.href = stremioUrl;
+    webBtn.href = httpUrl;
     
     if (isMobile) {
-      // Mobile: Use clean HTTPS URLs for better compatibility
-      const mobileUrl = isHTTPS ? url : url.replace('http://', 'https://');
-      appBtn.href = mobileUrl; // Direct HTTPS URL for mobile
-      webBtn.href = mobileUrl;
-      appBtn.textContent = '📱 Install to Mobile Stremio';
-      webBtn.textContent = '📱 Install to Mobile Web';
+      appBtn.textContent = 'Install to Mobile Stremio';
+      webBtn.textContent = 'Install to Mobile Web';
     } else {
-      // Desktop/TV: Use proper stremio:// protocol and web URLs
-      appBtn.href = 'stremio://' + url.replace(/^https?:\/\//, '');
-      webBtn.href = url;
-      appBtn.textContent = '📺 Install to Stremio';
-      webBtn.textContent = '🌐 Install to Web';
+      appBtn.textContent = 'Install to Stremio';
+      webBtn.textContent = 'Install to Web';
     }
   }
 
@@ -376,9 +378,25 @@ function rerender(){
   refreshCookieVisibility();
   rerender();
 
-  appBtn.addEventListener('click', function(){
-    const currentWeb = webBtn.href;
-    setTimeout(function(){ window.open(currentWeb, '_blank', 'noopener'); }, 600);
+  appBtn.addEventListener('click', function(e){
+    // Copy HTTPS URL to clipboard for easy pasting (like Torrentio does)
+    const httpUrl = appBtn.href.replace('stremio://', 'https://');
+    
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(httpUrl).then(() => {
+        console.log('URL copied to clipboard:', httpUrl);
+        // Show temporary feedback
+        const originalText = appBtn.textContent;
+        appBtn.textContent = 'Copied to Clipboard!';
+        setTimeout(() => {
+          appBtn.textContent = originalText;
+        }, 2000);
+      }).catch(err => {
+        console.error('Failed to copy to clipboard:', err);
+      });
+    }
+    
+    // Let the default behavior handle the stremio:// protocol link
   });
 
   // ==================================================
