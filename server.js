@@ -547,7 +547,7 @@ function startServer(port = PORT) {
         return res.end('<!DOCTYPE html><html><head><title>AutoStream</title></head><body><h1>AutoStream Addon</h1><p>Running and ready.</p></body></html>');
       }
       
-      if (pathname === '/status') return writeJson(res, { status: 'ok', addon: 'AutoStream', version: '3.2.1' }, 200);
+      if (pathname === '/status') return writeJson(res, { status: 'ok', addon: 'AutoStream', version: '3.2.3' }, 200);
 
       // Penalty reliability API endpoints
       if (pathname === '/reliability/stats') {
@@ -695,26 +695,16 @@ function startServer(port = PORT) {
           }
         }
 
-        // Build the tag based on WORKING debrid services OR preview for install
+        // Build the tag based on WORKING debrid services only
         const tag = (()=>{
-          // For manifest requests, show preview branding even with invalid keys (for install purposes)
-          // For stream requests, only show if key is validated and working
-          
-          // Show provider if API key is working
+          // Only show provider if API key is working and validated
           if (adKeyWorking) return 'AD';
           if (rdKeyWorking) return 'RD';
           if (pmKeyWorking) return 'PM';
           if (tbKeyWorking) return 'TB';
           if (ocKeyWorking) return 'OC';
           
-          // Show preview branding for install if API key is provided (even if invalid)
-          if (adKey) return 'AD';
-          if (rdKey) return 'RD';
-          if (pmKey) return 'PM';
-          if (tbKey) return 'TB';
-          if (ocKey) return 'OC';
-          
-          return null; // No debrid provider specified
+          return null; // No working debrid provider
         })();
         
         // Build query string for preserved parameters
@@ -727,7 +717,7 @@ function startServer(port = PORT) {
         
         const manifest = {
           id: 'com.stremio.autostream.addon',
-          version: '3.2.1',
+          version: '3.2.3,
           name: tag ? `AutoStream (${tag})` : 'AutoStream',
           description: 'Curated best-pick streams with optional debrid; Nuvio direct-host supported.',
           logo: 'https://github.com/keypop3750/AutoStream/blob/main/logo.png?raw=true',
@@ -1162,11 +1152,14 @@ function startServer(port = PORT) {
       
       // Detect which debrid provider is being used (only if actually working)
       const debridProvider = (() => {
-        // Only return provider if we have a working key for it
-        if (effectiveAdParam) return 'ad'; // AllDebrid is already validated above
+        // Return the actual working provider name
+        if (adKeyWorking) return 'ad';
+        // Add other providers when their stream processing is implemented
+        // if (rdKeyWorking) return 'rd';
+        // if (pmKeyWorking) return 'pm';
+        // if (tbKeyWorking) return 'tb';
+        // if (ocKeyWorking) return 'oc';
         
-        // For other providers, we need to validate them too in stream processing
-        // For now, return null if no working AllDebrid (other providers not implemented for stream processing yet)
         return null;
       })();
       

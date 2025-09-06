@@ -72,38 +72,34 @@ function beautifyStreamName(stream, { type, id, includeOriginTag = false, debrid
   // A stream is considered debrid if it has infoHash OR explicit debrid flags
   const isDebridStream = stream._isDebrid || stream._debrid || stream.infoHash;
   
-  if (isDebridStream) {
-    // Show debrid provider if available
-    if (debridProvider) {
-      switch (debridProvider.toLowerCase()) {
-        case 'alldebrid':
-        case 'ad':
-          return 'AutoStream (AD)';
-        case 'real-debrid':
-        case 'realdebrid':
-        case 'rd':
-          return 'AutoStream (RD)';
-        case 'premiumize':
-        case 'pm':
-          return 'AutoStream (PM)';
-        case 'torbox':
-        case 'tb':
-          return 'AutoStream (TB)';
-        case 'offcloud':
-        case 'oc':
-          return 'AutoStream (OC)';
-        default:
-          return 'AutoStream (AD)'; // Default to AD if unknown provider
-      }
+  if (isDebridStream && debridProvider) {
+    // Show debrid provider ONLY if provider is actually configured
+    switch (debridProvider.toLowerCase()) {
+      case 'alldebrid':
+      case 'ad':
+        return 'AutoStream (AD)';
+      case 'real-debrid':
+      case 'realdebrid':
+      case 'rd':
+        return 'AutoStream (RD)';
+      case 'premiumize':
+      case 'pm':
+        return 'AutoStream (PM)';
+      case 'torbox':
+      case 'tb':
+        return 'AutoStream (TB)';
+      case 'offcloud':
+      case 'oc':
+        return 'AutoStream (OC)';
+      default:
+        return 'AutoStream'; // Don't default to AD if provider is unknown
     }
-    // Fallback to generic debrid indicator
-    return 'AutoStream (AD)';
   } else if (stream.autostreamOrigin === 'nuvio') {
     // For direct streams, show Nuvio variants
     return stream.behaviorHints?.proxyHeaders?.Cookie ? 'AutoStream (Nuvio+)' : 'AutoStream (Nuvio)';
   }
   
-  // For non-debrid torrents, just show AutoStream
+  // For non-debrid streams or when no debrid provider is configured, just show AutoStream
   return 'AutoStream';
 }
 

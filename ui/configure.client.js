@@ -356,20 +356,22 @@ function rerender(){
     const isDesktopMedia = window.matchMedia("(pointer:fine)").matches;
     const isMobile = !isDesktopMedia || isTvMedia || isTvAgent;
     
-    // Set up URLs - always use stremio:// protocol for install button
+    // Set up URLs based on platform
     const stremioUrl = 'stremio://' + url.replace(/^https?:\/\//, '');
     const httpUrl = url;
     
-    appBtn.href = stremioUrl;
-    webBtn.href = httpUrl;
-    
+    // For mobile: use stremio:// protocol, for desktop: use HTTP URL
     if (isMobile) {
+      appBtn.href = stremioUrl;
       appBtn.textContent = 'Install to Mobile Stremio';
       webBtn.textContent = 'Install to Mobile Web';
     } else {
+      appBtn.href = httpUrl; // Desktop uses HTTP URL to avoid protocol issues
       appBtn.textContent = 'Install to Stremio';
       webBtn.textContent = 'Install to Web';
     }
+    
+    webBtn.href = httpUrl;
   }
 
   renderLangPills();
@@ -379,9 +381,28 @@ function rerender(){
   rerender();
 
   appBtn.addEventListener('click', function(e){
-    // Copy HTTPS URL to clipboard for easy pasting (like Torrentio does)
-    const httpUrl = appBtn.href.replace('stremio://', 'https://');
+    // Always get the fresh URL at click time, not from cached href
+    const freshUrl = buildUrl();
+    const stremioUrl = 'stremio://' + freshUrl.replace(/^https?:\/\//, '');
+    const httpUrl = freshUrl;
     
+    // Detect platform at click time
+    const isTvMedia = window.matchMedia("tv").matches;
+    const isTvAgent = /\b(?:tv|wv)\b/i.test(navigator.userAgent);
+    const isDesktopMedia = window.matchMedia("(pointer:fine)").matches;
+    const isMobile = !isDesktopMedia || isTvMedia || isTvAgent;
+    
+    // For desktop: use HTTP URL directly to avoid stremio:// protocol issues with parameters
+    // For mobile: keep stremio:// protocol as it works better there
+    if (isMobile) {
+      appBtn.href = stremioUrl;
+    } else {
+      // Desktop: Use HTTP URL directly and prevent default to open in new tab
+      e.preventDefault();
+      window.open(httpUrl, '_blank');
+    }
+    
+    // Copy HTTPS URL to clipboard for easy pasting (like Torrentio does)
     if (navigator.clipboard && navigator.clipboard.writeText) {
       navigator.clipboard.writeText(httpUrl).then(() => {
         console.log('URL copied to clipboard:', httpUrl);
@@ -395,8 +416,6 @@ function rerender(){
         console.error('Failed to copy to clipboard:', err);
       });
     }
-    
-    // Let the default behavior handle the stremio:// protocol link
   });
 
   // ==================================================
