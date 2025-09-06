@@ -349,8 +349,25 @@ function rerender(){
     const redacted = url.replace(/^https?:\/\//, '').replace(/(nuvio_cookie=)[^&]+/i, '$1[hidden]');
     manifestEl.textContent = redacted;
     const q = url.split('?')[1] || '';
-    appBtn.href = 'stremio://' + hostNoScheme + '/manifest.json?' + q;
-    webBtn.href = url;
+    
+    // Detect platform for proper install methods
+    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+    const isHTTPS = window.location.protocol === 'https:';
+    
+    if (isMobile) {
+      // Mobile: Use clean HTTPS URLs for better compatibility
+      const mobileUrl = isHTTPS ? url : url.replace('http://', 'https://');
+      appBtn.href = mobileUrl; // Direct HTTPS URL for mobile
+      webBtn.href = mobileUrl;
+      appBtn.textContent = '📱 Install to Mobile Stremio';
+      webBtn.textContent = '📱 Install to Mobile Web';
+    } else {
+      // Desktop/TV: Use proper stremio:// protocol and web URLs
+      appBtn.href = 'stremio://' + url.replace(/^https?:\/\//, '');
+      webBtn.href = url;
+      appBtn.textContent = '📺 Install to Stremio';
+      webBtn.textContent = '🌐 Install to Web';
+    }
   }
 
   renderLangPills();

@@ -13,6 +13,193 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 
+// ============ DEFENSIVE CODE: CRASH PREVENTION ============
+
+// 1. Unhandled Promise Rejection Handler (Prevents Node.js crashes)
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('🚨 Unhandled Promise Rejection:', reason);
+  console.error('Promise:', promise);
+  // Log but don't crash - keep the addon running
+});
+
+// 2. Uncaught Exception Handler (Last resort)
+process.on('uncaughtException', (error) => {
+  console.error('🚨 Uncaught Exception:', error);
+  // In production, you might want to gracefully restart
+  // For now, just log and continue
+});
+
+// 3. Safe Error Serialization
+function safeStringify(obj, maxDepth = 3) {
+  const seen = new WeakSet();
+  return JSON.stringify(obj, function(key, val) {
+    if (val !== null && typeof val === 'object') {
+      if (seen.has(val)) return '[Circular]';
+      seen.add(val);
+    }
+    return val;
+  });
+}
+
+// 4. Safe Console Error Logging
+const originalConsoleError = console.error;
+console.error = function(...args) {
+  const safeArgs = args.map(arg => {
+    if (arg instanceof Error) {
+      return { name: arg.name, message: arg.message, stack: arg.stack };
+    }
+    if (typeof arg === 'object' && arg !== null) {
+      try {
+        return safeStringify(arg);
+      } catch {
+        return '[Unserializable Object]';
+      }
+    }
+    return arg;
+  });
+  originalConsoleError.apply(console, safeArgs);
+};
+
+// ============ RATE LIMITING & CONCURRENCY CONTROL ============
+
+// 5. Simple Rate Limiter for API calls
+class RateLimiter {
+  constructor(maxRequests = 50, windowMs = 60000) {
+    this.requests = new Map();
+    this.maxRequests = maxRequests;
+    this.windowMs = windowMs;
+    
+    // Cleanup old entries every minute
+    setInterval(() => this.cleanup(), 60000);
+  }
+  
+  isAllowed(key) {
+    const now = Date.now();
+    const userRequests = this.requests.get(key) || [];
+    
+    // Remove old requests outside the window
+    const validRequests = userRequests.filter(time => now - time < this.windowMs);
+    
+    if (validRequests.length >= this.maxRequests) {
+      return false;
+    }
+    
+    validRequests.push(now);
+    this.requests.set(key, validRequests);
+    return true;
+  }
+  
+  cleanup() {
+    const now = Date.now();
+    for (const [key, requests] of this.requests.entries()) {
+      const validRequests = requests.filter(time => now - time < this.windowMs);
+      if (validRequests.length === 0) {
+        this.requests.delete(key);
+      } else {
+        this.requests.set(key, validRequests);
+      }
+    }
+  }
+}
+
+// 6. Concurrency Limiter for simultaneous requests
+class ConcurrencyLimiter {
+  constructor(maxConcurrent = 10) {
+    this.maxConcurrent = maxConcurrent;
+    this.running = 0;
+    this.queue = [];
+  }
+  
+  async execute(fn) {
+    return new Promise((resolve, reject) => {
+      const task = async () => {
+        try {
+          this.running++;
+          const result = await fn();
+          resolve(result);
+        } catch (error) {
+          reject(error);
+        } finally {
+          this.running--;
+          this.processQueue();
+        }
+      };
+      
+      if (this.running < this.maxConcurrent) {
+        task();
+      } else {
+        this.queue.push(task);
+      }
+    });
+  }
+  
+  processQueue() {
+    if (this.queue.length > 0 && this.running < this.maxConcurrent) {
+      const task = this.queue.shift();
+      task();
+    }
+  }
+}
+
+// 7. Memory Monitor
+class MemoryMonitor {
+  constructor(maxMemoryMB = 512) {
+    this.maxMemoryMB = maxMemoryMB;
+    this.checkInterval = setInterval(() => this.checkMemory(), 30000);
+  }
+  
+  checkMemory() {
+    const usage = process.memoryUsage();
+    const usedMB = usage.heapUsed / 1024 / 1024;
+    
+    if (usedMB > this.maxMemoryMB) {
+      console.warn(`⚠️ High memory usage: ${usedMB.toFixed(2)}MB`);
+      // Force garbage collection if available
+      if (global.gc) {
+        global.gc();
+        console.log('🧹 Forced garbage collection');
+      }
+    }
+  }
+  
+  destroy() {
+    if (this.checkInterval) {
+      clearInterval(this.checkInterval);
+    }
+  }
+}
+
+// Initialize protective systems
+const rateLimiter = new RateLimiter(100, 60000); // 100 requests per minute per IP
+const concurrencyLimiter = new ConcurrencyLimiter(15); // Max 15 concurrent stream requests
+const memoryMonitor = new MemoryMonitor(512); // Alert at 512MB
+
+// ============ INPUT VALIDATION ============
+
+// 8. Safe Input Validation
+function validateIMDBId(id) {
+  if (!id || typeof id !== 'string') return false;
+  // Allow tt123456 or tt123456:1:2 format
+  return /^tt\d{6,10}(:\d+:\d+)?$/.test(id);
+}
+
+function validateApiKey(key) {
+  if (!key || typeof key !== 'string') return false;
+  // Basic validation - alphanumeric, reasonable length
+  return /^[a-zA-Z0-9_-]{8,128}$/.test(key);
+}
+
+function sanitizeStringParam(param, maxLength = 1000) {
+  if (!param || typeof param !== 'string') return '';
+  return param.substring(0, maxLength).replace(/[<>\"'&]/g, '');
+}
+
+function validateContentType(type) {
+  return ['movie', 'series'].includes(type);
+}
+
+// ============ ORIGINAL CODE WITH DEFENSIVE ENHANCEMENTS ============
+
 // Enhanced systems
 const scoring = require('./core/scoring_v6');
 const penaltyReliability = require('./services/penaltyReliability');
@@ -37,7 +224,7 @@ let MANIFEST_DEFAULTS = Object.create(null);
 const REMEMBER_KEYS = new Set([
   'cookie','nuvio_cookie','dcookie',
   'include_nuvio','nuvio','dhosts','nuvio_base',
-  'label_origin','lang_prio','max_size','fallback','blacklist'
+  'label_origin','lang_prio','max_size','additionalstream','fallback','blacklist'
   // SECURITY: API keys removed from remember list to prevent global caching
 ]);
 
@@ -108,30 +295,39 @@ const scoreStreamsV6 = scoringMod;
 
 const clickDebrid = (() => {
   try { return require('./services/debrid'); }
-  catch (e1) { try { return require('./debrid'); }
-  catch (e2) { return { buildPlayUrl: ()=>null, handlePlay: async (req,res)=>{ res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,err:'debrid missing'})); } }; } }
+  catch (e1) { 
+    try { return require('./debrid'); }
+    catch (e2) { return { buildPlayUrl: ()=>null, handlePlay: async (req,res)=>{ res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,err:'debrid missing'})); } }; } 
+  }
 })();
 const { buildPlayUrl, handlePlay } = clickDebrid;
 
 // Import enhanced formatting and series caching
 const { fetchMeta } = (() => {
-  try { return require('./services/meta'); }
-  catch { 
-    return { 
-      fetchMeta: async (type, id) => {
-        // Extract meaningful name from IMDB ID or use ID as fallback
-        let name = id;
-        if (id.includes(':')) {
-          const parts = id.split(':');
-          name = parts[0]; // Use IMDB ID without season/episode
+  try { 
+    // Try enhanced metadata service first
+    return require('./services/enhanced_meta'); 
+  } catch (e1) {
+    try { 
+      // Fallback to basic meta service
+      return require('./services/meta'); 
+    } catch (e2) {
+      return { 
+        fetchMeta: async (type, id) => {
+          // Extract meaningful name from IMDB ID or use ID as fallback
+          let name = id;
+          if (id.includes(':')) {
+            const parts = id.split(':');
+            name = parts[0]; // Use IMDB ID without season/episode
+          }
+          // Try to make IMDB IDs more readable
+          if (name.startsWith('tt')) {
+            name = `Movie ${name}`; // Better than just "Content"
+          }
+          return { name, season: null, episode: null };
         }
-        // Try to make IMDB IDs more readable
-        if (name.startsWith('tt')) {
-          name = `Movie ${name}`; // Better than just "Content"
-        }
-        return { name, season: null, episode: null };
-      }
-    }; 
+      }; 
+    }
   }
 })();
 
@@ -351,7 +547,7 @@ function startServer(port = PORT) {
         return res.end('<!DOCTYPE html><html><head><title>AutoStream</title></head><body><h1>AutoStream Addon</h1><p>Running and ready.</p></body></html>');
       }
       
-      if (pathname === '/status') return writeJson(res, { status: 'ok', addon: 'AutoStream', version: '3.1.0' }, 200);
+      if (pathname === '/status') return writeJson(res, { status: 'ok', addon: 'AutoStream', version: '3.1.2' }, 200);
 
       // Penalty reliability API endpoints
       if (pathname === '/reliability/stats') {
@@ -363,7 +559,11 @@ function startServer(port = PORT) {
         req.on('data', chunk => body += chunk);
         req.on('end', () => {
           try {
-            const { url } = JSON.parse(body);
+            let data = {};
+            if (body.trim()) {
+              data = JSON.parse(body);
+            }
+            const { url } = data;
             const success = url ? penaltyReliability.clearPenalty(url) : penaltyReliability.clearAllPenalties();
             writeJson(res, { success });
           } catch (e) {
@@ -374,12 +574,20 @@ function startServer(port = PORT) {
       }
 
       if (pathname === '/reliability/penalties') {
-        const penalties = penaltyReliability.getAllPenalties();
+        const penalties = penaltyReliability.getState();
         return writeJson(res, { penalties });
       }
 
       // /play — click-time debrid resolver
       if (pathname === '/play') return handlePlay(req, res, MANIFEST_DEFAULTS);
+
+      // Test dashboard for debugging issues
+      if (pathname === '/test_issues_dashboard.html') {
+        const testDashboardPath = path.join(__dirname, 'test_issues_dashboard.html');
+        if (serveFile(testDashboardPath, res)) return;
+        if (!res.headersSent) res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+        return res.end('Test dashboard not found');
+      }
 
       // Configure UI — use your existing loader
       if (pathname === '/' || pathname === '/configure' || pathname === '/ui/configure') {
@@ -487,15 +695,26 @@ function startServer(port = PORT) {
           }
         }
 
-        // Build the tag based on WORKING debrid services only
+        // Build the tag based on WORKING debrid services OR preview for install
         const tag = (()=>{
-          // Show provider only if API key is actually working
+          // For manifest requests, show preview branding even with invalid keys (for install purposes)
+          // For stream requests, only show if key is validated and working
+          
+          // Show provider if API key is working
           if (adKeyWorking) return 'AD';
           if (rdKeyWorking) return 'RD';
           if (pmKeyWorking) return 'PM';
           if (tbKeyWorking) return 'TB';
           if (ocKeyWorking) return 'OC';
-          return null; // No working debrid provider
+          
+          // Show preview branding for install if API key is provided (even if invalid)
+          if (adKey) return 'AD';
+          if (rdKey) return 'RD';
+          if (pmKey) return 'PM';
+          if (tbKey) return 'TB';
+          if (ocKey) return 'OC';
+          
+          return null; // No debrid provider specified
         })();
         
         // Build query string for preserved parameters
@@ -508,7 +727,7 @@ function startServer(port = PORT) {
         
         const manifest = {
           id: 'com.stremio.autostream.addon',
-          version: '3.1.0',
+          version: '3.1.2',
           name: tag ? `AutoStream (${tag})` : 'AutoStream',
           description: 'Curated best-pick streams with optional debrid; Nuvio direct-host supported.',
           logo: 'https://github.com/keypop3750/AutoStream/blob/main/logo.png?raw=true',
@@ -543,28 +762,83 @@ function startServer(port = PORT) {
       const type = m[1];
       const id = decodeURIComponent(m[2]);
 
+      // ============ DEFENSIVE CODE: REQUEST VALIDATION ============
+      
+      // 1. Rate limiting per IP
+      const clientIP = req.headers['x-forwarded-for'] || req.connection.remoteAddress || 'unknown';
+      if (!rateLimiter.isAllowed(clientIP)) {
+        res.writeHead(429, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({ error: 'Rate limit exceeded' }));
+      }
+      
+      // 2. Input validation
+      if (!validateContentType(type)) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({ error: 'Invalid content type' }));
+      }
+      
+      if (!validateIMDBId(id)) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({ error: 'Invalid IMDB ID format' }));
+      }
+      
+      // 3. API key validation if provided
+      const adParam = sanitizeStringParam(getQ(q,'ad') || getQ(q,'apikey') || getQ(q,'alldebrid') || getQ(q,'ad_apikey') || '');
+      if (adParam && !validateApiKey(adParam)) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({ error: 'Invalid API key format' }));
+      }
+      
+      // 4. Wrap the entire request processing in concurrency limiter
+      return concurrencyLimiter.execute(async () => {
+        try {
+          // ============ MAIN STREAM PROCESSING (WITH DEFENSIVE PROTECTIONS) ============
+
       const labelOrigin = q.get('label_origin') === '1';
       const onlySource = (q.get('only') || '').toLowerCase();
       const nuvioCookie = sanitizeCookieVal(getQ(q,'nuvio_cookie') || getQ(q,'dcookie') || getQ(q,'cookie') || MANIFEST_DEFAULTS.nuvio_cookie || MANIFEST_DEFAULTS.dcookie || MANIFEST_DEFAULTS.cookie || '');
       
       // Generate unique request ID for log isolation
       const reqId = Math.random().toString(36).substr(2, 9);
-      const log = (msg) => console.log(`[${reqId}] ${msg}`);
       
-      log(`📍 Stream request: ${type}/${id}`);
+      // Enhanced logging with levels
+      const VERBOSE_LOGGING = process.env.VERBOSE_LOGGING === 'true';
+      const log = (msg, level = 'info') => {
+        if (level === 'verbose' && !VERBOSE_LOGGING) return;
+        console.log(`[${reqId}] ${msg}`);
+      };
+      
+      // Apply ID correction for known problematic IDs
+      const { enhancedIDProcessing } = (() => {
+        try { return require('./utils/id-correction'); }
+        catch { return { enhancedIDProcessing: async (id) => ({ id, corrected: false }) }; }
+      })();
+      
+      // Correct the ID if needed (this is where tt13623136 becomes tt13159924)
+      const idResult = await enhancedIDProcessing(id, fetchMeta, (msg) => log(`ID: ${msg}`));
+      const actualId = idResult.id;
+      
+      if (idResult.corrected) {
+        log(`📍 Stream request: ${type}/${id} → ${actualId} (corrected)`);
+      } else {
+        log(`📍 Stream request: ${type}/${actualId}`);
+      }
       
       // Parse enhanced configuration parameters
       const langPrioStr = getQ(q, 'lang_prio') || MANIFEST_DEFAULTS.lang_prio || '';
       const preferredLanguages = langPrioStr ? langPrioStr.split(',').map(l => l.trim()).filter(Boolean) : [];
       const maxSizeStr = getQ(q, 'max_size') || MANIFEST_DEFAULTS.max_size || '';
       const maxSizeBytes = maxSizeStr ? parseFloat(maxSizeStr) * (1024 ** 3) : 0; // Convert GB to bytes
-      const fallbackEnabled = getQ(q, 'fallback') === '1' || MANIFEST_DEFAULTS.fallback === '1';
+      const additionalStreamEnabled = getQ(q, 'additionalstream') === '1' || getQ(q, 'fallback') === '1' || MANIFEST_DEFAULTS.additionalstream === '1' || MANIFEST_DEFAULTS.fallback === '1';
       const conserveCookie = getQ(q, 'conserve_cookie') !== '0'; // Default to true unless explicitly disabled
+      
+      // DEBUG: Log stream configuration
+      log(`🔧 Stream config - additionalstream: ${getQ(q, 'additionalstream')}, fallback: ${getQ(q, 'fallback')}, enabled: ${additionalStreamEnabled}`, 'verbose');
       const blacklistStr = getQ(q, 'blacklist') || MANIFEST_DEFAULTS.blacklist || '';
       const blacklistTerms = blacklistStr ? blacklistStr.split(',').map(t => t.trim()).filter(Boolean) : [];
 
       // Fetch metadata for proper titles (async, don't block stream fetching)
-      const metaPromise = fetchMeta(type, id, (msg) => log('Meta: ' + msg));
+      const metaPromise = fetchMeta(type, actualId, (msg) => log('Meta: ' + msg, 'verbose'));
 
       // which sources
       const dhosts = String(getQ(q,'dhosts') || MANIFEST_DEFAULTS.dhosts || '').toLowerCase().split(',').map(s=>s.trim()).filter(Boolean);
@@ -574,9 +848,9 @@ function startServer(port = PORT) {
       // fetch sources (no debrid here) - parallel execution with timeout for faster response
       log('🚀 Fetching streams from sources...');
       const sourcePromises = [
-        (!onlySource || onlySource === 'torrentio') ? fetchTorrentioStreams(type, id, {}, (msg) => log('Torrentio: ' + msg)) : Promise.resolve([]),
-        (!onlySource || onlySource === 'tpb')       ? fetchTPBStreams(type, id, {}, (msg) => log('TPB+: ' + msg))       : Promise.resolve([]),
-        nuvioEnabled ? fetchNuvioStreams(type, id, { query: { direct: '1' }, cookie: nuvioCookie }, (msg) => log('Nuvio: ' + msg)) : Promise.resolve([])
+        (!onlySource || onlySource === 'torrentio') ? fetchTorrentioStreams(type, actualId, {}, (msg) => log('Torrentio: ' + msg, 'verbose')) : Promise.resolve([]),
+        (!onlySource || onlySource === 'tpb')       ? fetchTPBStreams(type, actualId, {}, (msg) => log('TPB+: ' + msg, 'verbose'))       : Promise.resolve([]),
+        nuvioEnabled ? fetchNuvioStreams(type, actualId, { query: { direct: '1' }, cookie: nuvioCookie }, (msg) => log('Nuvio: ' + msg, 'verbose')) : Promise.resolve([])
       ];
       
       // Use Promise.allSettled() with timeout for sources
@@ -607,9 +881,9 @@ function startServer(port = PORT) {
       }
       
       // Log which sources worked/failed for debugging
-      if (torrentioResult.status === 'rejected') log('⚠️  Torrentio failed: ' + (torrentioResult.reason?.message || 'Unknown error'));
-      if (tpbResult.status === 'rejected') log('⚠️  TPB+ failed: ' + (tpbResult.reason?.message || 'Unknown error'));
-      if (nuvioResult.status === 'rejected') log('⚠️  Nuvio failed: ' + (nuvioResult.reason?.message || 'Unknown error'));
+      if (torrentioResult.status === 'rejected') log('⚠️  Torrentio failed: ' + (torrentioResult.reason?.message || 'Unknown error'), 'verbose');
+      if (tpbResult.status === 'rejected') log('⚠️  TPB+ failed: ' + (tpbResult.reason?.message || 'Unknown error'), 'verbose');
+      if (nuvioResult.status === 'rejected') log('⚠️  Nuvio failed: ' + (nuvioResult.reason?.message || 'Unknown error'), 'verbose');
       
       // Better breakdown of Nuvio streams
       const cookieStreams = fromNuvio.filter(s => hasNuvioCookie(s) || (nuvioCookie && s.autostreamOrigin === 'nuvio'));
@@ -633,14 +907,80 @@ function startServer(port = PORT) {
         .concat(tag(fromTPB, 'tpb'))
         .concat(tag(fromNuvio, 'nuvio'));
 
+      let beforeFilterCount = combined.length; // Track for cache decision later
+
       if (combined.length === 0) {
         log('⚠️  No streams found from any source');
-        writeJson(res, { streams: [] });
+        
+        // Instead of returning empty array (which causes infinite loading),
+        // return a helpful message stream explaining the issue
+        const messageStream = {
+          name: "🚫 No Streams Available",
+          title: `No streams found for this content. This may be because:\n• Content is too new or not yet indexed\n• Episode is not available on current sources\n• Try checking back later or use different sources`,
+          url: "data:text/plain;charset=utf-8,No%20streams%20available%20for%20this%20content",
+          behaviorHints: {
+            notWebReady: true,
+            filename: "no_streams_available.txt"
+          }
+        };
+        
+        writeJson(res, { streams: [messageStream] });
         return;
       }
 
       // Skip pre-filtering for better performance - apply scoring directly
-      log(`📊 Processing ${combined.length} streams from all sources`);
+      log(`📊 Processing ${combined.length} streams from all sources`, 'verbose');
+      
+      // TEMPORARILY DISABLED: Filter out problematic URLs that cause infinite loading
+      // combined = combined.filter(stream => {
+      //   // Filter out Google Drive URLs that expire immediately (max-age=0)
+      //   if (stream.url && stream.url.includes('googleusercontent.com')) {
+      //     log(`🚫 Filtered Google Drive URL (expires immediately): ${stream.title}`);
+      //     return false;
+      //   }
+      //   
+      //   // Filter out obviously invalid URLs
+      //   if (stream.url && (stream.url.includes('error') || stream.url.includes('expired'))) {
+      //     log(`🚫 Filtered invalid URL: ${stream.title}`);
+      //     return false;
+      //   }
+      //   
+      //   return true;
+      // });
+      
+      log(`🔍 Skipped filtering, ${combined.length} streams remain`, 'verbose');
+      
+      // If all streams were filtered, prefer torrent/magnet sources instead
+      if (combined.length === 0 && beforeFilterCount > 0) {
+        log(`⚠️ All ${beforeFilterCount} streams were Google Drive URLs - looking for torrent alternatives`);
+        // Allow magnet/torrent streams to pass through as they don't expire
+        combined = []
+          .concat(tag(fromTorr, 'torrentio'))
+          .concat(tag(fromTPB, 'tpb'))
+          .concat(tag(fromNuvio, 'nuvio'))
+          .filter(stream => stream.infoHash || (stream.url && stream.url.startsWith('magnet:')));
+        
+        if (combined.length > 0) {
+          log(`✅ Found ${combined.length} torrent/magnet alternatives`);
+        } else {
+          log(`⚠️ No torrent alternatives available - falling back to original sources with warning`);
+          // Fall back to original sources but mark them as potentially problematic
+          combined = []
+            .concat(tag(fromTorr, 'torrentio'))
+            .concat(tag(fromTPB, 'tpb'))
+            .concat(tag(fromNuvio, 'nuvio'));
+          combined.forEach(stream => {
+            // TEMPORARILY DISABLED: Google Drive warning
+            // if (stream.url && stream.url.includes('googleusercontent.com')) {
+            //   stream.title = `⚠️ ${stream.title} (may expire)`;
+            // }
+          });
+        }
+      }
+      
+      if (beforeFilterCount !== combined.length) {
+        log(`🔍 Filtered ${beforeFilterCount - combined.length} problematic URLs, ${combined.length} remain`);
+      }
 
       // Apply blacklist filtering if configured
       if (blacklistTerms.length > 0) {
@@ -737,18 +1077,19 @@ function startServer(port = PORT) {
       // Use new enhanced scoring system with penalty filtering
       let allScoredStreams = scoring.filterAndScoreStreams(combined, req, scoringOptions);
       
-      // Apply stream limits based on fallback setting and debrid availability
-      const streamLimit = fallbackEnabled ? 4 : 2; // Show 2 streams by default, 4 with fallback
+      // ALWAYS select both primary and secondary streams for processing
+      // The additionalStreamEnabled flag will only control final visibility, not processing
+      const processingLimit = 2; // Always process top 2 streams to ensure both primary and secondary are available
       
       let selectedStreams;
       if (effectiveAdParam) {
-        // Debrid mode: take top streams as usual
-        selectedStreams = allScoredStreams.slice(0, streamLimit);
-        log(`🔧 Debrid mode: selected top ${selectedStreams.length} streams for conversion`);
+        // Debrid mode: take top 2 streams for processing (visibility controlled later)
+        selectedStreams = allScoredStreams.slice(0, processingLimit);
+        log(`🔧 Debrid mode: selected top ${selectedStreams.length} streams for processing`);
       } else {
-        // Non-debrid mode: take top streams of ANY type (torrents + direct)
-        selectedStreams = allScoredStreams.slice(0, streamLimit);
-        log(`📺 Non-debrid mode: selected top ${selectedStreams.length} streams (torrents + direct)`);
+        // Non-debrid mode: take top 2 streams for processing (visibility controlled later)
+        selectedStreams = allScoredStreams.slice(0, processingLimit);
+        log(`📺 Non-debrid mode: selected top ${selectedStreams.length} streams for processing`);
       }
       
       // Define originBase for URL building (used in multiple places)
@@ -842,12 +1183,13 @@ function startServer(port = PORT) {
           });
           
           // Set content title (e.g., "KPop Demon Hunters (2025) - 4K")
-          s.title = buildContentTitle(finalMeta.name, s, { type, id });
+          s.title = buildContentTitle(finalMeta.name, s, { type, id: actualId });
         }
       });
 
-      // Step 5: Simple additional stream logic
-      if (fallbackEnabled && allScoredStreams.length > 1) {
+      // Step 5: Always process additional stream logic to ensure both primary and secondary are available
+      // The additionalStreamEnabled flag will only control final visibility
+      if (allScoredStreams.length > 1) {
         const primary = streams[0]; // Already processed and finalized
         const pRes = resOf(primary);
         
@@ -900,10 +1242,14 @@ function startServer(port = PORT) {
                 debridProvider 
               });
               
-              finalizedAdditional.title = buildContentTitle(finalMeta.name, finalizedAdditional, { type, id });
+              finalizedAdditional.title = buildContentTitle(finalMeta.name, finalizedAdditional, { type, id: actualId });
               
+              // ALWAYS prepare both streams - visibility control comes at the end
               streams = [primary, finalizedAdditional];
+              log(`🎯 Processed both primary and secondary streams: ${streams.length} total`);
             }
+          } else {
+            log(`📝 No suitable ${targetRes}p secondary stream found for additional processing`);
           }
         }
       }
@@ -940,10 +1286,9 @@ function startServer(port = PORT) {
             // Apply same processing as main request: scoring + filtering + selection
             rawStreams = sortByOriginPriority(rawStreams, { labelOrigin: false });
             const allScoredStreams = scoring.filterAndScoreStreams(rawStreams, preloadReq, preloadScoringOptions);
-            const streamLimit = fallbackEnabled ? 4 : 2; // Show 2 streams by default, 4 with fallback
-            const processedStreams = allScoredStreams.slice(0, streamLimit);
+            const processedStreams = allScoredStreams.slice(0, 2); // Always process both for preload
             
-            // Cache only the final processed streams (top 1-4), not all raw streams
+            // Cache only the final processed streams (top 1-2), not all raw streams
             return processedStreams;
           } catch (error) {
             console.warn('Preload processing failed:', error.message);
@@ -958,9 +1303,6 @@ function startServer(port = PORT) {
         streams = [];
       }
       
-      // Ensure all streams are valid objects with either URL or infoHash
-      streams = streams.filter(s => s && typeof s === 'object' && (s.url || s.infoHash));
-      
       // Limit streams to prevent mobile crashes (max 10 streams)
       if (streams.length > 10) {
         streams = streams.slice(0, 10);
@@ -974,11 +1316,46 @@ function startServer(port = PORT) {
         }
       });
 
-      return writeJson(res, { streams, cacheMaxAge: 3600, staleRevalidate: 21600, staleError: 86400 }, 200);
+      // Apply visibility control based on additionalStreamEnabled flag
+      // Both streams are always processed, but this controls what the user sees
+      if (!additionalStreamEnabled && streams.length > 1) {
+        streams = streams.slice(0, 1); // Only show primary stream
+        log(`🎛️ Additional stream disabled: showing only primary stream (${streams[0]?.title || 'Unknown'})`);
+      } else if (streams.length > 1) {
+        log(`🎛️ Additional stream enabled: showing ${streams.length} streams`);
+      }
+
+      // Reduce cache time if we filtered problematic URLs or have penalties
+      // EXPERIMENTAL: Test if caching causes URL expiry for specific content
+      // Disable caching for Gen V to test if our caching triggers immediate expiry
+      const isGenV = id.includes('tt13623136');
+      const hasPenalties = Object.keys(penaltyReliability.getState().penalties || {}).length > 0;
+      let cacheTime = 3600; // Default: 1 hour
+      
+      if (isGenV) {
+        cacheTime = 0; // No cache for Gen V - always fetch fresh
+        log(`🧪 EXPERIMENTAL: Disabled caching for Gen V to test if caching triggers URL expiry`);
+      } else if (hasPenalties) {
+        cacheTime = 300; // 5 minutes with penalties
+        log(`⚡ Reduced cache time to 5 minutes due to penalties`);
+      }
+
+      return writeJson(res, { streams, cacheMaxAge: cacheTime, staleRevalidate: 21600, staleError: 86400 }, 200);
+        
+        } catch (e) {
+          // Defensive error handling - prevent crashes
+          console.error('Stream processing error:', e);
+          if (!res.headersSent) writeJson(res, { streams: [], error: 'Internal server error' }, 500);
+        }
+      }).catch(e => {
+        // Concurrency limiter error handler
+        console.error('Concurrency limiter error:', e);
+        if (!res.headersSent) writeJson(res, { streams: [], error: 'Service temporarily unavailable' }, 503);
+      });
     } catch (e) {
-      console.error('Server error:', e && e.stack || e);
-      if (!res.headersSent) writeJson(res, { streams: [] }, 200);
-      else { try { res.end(); } catch {} }
+      // Top-level request handler error protection
+      console.error('Request handler error:', e);
+      if (!res.headersSent) writeJson(res, { error: 'Server error' }, 500);
     }
   });
 

@@ -20,12 +20,41 @@ async function fetchJson(url, timeoutMs, log = ()=>{}) {
 }
 async function fetchTorrentioStreams(type, id, query, log = ()=>{}) {
   const url = buildUrl(BASE_TORRENTIO, type, id, query);
-  const cached = torrentioCache.get(url); if (cached) return cached;
+  const cached = torrentioCache.get(url); 
+  if (cached) return cached;
+  
+  let streams = [];
+  
+  // Step 1: Try normal episode format
   const j = await fetchJson(url, 12000, (m,...a)=>log('torrentio',m,...a));
   let arr = Array.isArray(j) ? j : (j && Array.isArray(j.streams) ? j.streams : []);
-  arr = Array.isArray(arr) ? arr : [];
-  torrentioCache.set(url, arr);
-  return arr;
+  streams = Array.isArray(arr) ? arr : [];
+  
+  // Step 2: If no streams and this is a series episode, try season pack format
+  if (streams.length === 0 && type === 'series' && id.includes(':')) {
+    const seasonId = id.split(':')[0]; // Extract just the IMDB ID
+    const seasonUrl = buildUrl(BASE_TORRENTIO, type, seasonId, query);
+    
+    log('torrentio', `Episode format returned 0 streams, trying season pack: ${seasonId}`);
+    
+    const seasonJ = await fetchJson(seasonUrl, 12000, (m,...a)=>log('torrentio-season',m,...a));
+    let seasonArr = Array.isArray(seasonJ) ? seasonJ : (seasonJ && Array.isArray(seasonJ.streams) ? seasonJ.streams : []);
+    const seasonStreams = Array.isArray(seasonArr) ? seasonArr : [];
+    
+    if (seasonStreams.length > 0) {
+      // Mark these as season pack streams
+      seasonStreams.forEach(stream => {
+        stream.autostreamSeasonPack = true;
+        stream.name = (stream.name || 'Stream') + ' (Season Pack)';
+      });
+      
+      streams = seasonStreams;
+      log('torrentio', `Found ${streams.length} season pack streams`);
+    }
+  }
+  
+  torrentioCache.set(url, streams);
+  return streams;
 }
 async function fetchTPBStreams(type, id, query, log = ()=>{}) {
   const url = buildUrl(BASE_TPB, type, id, query);
