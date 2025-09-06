@@ -333,7 +333,25 @@ const { fetchMeta } = (() => {
 
 const { beautifyStreamName, shouldShowOriginTags, buildContentTitle } = (() => {
   try { return require('./core/format'); }
-  catch { return { beautifyStreamName: (s)=>s.name||'Stream', shouldShowOriginTags: ()=>false, buildContentTitle: ()=>'Content' }; }
+  catch { 
+    console.log('⚠️  WARNING: core/format.js failed to load, using fallbacks');
+    return { 
+      beautifyStreamName: (s) => s.name || 'Stream', 
+      shouldShowOriginTags: () => false, 
+      buildContentTitle: (metaName, stream, opts) => {
+        // Fallback content title builder
+        const quality = (() => {
+          const t = ((stream?.title||'') + ' ' + (stream?.name||'')).toLowerCase();
+          if (/\b(2160p|2160|4k|uhd)\b/.test(t)) return ' - 4K';
+          if (/\b(1080p|1080|fhd)\b/.test(t)) return ' - 1080p';
+          if (/\b(720p|720|hd)\b/.test(t)) return ' - 720p';
+          if (/\b(480p|480|sd)\b/.test(t)) return ' - 480p';
+          return '';
+        })();
+        return (metaName || 'Content') + quality;
+      }
+    }; 
+  }
 })();
 
 const seriesCache = (() => {
@@ -547,7 +565,7 @@ function startServer(port = PORT) {
         return res.end('<!DOCTYPE html><html><head><title>AutoStream</title></head><body><h1>AutoStream Addon</h1><p>Running and ready.</p></body></html>');
       }
       
-      if (pathname === '/status') return writeJson(res, { status: 'ok', addon: 'AutoStream', version: '3.2.3' }, 200);
+      if (pathname === '/status') return writeJson(res, { status: 'ok', addon: 'AutoStream', version: '3.2.4' }, 200);
 
       // Penalty reliability API endpoints
       if (pathname === '/reliability/stats') {
@@ -615,6 +633,12 @@ function startServer(port = PORT) {
 
       if (pathname === '/manifest.json') {
         const paramsObj = Object.fromEntries(q.entries());
+        
+        // Enhanced logging for configuration debugging
+        if (Object.keys(paramsObj).length > 0) {
+          console.log('� MANIFEST: Saving configuration with params:', Object.keys(paramsObj));
+        }
+        
         const remembered = {};
         for (const [k, v] of Object.entries(paramsObj)) if (REMEMBER_KEYS.has(k)) remembered[k] = String(v);
         remembered.ad = remembered.ad || remembered.apikey || remembered.alldebrid || remembered.ad_apikey || MANIFEST_DEFAULTS.ad || '';
@@ -717,7 +741,7 @@ function startServer(port = PORT) {
         
         const manifest = {
           id: 'com.stremio.autostream.addon',
-          version: '3.2.3',
+          version: '3.2.4',
           name: tag ? `AutoStream (${tag})` : 'AutoStream',
           description: 'Curated best-pick streams with optional debrid; Nuvio direct-host supported.',
           logo: 'https://github.com/keypop3750/AutoStream/blob/main/logo.png?raw=true',
@@ -857,14 +881,57 @@ function startServer(port = PORT) {
         finalMeta = await Promise.race([
           metaPromise,
           new Promise((resolve) => setTimeout(() => resolve({
-            name: id.startsWith('tt') ? `Title ${id}` : id, 
+            name: 'TIMEOUT_FALLBACK', // Signal that we timed out
             season: null, 
             episode: null 
-          }), 1000)) // Fallback after 1 second
+          }), 2500)) // Back to 2.5 seconds for better performance
         ]);
+        
+        log(`🔧 Metadata result: name="${finalMeta.name}", timeout=${finalMeta.name === 'TIMEOUT_FALLBACK'}`);
+        
+        // If we timed out or got bad metadata, try to extract from streams
+        if (finalMeta && (finalMeta.name === 'TIMEOUT_FALLBACK' || finalMeta.name === 'Content' || finalMeta.name?.startsWith('Content ') || finalMeta.name?.startsWith('Title ') || !finalMeta.name || finalMeta.name === actualId || finalMeta.name.startsWith('tt'))) {
+          log(`🔧 Attempting to extract title from streams (current: "${finalMeta.name}")`);
+          
+          // For series, try to get the base show name from any stream
+          const allStreams = [...fromTorrentio, ...fromTPB, ...fromNuvio];
+          if (allStreams.length > 0 && type === 'series') {
+            // Look for common patterns in stream names to extract show title
+            const streamTitles = allStreams.slice(0, 5).map(s => s.title || s.name || '').filter(Boolean);
+            log(`🔍 Sample stream titles for extraction: ${streamTitles.slice(0, 3).join(' | ')}`);
+            
+            if (streamTitles.length > 0) {
+              // Try to extract show name from first few stream titles
+              for (const title of streamTitles.slice(0, 3)) {
+                let extractedName = title;
+                
+                // Remove season/episode info first
+                extractedName = extractedName.replace(/\b(S\d+E\d+|Season \d+|Episode \d+)\b.*$/i, '').trim();
+                extractedName = extractedName.replace(/\b\d{4}\b.*$/, '').trim(); // Remove year and everything after
+                extractedName = extractedName.replace(/\b(1080p|720p|4K|2160p|HDR|HEVC|x264|x265).*$/i, '').trim();
+                extractedName = extractedName.replace(/\[[^\]]*\].*$/, '').trim(); // Remove [group] tags
+                extractedName = extractedName.replace(/\([^)]*\).*$/, '').trim(); // Remove (year) etc
+                extractedName = extractedName.replace(/\b(Complete|Collection|Pack)\b.*$/i, '').trim(); // Remove pack info
+                
+                if (extractedName && extractedName.length > 3 && !extractedName.match(/^\d+$/) && !extractedName.startsWith('tt')) {
+                  finalMeta.name = extractedName;
+                  log(`🎯 Extracted title from streams: "${extractedName}"`);
+                  break;
+                }
+              }
+            }
+          }
+          
+          // If extraction failed for series, try a different approach based on the ID
+          if ((finalMeta.name === 'FALLBACK_NEEDED' || finalMeta.name === 'Content' || finalMeta.name.startsWith('tt')) && id.includes(':')) {
+            const [baseId] = id.split(':');
+            finalMeta.name = `Series ${baseId.replace('tt', '')}`;
+            log(`🆔 Using ID-based fallback: "${finalMeta.name}"`);
+          }
+        }
       } catch (e) {
         finalMeta = { 
-          name: id.startsWith('tt') ? `Title ${id}` : id, 
+          name: type === 'series' ? `Series ${id.replace('tt', '').split(':')[0]}` : 'Content', 
           season: null, 
           episode: null 
         };

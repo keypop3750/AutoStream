@@ -47,7 +47,7 @@ async function fetchMeta(type, id, log) {
     }
     const metaUrl = BASE_CINEMETA + '/' + type + '/' + imdb + '.json';
     log('Fetch meta:', metaUrl);
-    const res = await fetchWithTimeout(metaUrl, { method: 'GET' }, 1500); // Reduce to 1.5s for faster response
+    const res = await fetchWithTimeout(metaUrl, { method: 'GET' }, 1500); // Keep 1.5s timeout
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const json = await res.json();
     const name = json.meta && json.meta.name ? json.meta.name : imdb;

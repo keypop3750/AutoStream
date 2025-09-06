@@ -350,9 +350,10 @@ function rerender(){
     manifestEl.textContent = redacted;
     const q = url.split('?')[1] || '';
     
-    // Simple setup - use stremio:// for app install, http for web
-    const stremioUrl = 'stremio://' + url.replace(/^https?:\/\//, '');
-    const httpUrl = url;
+    // Back to simple working URLs with configuration parameters
+    const configuredUrl = buildUrl();
+    const stremioUrl = 'stremio://' + configuredUrl.replace(/^https?:\/\//, '');
+    const httpUrl = configuredUrl;
     
     appBtn.href = stremioUrl;
     webBtn.href = httpUrl;
@@ -368,10 +369,13 @@ function rerender(){
   rerender();
 
   appBtn.addEventListener('click', function(e){
-    // Simple click handler - just update href with fresh URL
+    // Back to simple, working method - just update href with fresh config URL
     const freshUrl = buildUrl();
     const stremioUrl = 'stremio://' + freshUrl.replace(/^https?:\/\//, '');
     appBtn.href = stremioUrl;
+    
+    // Let default behavior handle the navigation
+    return true;
   });
 
   // ==================================================

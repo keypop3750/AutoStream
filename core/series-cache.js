@@ -44,6 +44,46 @@ async function preloadNextEpisode(type, currentId, fetchFunction) {
   try {
     console.log(`Preloading next episode: ${nextId}`);
     
+    // First, validate that the next episode exists by checking metadata
+    try {
+      // For series episodes, get the full series metadata to check episode list
+      const baseId = nextId.split(':')[0]; // Extract tt14016500 from tt14016500:1:2
+      const metaUrl = `https://v3-cinemeta.strem.io/meta/${type}/${baseId}.json`;
+      const metaResponse = await fetch(metaUrl, { timeout: 5000 });
+      if (!metaResponse.ok || metaResponse.status === 404) {
+        console.log(`🚫 Series ${baseId} doesn't exist, skipping preload`);
+        return;
+      }
+      
+      // Parse the series metadata to check if the specific episode exists
+      const metaData = await metaResponse.json();
+      const seriesMeta = metaData?.meta;
+      
+      if (!seriesMeta || !seriesMeta.videos) {
+        console.log(`🚫 No episodes data for series ${baseId}, skipping preload`);
+        return;
+      }
+      
+      // Check if the specific next episode exists in the series
+      const [, targetSeason, targetEpisode] = nextId.match(/^[^:]+:(\d+):(\d+)$/);
+      const episodeExists = seriesMeta.videos.some(video => {
+        const videoMatch = video.id?.match(/^[^:]+:(\d+):(\d+)$/);
+        if (!videoMatch) return false;
+        const [, videoSeason, videoEpisode] = videoMatch;
+        return parseInt(videoSeason) === parseInt(targetSeason) && parseInt(videoEpisode) === parseInt(targetEpisode);
+      });
+      
+      if (!episodeExists) {
+        console.log(`🚫 Episode S${targetSeason}E${targetEpisode} does not exist for series ${baseId}, skipping preload`);
+        return;
+      }
+      
+      console.log(`✅ Episode S${targetSeason}E${targetEpisode} exists for series ${baseId}, attempting preload of ${nextId}`);
+    } catch (metaError) {
+      console.log(`🚫 Cannot validate episode existence for ${nextId}, skipping preload:`, metaError.message);
+      return;
+    }
+    
     // Fetch streams for next episode in background
     const streams = await fetchFunction(type, nextId);
     

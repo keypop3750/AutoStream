@@ -1,7 +1,32 @@
 #!/usr/bin/env node
 /**
  * Enhanced Metadata Service with ID Validation
- * Implements comprehensive metadata fetching with ID correction
+ * Implements com    // Step 1: Validate and potentially correct IMDB ID
+    const validationResult = await validateAndCorrectIMDBID(originalId);
+    const validatedId = validationResult.id;
+    const idChanged = validatedId !== originalId;
+    
+    // If validation already fetched metadata, use it
+    if (validationResult.meta) {
+      log(`🎯 Using metadata from validation: "${validationResult.meta.name}"`);
+      
+      const enhancedMeta = {
+        ...validationResult.meta,
+        _originalId: originalId,
+        _correctedId: idChanged ? validatedId : null,
+        _fetchedAt: new Date().toISOString()
+      };
+      
+      // Cache successful result
+      metaCache.set(cacheKey, {
+        data: enhancedMeta,
+        timestamp: Date.now()
+      });
+      
+      return enhancedMeta;
+    }
+    
+    // If no cached metadata from validation, fetch it separatelyhensive metadata fetching with ID correction
  */
 
 const { fetchWithTimeout } = require('../utils/http');
@@ -40,12 +65,18 @@ async function validateAndCorrectIMDBID(id, expectedTitle = null) {
   
   // Step 2: Validate metadata exists and is reasonable
   try {
-    const metaUrl = `https://v3-cinemeta.strem.io/meta/series/${id}.json`;
+    // For series, extract base ID (tt13406094:1:1 -> tt13406094)
+    let metaId = id;
+    if (id.includes(':')) {
+      metaId = id.split(':')[0]; // Get base IMDB ID for series
+    }
+    
+    const metaUrl = `https://v3-cinemeta.strem.io/meta/series/${metaId}.json`;
     const result = await fetchJson(metaUrl, 10000);
     
     if (result.error) {
-      console.log(`❌ Metadata validation failed: ${result.error}`);
-      return id; // Return original if validation fails
+      console.log(`❌ Metadata validation failed: ${result.error} (using base ID: ${metaId})`);
+      return { id }; // Return original if validation fails
     }
     
     const meta = result.meta;
@@ -61,13 +92,15 @@ async function validateAndCorrectIMDBID(id, expectedTitle = null) {
       }
     } else {
       console.log(`✅ Valid metadata: "${meta.name}" (${meta.year})`);
+      // Return both the ID and the fetched metadata to avoid duplicate fetches
+      return { id, meta, metaUrl };
     }
     
-    return id; // Return original ID if validation passes
+    return { id }; // Return original ID if validation passes but no meta cached
     
   } catch (error) {
-    console.log(`❌ ID validation error: ${error.message}`);
-    return id; // Return original on error
+    console.log(`❌ Metadata fetch error: ${error.message} (episode may not exist in Cinemeta database)`);
+    return { id }; // Return original on error
   }
 }
 
@@ -83,18 +116,26 @@ async function fetchEnhancedMeta(type, originalId, log = () => {}) {
   
   try {
     // Step 1: Validate and potentially correct the ID
-    const validatedId = await validateAndCorrectIMDBID(originalId);
+    const validationResult = await validateAndCorrectIMDBID(originalId);
+    const validatedId = validationResult.id;
+    const validatedMeta = validationResult.meta; // Get the already-fetched metadata
     const idChanged = validatedId !== originalId;
     
     if (idChanged) {
       log(`🔧 ID corrected: ${originalId} → ${validatedId}`);
     }
     
-    // Step 2: Fetch metadata with corrected ID
-    const metaUrl = `https://v3-cinemeta.strem.io/meta/${type}/${validatedId}.json`;
-    log(`📡 Fetching metadata from: ${metaUrl}`);
-    
-    const result = await fetchJson(metaUrl, 15000);
+    // Step 2: Use already-fetched metadata if available, otherwise fetch it
+    let result;
+    if (validatedMeta) {
+      log(`🎯 Using already-validated metadata: "${validatedMeta.name}"`);
+      result = { meta: validatedMeta };
+    } else {
+      // Fetch metadata with corrected ID
+      const metaUrl = `https://v3-cinemeta.strem.io/meta/${type}/${validatedId.split(':')[0]}.json`;
+      log(`📡 Fetching metadata from: ${metaUrl}`);
+      result = await fetchJson(metaUrl, 15000);
+    }
     
     if (result.error) {
       log(`❌ Metadata fetch failed: ${result.error}`);
