@@ -25,6 +25,7 @@ class AllDebridRateLimiter {
     this.requests = new Map(); // API key -> request timestamps array
     this.maxRequestsPerMinute = 30; // Conservative limit for AllDebrid API
     this.maxRequestsPerHour = 1000; // Conservative hourly limit
+    this.maxCacheSize = 200; // Limit cache size to prevent memory leaks
     this.cleanupInterval = setInterval(() => this.cleanup(), 60000); // Cleanup every minute
   }
   
@@ -57,12 +58,36 @@ class AllDebridRateLimiter {
   
   cleanup() {
     const now = Date.now();
+    const keysToDelete = [];
+    
     for (const [apiKey, requests] of this.requests.entries()) {
       const recentRequests = requests.filter(timestamp => now - timestamp < 3600000);
       if (recentRequests.length === 0) {
-        this.requests.delete(apiKey);
+        keysToDelete.push(apiKey);
       } else {
         this.requests.set(apiKey, recentRequests);
+      }
+    }
+    
+    // Delete empty entries
+    keysToDelete.forEach(key => this.requests.delete(key));
+    
+    // If still too large, remove oldest entries to prevent memory leaks
+    if (this.requests.size > this.maxCacheSize) {
+      const entries = Array.from(this.requests.entries());
+      const toRemove = entries
+        .sort((a, b) => {
+          const lastRequestA = Math.max(...a[1]);
+          const lastRequestB = Math.max(...b[1]);
+          return lastRequestA - lastRequestB; // Oldest first
+        })
+        .slice(0, this.requests.size - this.maxCacheSize)
+        .map(entry => entry[0]);
+      
+      toRemove.forEach(key => this.requests.delete(key));
+      
+      if (toRemove.length > 0) {
+        console.log(`[MEMORY] Cleaned ${toRemove.length} entries from rate limiter cache, size now: ${this.requests.size}`);
       }
     }
   }
@@ -85,6 +110,10 @@ class AllDebridCircuitBreaker {
     this.failures = new Map(); // API key -> failure count and timestamps
     this.maxFailures = 5; // Max failures before circuit opens
     this.resetTime = 300000; // 5 minutes before attempting reset
+    this.maxCacheSize = 200; // Limit cache size to prevent memory leaks
+    
+    // Periodic cleanup to prevent memory leaks
+    setInterval(() => this.cleanup(), 10 * 60 * 1000); // Clean every 10 minutes
   }
   
   async checkCircuit(apiKey) {
@@ -125,6 +154,36 @@ class AllDebridCircuitBreaker {
     
     this.failures.set(apiKey, failures);
   }
+  
+  cleanup() {
+    const now = Date.now();
+    const keysToDelete = [];
+    
+    // Remove entries that are past reset time (expired)
+    for (const [apiKey, failures] of this.failures.entries()) {
+      if (now - failures.lastFailure > this.resetTime) {
+        keysToDelete.push(apiKey);
+      }
+    }
+    
+    keysToDelete.forEach(key => this.failures.delete(key));
+    
+    // If still too large, remove oldest entries to prevent memory leaks
+    if (this.failures.size > this.maxCacheSize) {
+      const entries = Array.from(this.failures.entries());
+      const toRemove = entries
+        .sort((a, b) => a[1].lastFailure - b[1].lastFailure) // Oldest first
+        .slice(0, this.failures.size - this.maxCacheSize)
+        .map(entry => entry[0]);
+      
+      toRemove.forEach(key => this.failures.delete(key));
+      
+      if (toRemove.length > 0) {
+        console.log(`[MEMORY] Cleaned ${toRemove.length} entries from circuit breaker cache, size now: ${this.failures.size}`);
+      }
+    }
+  }
+}
 }
 
 // Global circuit breaker instance
@@ -255,6 +314,37 @@ const sleep = (ms)=> new Promise(r=>setTimeout(r, ms));
 
 // Simple cache to avoid re-resolving the same magnet multiple times
 const resolveCache = new Map();
+const MAX_RESOLVE_CACHE_SIZE = 500; // Limit cache size to prevent memory leaks
+
+// Periodic cache cleanup for resolve cache
+setInterval(() => {
+  const now = Date.now();
+  let cleanedCount = 0;
+  
+  // Clean expired entries (older than 5 minutes)
+  for (const [key, value] of resolveCache.entries()) {
+    if (now - value.timestamp > 300000) { // 5 minutes
+      resolveCache.delete(key);
+      cleanedCount++;
+    }
+  }
+  
+  // If still too large, remove oldest entries (LRU-style)
+  if (resolveCache.size > MAX_RESOLVE_CACHE_SIZE) {
+    const entries = Array.from(resolveCache.entries());
+    const toRemove = entries
+      .sort((a, b) => a[1].timestamp - b[1].timestamp) // Sort by timestamp (oldest first)
+      .slice(0, resolveCache.size - MAX_RESOLVE_CACHE_SIZE)
+      .map(entry => entry[0]);
+    
+    toRemove.forEach(key => resolveCache.delete(key));
+    cleanedCount += toRemove.length;
+  }
+  
+  if (cleanedCount > 0) {
+    console.log(`[MEMORY] Cleaned ${cleanedCount} entries from resolve cache, size now: ${resolveCache.size}`);
+  }
+}, 15 * 60 * 1000); // Clean every 15 minutes
 
 async function handlePlay(req, res, defaults = {}) {
   // Generate unique request ID for proper isolation

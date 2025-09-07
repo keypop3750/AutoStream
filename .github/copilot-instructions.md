@@ -9,12 +9,13 @@ This allows you to run PowerShell/cmd commands in the main terminal without inte
 
 ## Architecture Overview
 
-AutoStream is a **Stremio addon** that aggregates and intelligently selects the best streaming sources. The system follows a **layered service architecture**:
+AutoStream is a **Stremio addon** that aggregates and intelligently selects the best streaming sources. The system follows a **layered service architecture** with **comprehensive memory management**:
 
-- **Server Layer** (`server.js`): Main HTTP server handling Stremio manifest/stream requests
-- **Services Layer** (`services/`): Stream aggregation, debrid integration, reliability tracking
-- **Core Layer** (`core/`): Scoring algorithms, filtering, post-processing
+- **Server Layer** (`server.js`): Main HTTP server with memory monitoring, cache management, and request isolation
+- **Services Layer** (`services/`): Stream aggregation, debrid integration, reliability tracking, enhanced metadata
+- **Core Layer** (`core/`): Scoring algorithms, filtering, episode caching, content formatting
 - **UI Layer** (`ui/`): Configuration interface with client-side state management
+- **Utils Layer** (`utils/`): TTL caches, HTTP utilities, ID correction systems
 
 ## Key Architectural Patterns
 
@@ -28,7 +29,37 @@ const scoringMod = (() => {
 ```
 **Critical Pattern**: Always provide fallback functions to prevent crashes when optional modules are missing.
 
-### 2. Multi-Source Stream Aggregation
+### 2. Memory Management with Size Limits
+All Map/Cache structures MUST have size limits to prevent memory leaks:
+```js
+// TTL Cache with size limit
+const cache = new TTLCache({ max: 1000, ttlMs: 60 * 60 * 1000 });
+
+// Map with manual cleanup
+class RateLimiter {
+  constructor(maxRequests = 50, maxCacheSize = 200) {
+    this.requests = new Map();
+    this.maxCacheSize = maxCacheSize;
+    setInterval(() => this.cleanup(), 60000); // Periodic cleanup
+  }
+  cleanup() {
+    if (this.requests.size > this.maxCacheSize) {
+      // LRU cleanup logic
+    }
+  }
+}
+```
+
+### 3. Episode Metadata with Base ID Resolution
+**Critical**: Series metadata must use base IMDB ID, not episode-specific ID:
+```js
+// WRONG: Fetch metadata for tt14452776:2:1
+// RIGHT: Extract base ID first
+const baseId = id.split(':')[0]; // tt14452776:2:1 → tt14452776
+const metaUrl = `https://v3-cinemeta.strem.io/meta/series/${baseId}.json`;
+```
+
+### 4. Multi-Source Stream Aggregation
 The system fetches from multiple providers **in parallel**:
 ```js
 const [fromTorrentio, fromTPB, fromNuvio] = await Promise.all([
@@ -39,7 +70,7 @@ const [fromTorrentio, fromTPB, fromNuvio] = await Promise.all([
 ```
 Each source is **tagged** with origin (`torrentio`, `tpb`, `nuvio`) for scoring and filtering.
 
-### 3. Click-Time Debrid Resolution
+### 5. Click-Time Debrid Resolution
 **Critical**: Torrents are NOT pre-resolved during `/stream` requests. Instead, they're wrapped with `/play?ih=...` URLs that resolve to debrid services only when clicked:
 ```js
 // Step 3: Convert selected torrents to debrid URLs ONLY
@@ -51,6 +82,130 @@ if (adParam && selectedStreams.length > 0) {
   }
 }
 ```
+
+### 6. Episode Processing with Smart Filtering
+Episodes require season/episode extraction and validation:
+```js
+// Extract season/episode from ID: tt14452776:2:1 → S2E1
+const [season, episode] = id.split(':').slice(1).map(n => parseInt(n));
+
+// Pre-filter streams for correct episode before scoring
+const episodeStreams = allStreams.filter(stream => {
+  const name = (stream.title || stream.name || '').toLowerCase();
+  // Match S02E01, s2e1, 2x01, etc.
+  const patterns = [
+    new RegExp(`s0?${season}e0?${episode}\\b`, 'i'),
+    new RegExp(`season\\s*0?${season}.*episode\\s*0?${episode}\\b`, 'i')
+  ];
+  return patterns.some(p => p.test(name));
+});
+```
+
+## Advanced Features
+
+### Episode Detection System
+The system implements sophisticated episode filtering with multiple regex patterns:
+```js
+// Episode patterns (server.js)
+const patterns = [
+  new RegExp(`s0*${seasonNum}\\s*e0*${episodeNum}(?:\\s|\\.|$)`, 'i'), // S01E04, s1e4
+  new RegExp(`season\\s*0*${seasonNum}\\s*episode\\s*0*${episodeNum}`, 'i'), // Season 1 Episode 4
+  new RegExp(`${seasonNum}x0*${episodeNum}(?:\\s|\\.|$)`, 'i'), // 1x04
+  new RegExp(`s0*${seasonNum}\\s.*(complete|pack|collection)`, 'i'), // Season packs
+  new RegExp(`s0*${seasonNum}.*e0*${episodeNum}`, 'i') // Flexible S##E## matching
+];
+```
+**Testing**: Use `node test_episode_matching.js` to validate episode filtering across multiple series.
+
+### IMDB ID Validation & Correction
+Critical system for fixing common ID mapping issues:
+```js
+// utils/id-correction.js
+const ID_CORRECTIONS = {
+  'tt13623136': 'tt13159924', // Gen V fix: Marvel Guardians -> Gen V
+};
+
+// Enhanced metadata service validates IDs before fetching
+const validationResult = await validateAndCorrectIMDBID(originalId);
+if (validationResult.meta) {
+  // Use already-fetched metadata to avoid duplicate requests
+  return validationResult.meta;
+}
+```
+**Key Point**: Series metadata always uses base IMDB ID (`tt14452776:2:1` → fetch `tt14452776`).
+
+### Additional Stream System
+Provides secondary stream option with smart resolution targeting:
+```js
+// Always process both streams, control visibility at the end
+if (allScoredStreams.length > 1) {
+  const primary = streams[0];
+  const pRes = resOf(primary); // Get resolution
+  
+  // Target resolution logic: 4K → 1080p, 1080p → 720p
+  let targetRes = pRes >= 2160 ? 1080 : (pRes >= 1080 ? 720 : 480);
+  
+  // Find different resolution stream
+  const additional = findStreamWithResolution(targetRes, allScoredStreams);
+}
+```
+**Configuration**: Controlled by `?additionalstream=1` parameter and UI toggle.
+
+### Blacklist Host System
+User-configurable host filtering with persistence:
+```js
+// UI: Max 500 hosts to prevent memory issues
+const MAX_BLACKLIST = 500;
+
+// Server: Apply blacklist during stream filtering
+combined = combined.filter(stream => {
+  const streamText = [stream.name, stream.title, stream.url].join(' ').toLowerCase();
+  return !blacklistTerms.some(term => streamText.includes(term.toLowerCase()));
+});
+```
+**Storage**: Persisted in localStorage as comma-separated list.
+
+### Penalty-Based Reliability System
+Robust failure tracking with permanent learning:
+```js
+// services/penaltyReliability.js
+class PenaltyReliability {
+  markFail(url) {
+    const host = this.hostFromUrl(url);
+    const newPenalty = Math.min(currentPenalty + 50, 500); // Max 500 points
+    hostPenalties.set(host, newPenalty);
+  }
+  
+  markOk(url) {
+    const newPenalty = Math.max(0, currentPenalty - 50); // Recovery
+    if (newPenalty === 0) hostPenalties.delete(host);
+  }
+}
+```
+**Key Features**: 
+- Persistent penalties (-50 per failure, +50 per success)
+- No time-based expiry, no permanent bans
+- Management UI with clear individual/all penalties
+- API endpoints: `/reliability/stats`, `/reliability/clear`
+
+### Cache Clearing on Install
+Automatic cache management when addon is installed/restarted:
+```js
+// server.js startup
+function clearEpisodeCaches() {
+  // Clear metadata cache (6h TTL)
+  enhancedMeta.clearMetadataCache();
+  
+  // Clear series episode cache (60min TTL) 
+  seriesCache.clearSeriesCache();
+  
+  // Clear AllDebrid API validation cache
+  adKeyValidationCache.clear();
+  
+  // Preserve penalty data for reliability system
+}
+```
+**Critical**: Penalty data is preserved across restarts to maintain reliability learning.
 
 ## Stream Scoring System (V6)
 
@@ -167,6 +322,35 @@ const scoringOptions = { debug: true }; // Shows detailed score breakdown
 - **Cleanup timers**: Automatic cleanup every hour
 
 ## Testing Patterns
+
+### Memory Leak Testing
+Use the built-in memory test to validate cache limits:
+```powershell
+node --expose-gc server.js  # Enable garbage collection
+node test_memory_leak.js    # Run 100 requests, monitor heap usage
+```
+**Target**: Stable heap under 50MB for production use.
+
+### Episode Matching Validation
+Test episode filtering with known series:
+```powershell
+node test_episode_matching.js  # Tests multiple series episodes
+```
+**Coverage**: Tests both primary and additional streams across multiple series.
+
+### Penalty System Testing
+API endpoints for reliability system management:
+```powershell
+# View penalty statistics
+Invoke-RestMethod -Uri "http://localhost:7010/reliability/stats"
+
+# View all penalized hosts
+Invoke-RestMethod -Uri "http://localhost:7010/reliability/penalties"
+
+# Clear all penalties
+$body = @{} | ConvertTo-Json
+Invoke-RestMethod -Uri "http://localhost:7010/reliability/clear" -Method Post -Body $body -ContentType "application/json"
+```
 
 ### Stream Source Mocking
 When testing, services use fallback patterns:

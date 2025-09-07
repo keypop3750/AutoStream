@@ -113,10 +113,19 @@ function getPreloadStats() {
   };
 }
 
+// Function to clear series cache (called on addon restart/install)
+function clearSeriesCache() {
+  const size = seriesCache.map.size;
+  seriesCache.map.clear();
+  console.log(`🧹 Cleared series cache: ${size} entries removed`);
+  return size;
+}
+
 module.exports = {
   preloadNextEpisode,
   getCachedEpisode, 
   shouldPreloadNext,
   getPreloadStats,
-  parseSeriesId
+  parseSeriesId,
+  clearSeriesCache
 };

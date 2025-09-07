@@ -231,6 +231,84 @@ const REMEMBER_KEYS = new Set([
 // Cache for AllDebrid API key validation
 const adKeyValidationCache = new Map(); // key -> { isValid: boolean, timestamp: number }
 
+// Periodic cache cleanup to prevent memory leaks
+setInterval(() => {
+  const now = Date.now();
+  const maxAge = 10 * 60 * 1000; // 10 minutes
+  
+  // Clean AllDebrid API key validation cache
+  for (const [key, value] of adKeyValidationCache.entries()) {
+    if (now - value.timestamp > maxAge) {
+      adKeyValidationCache.delete(key);
+    }
+  }
+  
+  // Force garbage collection if available and memory is high
+  const memUsage = process.memoryUsage();
+  const heapUsedMB = Math.round(memUsage.heapUsed / 1024 / 1024);
+  const rssMB = Math.round(memUsage.rss / 1024 / 1024);
+  
+  if (heapUsedMB > 200) { // Alert if over 200MB
+    console.log(`⚠️  High memory usage: ${heapUsedMB}MB heap, ${rssMB}MB RSS`);
+    
+    // Force garbage collection if available (requires --expose-gc flag)
+    if (global.gc && heapUsedMB > 300) {
+      console.log(`🧹 Forcing garbage collection...`);
+      global.gc();
+      
+      const afterGC = process.memoryUsage();
+      const newHeapMB = Math.round(afterGC.heapUsed / 1024 / 1024);
+      console.log(`🧹 After GC: ${newHeapMB}MB heap (freed ${heapUsedMB - newHeapMB}MB)`);
+    }
+  }
+}, 5 * 60 * 1000); // Run every 5 minutes
+
+// ============ CACHE MANAGEMENT ============
+
+// Function to clear episode and metadata caches (preserves penalty data)
+function clearEpisodeCaches() {
+  let totalCleared = 0;
+  
+  try {
+    // Clear enhanced metadata cache
+    const enhancedMeta = (() => {
+      try { return require('./services/enhanced_meta'); }
+      catch { return null; }
+    })();
+    
+    if (enhancedMeta && enhancedMeta.clearMetadataCache) {
+      totalCleared += enhancedMeta.clearMetadataCache();
+    }
+    
+    // Clear series episode cache  
+    const seriesCache = (() => {
+      try { return require('./core/series-cache'); }
+      catch { return null; }
+    })();
+    
+    if (seriesCache && seriesCache.clearSeriesCache) {
+      totalCleared += seriesCache.clearSeriesCache();
+    }
+    
+    // Clear AllDebrid API key validation cache (for fresh authentication)
+    const adCacheSize = adKeyValidationCache.size;
+    adKeyValidationCache.clear();
+    
+    if (adCacheSize > 0) {
+      console.log(`🧹 Cleared AllDebrid validation cache: ${adCacheSize} entries removed`);
+      totalCleared += adCacheSize;
+    }
+    
+    if (totalCleared > 0) {
+      console.log(`🎯 Cache clearing complete: ${totalCleared} total entries cleared`);
+      console.log(`⚠️  Note: Penalty/reliability data preserved for service stability`);
+    }
+    
+  } catch (error) {
+    console.error('Error during cache clearing:', error.message);
+  }
+}
+
 // utils
 function setCors(res) {
   try {
@@ -565,7 +643,7 @@ function startServer(port = PORT) {
         return res.end('<!DOCTYPE html><html><head><title>AutoStream</title></head><body><h1>AutoStream Addon</h1><p>Running and ready.</p></body></html>');
       }
       
-      if (pathname === '/status') return writeJson(res, { status: 'ok', addon: 'AutoStream', version: '3.2.4' }, 200);
+      if (pathname === '/status') return writeJson(res, { status: 'ok', addon: 'AutoStream', version: '3.3.0' }, 200);
 
       // Penalty reliability API endpoints
       if (pathname === '/reliability/stats') {
@@ -741,7 +819,7 @@ function startServer(port = PORT) {
         
         const manifest = {
           id: 'com.stremio.autostream.addon',
-          version: '3.2.4',
+          version: '3.3.0',
           name: tag ? `AutoStream (${tag})` : 'AutoStream',
           description: 'Curated best-pick streams with optional debrid; Nuvio direct-host supported.',
           logo: 'https://github.com/keypop3750/AutoStream/blob/main/logo.png?raw=true',
@@ -852,7 +930,9 @@ function startServer(port = PORT) {
       const blacklistTerms = blacklistStr ? blacklistStr.split(',').map(t => t.trim()).filter(Boolean) : [];
 
       // Fetch metadata for proper titles (async, don't block stream fetching)
-      const metaPromise = fetchMeta(type, actualId, (msg) => log('Meta: ' + msg, 'verbose'));
+      // For series episodes, fetch metadata using base series ID (without :season:episode)
+      const metaId = type === 'series' ? actualId.split(':')[0] : actualId;
+      const metaPromise = fetchMeta(type, metaId, (msg) => log('Meta: ' + msg, 'verbose'));
 
       // which sources
       const dhosts = String(getQ(q,'dhosts') || MANIFEST_DEFAULTS.dhosts || '').toLowerCase().split(',').map(s=>s.trim()).filter(Boolean);
@@ -904,19 +984,38 @@ function startServer(port = PORT) {
               // Try to extract show name from first few stream titles
               for (const title of streamTitles.slice(0, 3)) {
                 let extractedName = title;
+                log(`🔍 Processing stream title: "${title}"`);
                 
-                // Remove season/episode info first
-                extractedName = extractedName.replace(/\b(S\d+E\d+|Season \d+|Episode \d+)\b.*$/i, '').trim();
-                extractedName = extractedName.replace(/\b\d{4}\b.*$/, '').trim(); // Remove year and everything after
-                extractedName = extractedName.replace(/\b(1080p|720p|4K|2160p|HDR|HEVC|x264|x265).*$/i, '').trim();
-                extractedName = extractedName.replace(/\[[^\]]*\].*$/, '').trim(); // Remove [group] tags
-                extractedName = extractedName.replace(/\([^)]*\).*$/, '').trim(); // Remove (year) etc
-                extractedName = extractedName.replace(/\b(Complete|Collection|Pack)\b.*$/i, '').trim(); // Remove pack info
+                // First, try to extract the show name part before season/episode info
+                let showNameMatch = title.match(/^([^\.]+?)[\.\s]+s\d+e\d+/i);
+                if (showNameMatch) {
+                  extractedName = showNameMatch[1].replace(/\./g, ' ').trim();
+                  log(`🎯 Extracted from S##E## pattern: "${extractedName}"`);
+                } else {
+                  // Fallback: remove everything after season/episode markers
+                  extractedName = extractedName.replace(/\b(S\d+E\d+|Season \d+|Episode \d+)\b.*$/i, '').trim();
+                  extractedName = extractedName.replace(/\b\d{4}\b.*$/, '').trim(); // Remove year and everything after
+                  extractedName = extractedName.replace(/\b(1080p|720p|4K|2160p|HDR|HEVC|x264|x265).*$/i, '').trim();
+                  extractedName = extractedName.replace(/\[[^\]]*\].*$/, '').trim(); // Remove [group] tags
+                  extractedName = extractedName.replace(/\([^)]*\).*$/, '').trim(); // Remove (year) etc
+                  extractedName = extractedName.replace(/\b(Complete|Collection|Pack)\b.*$/i, '').trim(); // Remove pack info
+                  // Clean up dots and dashes
+                  extractedName = extractedName.replace(/[\.\-_]+/g, ' ').replace(/\s+/g, ' ').trim();
+                  log(`🔍 Cleaned title: "${extractedName}"`);
+                }
                 
-                if (extractedName && extractedName.length > 3 && !extractedName.match(/^\d+$/) && !extractedName.startsWith('tt')) {
+                // Validate the extracted name
+                if (extractedName && extractedName.length > 2 && !extractedName.match(/^\d+$/) && !extractedName.startsWith('tt') && !extractedName.match(/^(web|hdtv|bluray|dvd)$/i)) {
+                  // Capitalize properly
+                  extractedName = extractedName.split(' ').map(word => 
+                    word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
+                  ).join(' ');
+                  
                   finalMeta.name = extractedName;
-                  log(`🎯 Extracted title from streams: "${extractedName}"`);
+                  log(`🎯 Successfully extracted title: "${extractedName}"`);
                   break;
+                } else {
+                  log(`❌ Rejected extracted name: "${extractedName}" (too short, numeric, or invalid)`);
                 }
               }
             }
@@ -965,6 +1064,65 @@ function startServer(port = PORT) {
         .concat(tag(fromNuvio, 'nuvio'));
 
       let beforeFilterCount = combined.length; // Track for cache decision later
+
+      // EPISODE FILTERING: For series, filter streams to only include correct episode BEFORE scoring
+      if (type === 'series' && actualId.includes(':')) {
+        const parts = actualId.split(':');
+        if (parts.length === 3) {
+          const season = parts[1];
+          const episode = parts[2];
+          const seasonNum = parseInt(season);
+          const episodeNum = parseInt(episode);
+          
+          log(`🔍 Pre-filtering for S${seasonNum}E${episodeNum} before scoring...`);
+          
+          const episodeFilteredStreams = combined.filter((stream, index) => {
+            const streamText = `${stream.title || ''} ${stream.name || ''}`.toLowerCase();
+            
+            // Episode matching patterns (same as before but applied earlier)
+            const patterns = [
+              // S01E04, s01e04, S1E4, s1e4
+              new RegExp(`s0*${seasonNum}\\s*e0*${episodeNum}(?:\\s|\\.|$)`, 'i'),
+              // Season 1 Episode 4, season 01 episode 04  
+              new RegExp(`season\\s*0*${seasonNum}\\s*episode\\s*0*${episodeNum}(?:\\s|\\.|$)`, 'i'),
+              // 1x04, 1x4
+              new RegExp(`${seasonNum}x0*${episodeNum}(?:\\s|\\.|$)`, 'i'),
+              // S01 complete/pack (season packs that contain the episode)
+              new RegExp(`s0*${seasonNum}\\s.*(complete|pack|collection)`, 'i'),
+              // Flexible pattern: contains both season and episode numbers
+              new RegExp(`s0*${seasonNum}.*e0*${episodeNum}`, 'i')
+            ];
+            
+            const matches = patterns.map(pattern => pattern.test(streamText));
+            const hasMatch = matches.some(Boolean);
+            
+            // DEBUG: Log first few mismatches to understand the issue
+            if (!hasMatch && index < 3) {
+              log(`� Debug mismatch ${index + 1}: "${streamText}" - Patterns: ${matches.map(m => m ? '✓' : '✗').join('')}`);
+              log(`🔍 Looking for: S${seasonNum}E${episodeNum} (${season}:${episode})`);
+            }
+            
+            // Skip verbose logging for each match - only log mismatches and summary
+            if (!hasMatch && index < 5) {
+              log(`🚫 Pre-filtered: "${streamText.substring(0, 40)}..." (wrong episode)`, 'verbose');
+            }
+            
+            return hasMatch;
+          });
+          
+          const filteredCount = episodeFilteredStreams.length;
+          log(`📊 Episode pre-filter: ${combined.length} → ${filteredCount} streams (removed ${combined.length - filteredCount} wrong episodes)`);
+          
+          combined = episodeFilteredStreams;
+          
+          // Quick validation of final episode selection
+          if (combined.length > 0) {
+            log(`✅ Final episode streams found for S${seasonNum}E${episodeNum}: ${combined.length} streams`);
+          } else {
+            log(`🚨 No episode streams found for S${seasonNum}E${episodeNum} after filtering`);
+          }
+        }
+      }
 
       if (combined.length === 0) {
         log('⚠️  No streams found from any source');
@@ -1266,6 +1424,7 @@ function startServer(port = PORT) {
           
           // Get primary stream identifier for comparison (use infoHash for torrents)
           const primaryId = selectedStreams[0]?.infoHash || selectedStreams[0]?.url;
+          const primaryTorrent = selectedStreams[0]; // Reference to primary for episode matching
           
           // Look through scored streams to find target resolution
           for (const candidate of allScoredStreams.slice(1)) { // Skip first (primary)
@@ -1274,7 +1433,9 @@ function startServer(port = PORT) {
             
             // Make sure it's different content and target resolution
             if (candidateRes === targetRes && candidateId !== primaryId) {
+              // SIMPLIFIED: Since streams are already episode-filtered, just use any valid candidate
               additional = { ...candidate }; // Copy to avoid mutations
+              log(`✅ Found secondary stream: ${candidate.title?.substring(0, 50) || candidate.name?.substring(0, 50) || 'Unknown'}...`);
               break;
             }
           }
@@ -1400,7 +1561,6 @@ function startServer(port = PORT) {
         log(`⚡ Reduced cache time to 5 minutes due to penalties`);
       }
 
-      return writeJson(res, { streams, cacheMaxAge: cacheTime, staleRevalidate: 21600, staleError: 86400 }, 200);
         
         } catch (e) {
           // Defensive error handling - prevent crashes
@@ -1422,6 +1582,9 @@ function startServer(port = PORT) {
   server.listen(port, () => {
     console.log('AutoStream addon running at http://localhost:' + port);
     console.log('Configure at: http://localhost:' + port + '/configure');
+    
+    // Clear episode/metadata caches on startup to ensure fresh data after fixes
+    clearEpisodeCaches();
   });
   return server;
 }

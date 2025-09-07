@@ -111,13 +111,14 @@ function buildContentTitle(metaName, stream, { type, id } = {}) {
   let title = metaName;
   
   // FALLBACK 1: If metaName is missing or looks like raw ID, try to extract from stream
-  if (!title || title.startsWith('Title tt') || title === 'Unknown' || /^tt\d+$/.test(title)) {
-    title = extractContentTitleFromStream(stream, id) || title || 'Content';
-  }
-  
-  // FALLBACK 2: If still looks like ID, use descriptive title based on ID format
-  if (/^tt\d+/.test(title)) {
-    title = buildDescriptiveTitle(id) || title;
+  if (!title || title === 'undefined' || title.startsWith('Title tt') || title === 'Unknown' || /^tt\d+$/.test(title)) {
+    const extracted = extractContentTitleFromStream(stream, id);
+    if (extracted && extracted !== title) {
+      title = extracted;
+    } else {
+      // FALLBACK 2: Use descriptive title based on ID format
+      title = buildDescriptiveTitle(id) || title || 'Content';
+    }
   }
   
   // Add season/episode info for series
@@ -135,19 +136,36 @@ function extractContentTitleFromStream(stream, id) {
   // Try to extract show name from stream title/name
   const text = stream.title || stream.name || '';
   
+  // Clean up the text first - replace dots/underscores with spaces
+  const cleanText = text.replace(/[\._]/g, ' ').replace(/\s+/g, ' ').trim();
+  
   // Look for patterns like "Show Name S01E03" or "Show Name 2023"
   const patterns = [
-    /^([^\(\[]+?)\s*(?:S\d+E\d+|\d{4}|\(\d{4}\))/i,
+    // Pattern 1: Text before S##E## (most common for series)
+    /^(.+?)\s+s(\d+)e(\d+)/i,
+    // Pattern 2: Text before year in parentheses
+    /^([^\(\[]+?)\s*(?:\(\d{4}\)|\[\d{4}\])/i,
+    // Pattern 3: Text before year (4 digits)
+    /^([^\(\[]+?)\s*\d{4}/i,
+    // Pattern 4: Text before dash
     /^([^-]+?)\s*-\s*/i,
+    // Pattern 5: Everything before quality markers
+    /^(.+?)\s*(?:1080p|720p|4k|2160p|hdr|hevc|x264|x265|bluray|web|hdtv)/i,
+    // Pattern 6: First line only
     /^([^\n]+)(?:\n|$)/i
   ];
   
   for (const pattern of patterns) {
-    const match = text.match(pattern);
+    const match = cleanText.match(pattern);
     if (match && match[1]) {
-      const extracted = match[1].trim();
-      // Avoid extracting technical terms
-      if (!/^(\d+p|4K|HD|BluRay|WEB|HDTV)$/i.test(extracted)) {
+      let extracted = match[1].trim();
+      
+      // Clean up common artifacts
+      extracted = extracted.replace(/^the\s+/i, 'The '); // Capitalize "The"
+      extracted = extracted.replace(/\b[a-z]/g, letter => letter.toUpperCase()); // Title case
+      
+      // Avoid extracting technical terms or numbers
+      if (!/^(\d+p|4K|HD|BluRay|WEB|HDTV|\d+)$/i.test(extracted) && extracted.length > 2) {
         return extracted;
       }
     }
@@ -164,15 +182,8 @@ function buildDescriptiveTitle(id) {
   if (match) {
     const [, imdbNum, season, episode] = match;
     
-    // For known problematic IDs, provide better defaults
-    const knownTitles = {
-      '13159924': 'Gen V',      // Correct Gen V ID
-      '13623136': 'Gen V',      // Wrong ID that should map to Gen V
-      '1190634': 'The Boys',
-      '6741278': 'Invincible'
-    };
-    
-    let title = knownTitles[imdbNum] || `Content ${imdbNum}`;
+    // For series, just use generic Content ID format
+    let title = `Content ${imdbNum}`;
     
     if (season && episode) {
       title += ` S${season}E${episode}`;

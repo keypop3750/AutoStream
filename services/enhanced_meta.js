@@ -40,6 +40,47 @@ const IMDB_ID_CORRECTIONS = {
 // Cache for metadata to avoid repeated requests
 const metaCache = new Map();
 const CACHE_TTL = 6 * 60 * 60 * 1000; // 6 hours
+const MAX_CACHE_SIZE = 1000; // Limit cache size to prevent memory leaks
+
+// Cleanup function to remove expired entries and limit cache size
+function cleanupMetaCache() {
+  const now = Date.now();
+  
+  // Remove expired entries
+  for (const [key, value] of metaCache.entries()) {
+    if (now - value.timestamp > CACHE_TTL) {
+      metaCache.delete(key);
+    }
+  }
+  
+  // If still too large, remove oldest entries (LRU-style)
+  if (metaCache.size > MAX_CACHE_SIZE) {
+    const entries = Array.from(metaCache.entries());
+    entries.sort((a, b) => a[1].timestamp - b[1].timestamp); // Sort by timestamp (oldest first)
+    
+    const toRemove = entries.slice(0, metaCache.size - MAX_CACHE_SIZE);
+    toRemove.forEach(([key]) => metaCache.delete(key));
+    
+    console.log(`🧹 Cleaned metadata cache: removed ${toRemove.length} old entries, ${metaCache.size} remaining`);
+  }
+}
+
+// Run cleanup every 30 minutes
+setInterval(cleanupMetaCache, 30 * 60 * 1000);
+
+// Function to clear metadata cache (called on addon restart/install)
+function clearMetadataCache() {
+  const size = metaCache.size;
+  metaCache.clear();
+  console.log(`🧹 Cleared metadata cache: ${size} entries removed`);
+  return size;
+}
+
+// Export the clear function for use in server restart
+module.exports = {
+  fetchEnhancedMeta,
+  clearMetadataCache
+};
 
 async function fetchJson(url, timeout = 15000) {
   try {
@@ -194,7 +235,12 @@ function createFallbackMeta(id, type) {
       'tt13159924': 'Gen V',
       'tt13623136': 'Gen V', // Assume Gen V even for wrong ID
       'tt1190634': 'The Boys',
-      'tt6741278': 'Invincible'
+      'tt6741278': 'Invincible',
+      'tt10293840': 'The White Lotus', // HBO limited series
+      'tt12637874': 'Fallout', // Amazon Prime series
+      'tt1870479': 'The Newsroom', // HBO series
+      'tt13751472': 'Bump', // Australian series  
+      'tt14452776': 'The Bear' // FX comedy-drama
     };
     
     const baseName = knownTitles[imdbId] || `Content ${imdbId.replace('tt', '')}`;
@@ -228,5 +274,6 @@ module.exports = {
   fetchMeta,
   fetchEnhancedMeta,
   validateAndCorrectIMDBID,
-  IMDB_ID_CORRECTIONS
+  IMDB_ID_CORRECTIONS,
+  clearMetadataCache
 };
