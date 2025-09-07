@@ -1134,7 +1134,7 @@ function startServer(port = PORT) {
           title: `No streams found for this content. This may be because:\n• Content is too new or not yet indexed\n• Episode is not available on current sources\n• Try checking back later or use different sources`,
           url: "data:text/plain;charset=utf-8,No%20streams%20available%20for%20this%20content",
           behaviorHints: {
-            notWebReady: true,
+            // REMOVED: notWebReady: true - causes TV compatibility issues
             filename: "no_streams_available.txt"
           }
         };

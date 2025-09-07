@@ -140,13 +140,26 @@ function getQualityScore(stream) {
     factors.push('hdr');
   }
 
-  // Codec preferences (efficiency and quality)
+  // Codec preferences (efficiency and quality, but TV compatibility matters)
   if (/\b(x265|hevc|h\.?265)\b/.test(title)) {
-    score += 8;
-    factors.push('x265_codec');
+    // x265 is more efficient but has TV compatibility issues
+    // For 720p specifically, x265 often fails on Smart TVs
+    if (/\b720p\b/.test(title)) {
+      score -= 5; // Penalty for x265 720p (poor TV compatibility)
+      factors.push('x265_720p_compat_issue');
+    } else {
+      score += 8; // Normal x265 bonus for higher resolutions
+      factors.push('x265_codec');
+    }
   } else if (/\b(x264|avc|h\.?264)\b/.test(title)) {
-    score += 3;
-    factors.push('x264_codec');
+    // x264 has excellent TV compatibility
+    if (/\b720p\b/.test(title)) {
+      score += 5; // Bonus for x264 720p (excellent TV compatibility)
+      factors.push('x264_720p_compat');
+    } else {
+      score += 3; // Standard x264 bonus
+      factors.push('x264_codec');
+    }
   }
 
   // Audio quality bonuses
@@ -174,6 +187,24 @@ function getQualityScore(stream) {
   } else if (/\b(hdtv|tv|tvrip)\b/.test(title)) {
     score += 1;
     factors.push('tv_source');
+  }
+
+  // Container format preferences (TV compatibility)
+  if (/\.mp4\b/.test(title)) {
+    score += 5;
+    factors.push('mp4_container'); // Excellent TV compatibility
+  } else if (/\.mkv\b/.test(title)) {
+    // MKV has mixed TV compatibility - some TVs struggle with it
+    if (/\b720p\b/.test(title)) {
+      score -= 2; // Small penalty for MKV 720p on TV
+      factors.push('mkv_720p_compat');
+    } else {
+      score += 2; // Standard MKV bonus for higher resolutions
+      factors.push('mkv_container');
+    }
+  } else if (/\.avi\b/.test(title)) {
+    score += 3;
+    factors.push('avi_container'); // Good TV compatibility
   }
 
   // Reputable release groups (known for quality)

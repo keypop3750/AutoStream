@@ -670,7 +670,21 @@ async function handlePlay(req, res, defaults = {}) {
 
     log('Step 3: Selecting best file...');
     
-    // pick file (idx preferred, else largest mkv/mp4/avi, else largest)
+    // Extract episode info from IMDB ID if available (e.g., tt1870479:3:1 -> S3E1)
+    let targetSeason = null;
+    let targetEpisode = null;
+    if (imdb && imdb.includes(':')) {
+      const parts = imdb.split(':');
+      if (parts.length >= 3) {
+        targetSeason = parseInt(parts[1], 10);
+        targetEpisode = parseInt(parts[2], 10);
+        if (isFirstRequest) {
+          log(`Episode target: S${targetSeason}E${targetEpisode} from IMDB ${imdb}`);
+        }
+      }
+    }
+    
+    // pick file (idx preferred, else episode match, else largest mkv/mp4/avi, else largest)
     let chosen = null;
     const videoRe = /\.(mkv|mp4|m4v|avi|mov|ts|flv|webm)$/i;
     
@@ -692,14 +706,61 @@ async function handlePlay(req, res, defaults = {}) {
     
     log(`Found ${videoFiles.length} video files from ${files.length} total`);
     
-    if (Number.isFinite(idx) && idx >= 0 && idx < videoFiles.length) {
-      chosen = videoFiles[idx];
-      log('Chosen file by index: ' + chosen.name);
+    // Try episode-specific file selection first
+    if (!chosen && targetSeason && targetEpisode && videoFiles.length > 1) {
+      // For season packs, try to find the exact episode file
+      const episodePatterns = [
+        new RegExp(`s0*${targetSeason}\\s*e0*${targetEpisode}(?:\\s|\\.|$)`, 'i'),
+        new RegExp(`season\\s*0*${targetSeason}.*episode\\s*0*${targetEpisode}`, 'i'),
+        new RegExp(`${targetSeason}x0*${targetEpisode}(?:\\s|\\.|$)`, 'i'),
+        new RegExp(`s0*${targetSeason}.*e0*${targetEpisode}`, 'i')
+      ];
+      
+      for (const file of videoFiles) {
+        const fileName = file.name || file.path || '';
+        if (episodePatterns.some(pattern => pattern.test(fileName))) {
+          chosen = file;
+          if (isFirstRequest) {
+            log(`✅ Found episode match: ${fileName}`);
+          }
+          break;
+        }
+      }
+      
+      // If no exact match and this looks like a season pack, try episode index
+      if (!chosen && videoFiles.length >= targetEpisode) {
+        // For season packs, episodes are often in order
+        const episodeIndex = targetEpisode - 1; // Convert to 0-based index
+        if (episodeIndex >= 0 && episodeIndex < videoFiles.length) {
+          // Sort files by name to ensure consistent ordering
+          const sortedFiles = videoFiles.slice().sort((a, b) => {
+            const nameA = (a.name || a.path || '').toLowerCase();
+            const nameB = (b.name || b.path || '').toLowerCase();
+            return nameA.localeCompare(nameB);
+          });
+          
+          chosen = sortedFiles[episodeIndex];
+          if (isFirstRequest) {
+            log(`📍 Using episode index ${episodeIndex} for S${targetSeason}E${targetEpisode}: ${chosen.name}`);
+          }
+        }
+      }
     }
     
+    // Fallback to provided index
+    if (!chosen && Number.isFinite(idx) && idx >= 0 && idx < videoFiles.length) {
+      chosen = videoFiles[idx];
+      if (isFirstRequest) {
+        log('Chosen file by provided index: ' + chosen.name);
+      }
+    }
+    
+    // Final fallback to largest file
     if (!chosen && videoFiles.length > 0) {
       chosen = videoFiles.sort((a,b)=> (b.size||0)-(a.size||0))[0];
-      log('Chosen largest video file: ' + chosen.name);
+      if (isFirstRequest) {
+        log('Chosen largest video file: ' + chosen.name);
+      }
     }
     
     // Fallback to any file with link if no video files found
