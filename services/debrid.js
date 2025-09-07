@@ -184,7 +184,6 @@ class AllDebridCircuitBreaker {
     }
   }
 }
-}
 
 // Global circuit breaker instance
 const allDebridCircuitBreaker = new AllDebridCircuitBreaker();

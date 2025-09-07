@@ -1561,7 +1561,11 @@ function startServer(port = PORT) {
         log(`⚡ Reduced cache time to 5 minutes due to penalties`);
       }
 
-        
+      // Send final response with streams
+      log(`📤 Sending ${streams.length} stream(s) to Stremio (cache: ${cacheTime}s)`);
+      res.setHeader('Cache-Control', `max-age=${cacheTime}`);
+      writeJson(res, { streams });
+      
         } catch (e) {
           // Defensive error handling - prevent crashes
           console.error('Stream processing error:', e);
