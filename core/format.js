@@ -103,9 +103,9 @@ function beautifyStreamName(stream, { type, id, includeOriginTag = false, debrid
   return 'AutoStream';
 }
 
-function buildContentTitle(metaName, stream, { type, id } = {}) {
+function buildContentTitle(metaName, stream, { type, id, noResolution = false } = {}) {
   // Build clean content title like "KPop Demon Hunters (2025) - 4K"
-  const resolution = extractResolution(stream);
+  const resolution = noResolution ? null : extractResolution(stream);
   const contentInfo = detectContentInfo(type, id);
   
   let title = metaName;
@@ -126,8 +126,10 @@ function buildContentTitle(metaName, stream, { type, id } = {}) {
     title += ` ${contentInfo}`;
   }
   
-  // Add resolution
-  title += ` - ${resolution}`;
+  // Add resolution only if not disabled
+  if (!noResolution && resolution) {
+    title += ` - ${resolution}`;
+  }
   
   return title;
 }

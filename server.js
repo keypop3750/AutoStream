@@ -417,10 +417,12 @@ const { beautifyStreamName, shouldShowOriginTags, buildContentTitle } = (() => {
       beautifyStreamName: (s) => s.name || 'Stream', 
       shouldShowOriginTags: () => false, 
       buildContentTitle: (metaName, stream, opts) => {
-        // Fallback content title builder
-        const quality = (() => {
+        // Fallback content title builder with user-friendly resolution labels
+        const noResolution = opts?.noResolution;
+        const quality = noResolution ? '' : (() => {
           const t = ((stream?.title||'') + ' ' + (stream?.name||'')).toLowerCase();
           if (/\b(2160p|2160|4k|uhd)\b/.test(t)) return ' - 4K';
+          if (/\b(1440p|1440|2k|qhd)\b/.test(t)) return ' - 2K';
           if (/\b(1080p|1080|fhd)\b/.test(t)) return ' - 1080p';
           if (/\b(720p|720|hd)\b/.test(t)) return ' - 720p';
           if (/\b(480p|480|sd)\b/.test(t)) return ' - 480p';
@@ -616,10 +618,19 @@ function getQ(q, k){
 function resOf(s) {
   const t = ((s?.title||'') + ' ' + (s?.name||'') + ' ' + (s?.tag||'')).toLowerCase();
   if (/\b(2160p|2160|4k|uhd)\b/.test(t)) return 2160;
+  if (/\b(1440p|1440|2k|qhd)\b/.test(t)) return 1440;
   if (/\b(1080p|1080|fhd)\b/.test(t)) return 1080;
   if (/\b(720p|720|hd)\b/.test(t)) return 720;
   if (/\b(480p|480|sd)\b/.test(t)) return 480;
   return 0;
+}
+function getUserFriendlyResolution(resNumber) {
+  if (resNumber >= 2160) return '4K';
+  if (resNumber >= 1440) return '2K';
+  if (resNumber >= 1080) return '1080p';
+  if (resNumber >= 720) return '720p';
+  if (resNumber >= 480) return '480p';
+  return `${resNumber}p`;
 }
 
 // ---------- server ----------
@@ -643,7 +654,7 @@ function startServer(port = PORT) {
         return res.end('<!DOCTYPE html><html><head><title>AutoStream</title></head><body><h1>AutoStream Addon</h1><p>Running and ready.</p></body></html>');
       }
       
-      if (pathname === '/status') return writeJson(res, { status: 'ok', addon: 'AutoStream', version: '3.3.0' }, 200);
+      if (pathname === '/status') return writeJson(res, { status: 'ok', addon: 'AutoStream', version: '3.4.1' }, 200);
 
       // Penalty reliability API endpoints
       if (pathname === '/reliability/stats') {
@@ -819,7 +830,7 @@ function startServer(port = PORT) {
         
         const manifest = {
           id: 'com.stremio.autostream.addon',
-          version: '3.3.0',
+          version: '3.4.1',
           name: tag ? `AutoStream (${tag})` : 'AutoStream',
           description: 'Curated best-pick streams with optional debrid; Nuvio direct-host supported.',
           logo: 'https://github.com/keypop3750/AutoStream/blob/main/logo.png?raw=true',
@@ -1388,7 +1399,7 @@ function startServer(port = PORT) {
         return null;
       })();
       
-      // Apply beautified names and titles
+      // Apply beautified names and titles (WITHOUT resolution - we'll add that at the end)
       const showOriginTags = shouldShowOriginTags(labelOrigin);
       streams.forEach(s => {
         if (s && (s.url || s.infoHash)) {
@@ -1400,8 +1411,8 @@ function startServer(port = PORT) {
             debridProvider 
           });
           
-          // Set content title (e.g., "KPop Demon Hunters (2025) - 4K")
-          s.title = buildContentTitle(finalMeta.name, s, { type, id: actualId });
+          // Set content title WITHOUT resolution (we'll add resolution at the very end)
+          s.title = buildContentTitle(finalMeta.name, s, { type, id: actualId, noResolution: true });
         }
       });
 
@@ -1483,23 +1494,19 @@ function startServer(port = PORT) {
                 debridProvider 
               });
               
-              finalizedAdditional.title = buildContentTitle(finalMeta.name, finalizedAdditional, { type, id: actualId });
+              // Set content title WITHOUT resolution (we'll add resolution at the very end)
+              finalizedAdditional.title = buildContentTitle(finalMeta.name, finalizedAdditional, { type, id: actualId, noResolution: true });
               
-              // Ensure both streams show their resolution clearly
+              // buildContentTitle already adds resolution, so no need to add it again
+              // Just log what we have
               const additionalRes = resOf(finalizedAdditional);
               const primaryRes = resOf(primary);
-              
-              // Add resolution to titles if not already present
-              if (additionalRes && !finalizedAdditional.title.includes(`${additionalRes}p`)) {
-                finalizedAdditional.title = `${finalizedAdditional.title} - ${additionalRes}p`;
-              }
-              if (primaryRes && !primary.title.includes(`${primaryRes}p`)) {
-                primary.title = `${primary.title} - ${primaryRes}p`;
-              }
+              const additionalLabel = getUserFriendlyResolution(additionalRes);
+              const primaryLabel = getUserFriendlyResolution(primaryRes);
               
               // ALWAYS prepare both streams - visibility control comes at the end
               streams = [primary, finalizedAdditional];
-              log(`🎯 Processed both primary(${primaryRes}p) and secondary(${additionalRes}p) streams: ${streams.length} total`);
+              log(`🎯 Processed both primary(${primaryLabel}) and secondary(${additionalLabel}) streams: ${streams.length} total`);
             }
           } else {
             log(`📝 No suitable ${targetRes}p secondary stream found for additional processing`);
@@ -1566,6 +1573,29 @@ function startServer(port = PORT) {
       streams.forEach(s => {
         if (s && s.behaviorHints && s.behaviorHints.notWebReady) {
           delete s.behaviorHints.notWebReady;
+        }
+      });
+
+      // ========== UNIFIED RESOLUTION DISPLAY SYSTEM ==========
+      // This is the SINGLE place where we add resolution to ALL stream titles
+      // It runs after everything else is complete to ensure consistency
+      streams.forEach((stream, index) => {
+        if (!stream || !stream.title) return;
+        
+        const resolution = resOf(stream);
+        if (resolution > 0) {
+          const friendlyRes = getFriendlyResolution(resolution);
+          
+          // Only add resolution if it's not already in the title
+          if (!stream.title.toLowerCase().includes(friendlyRes.toLowerCase()) && 
+              !stream.title.includes(`${resolution}p`)) {
+            stream.title = `${stream.title} - ${friendlyRes}`;
+            log(`🎯 Added resolution to stream ${index + 1}: ${friendlyRes}`, 'verbose');
+          } else {
+            log(`🔍 Resolution already present in stream ${index + 1}: ${stream.title}`, 'verbose');
+          }
+        } else {
+          log(`⚠️  No resolution detected for stream ${index + 1}: ${stream.title}`, 'verbose');
         }
       });
 
