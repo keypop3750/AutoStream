@@ -1,33 +1,26 @@
 @ -1,180 +0,0 @@
 # AutoStream V3 - AI Coding Instructions
 
-**Important:** To use the terminal for other commands while the server is running, you must start the server in a hidden window:
-```powershell
-Start-Process powershell -ArgumentList "-NoProfile", "-Command", "node server.js" -WindowStyle Hidden
-```
-This allows you to run PowerShell/cmd commands in the main terminal without interference from the server process.
+AutoStream is a **Stremio addon** that aggregates and intelligently selects the best streaming sources with click-time debrid resolution. The system follows a **layered service architecture** with **comprehensive memory management**.
 
-## Architecture Overview
+## 🏗️ Architecture Overview
 
-AutoStream is a **Stremio addon** that aggregates and intelligently selects the best streaming sources. The system follows a **layered service architecture** with **comprehensive memory management**:
-
-- **Server Layer** (`server.js`): Main HTTP server with memory monitoring, cache management, and request isolation
-- **Services Layer** (`services/`): Stream aggregation, debrid integration, reliability tracking, enhanced metadata
-- **Core Layer** (`core/`): Scoring algorithms, filtering, episode caching, content formatting
+- **Server Layer** (`server.js`): Main HTTP server with defensive coding, memory monitoring, and click-time debrid resolution
+- **Services Layer** (`services/`): Stream aggregation (`sources.js`), debrid integration (`debrid.js`), reliability tracking (`penaltyReliability.js`), enhanced metadata (`enhanced_meta.js`)
+- **Core Layer** (`core/`): Scoring algorithms (`scoring_v6.js`), content formatting (`format.js`), series caching (`series-cache.js`)
 - **UI Layer** (`ui/`): Configuration interface with client-side state management
-- **Utils Layer** (`utils/`): TTL caches, HTTP utilities, ID correction systems
+- **Utils Layer** (`utils/`): TTL caches (`cache.js`), HTTP utilities (`http.js`), ID correction systems (`id-correction.js`)
 
-## Key Architectural Patterns
+## 🔑 Critical Architectural Patterns
 
 ### 1. Graceful Module Loading with Fallbacks
+**Always provide fallback functions** to prevent crashes when optional modules are missing:
 ```js
 const scoringMod = (() => {
-  try { return require('./core/scoring_v5'); }
-  catch (e1) { try { return require('./core/scoring_v4'); }
-  catch (e2) { return { filterAndScoreStreams: (streams) => streams.slice(0,2) }; } }
+  try { return require('./core/scoring_v6'); }
+  catch (e1) { return { filterAndScoreStreams: (streams) => streams.slice(0,2) }; }
 })();
 ```
-**Critical Pattern**: Always provide fallback functions to prevent crashes when optional modules are missing.
 
 ### 2. Memory Management with Size Limits
 All Map/Cache structures MUST have size limits to prevent memory leaks:
@@ -101,6 +94,23 @@ const episodeStreams = allStreams.filter(stream => {
 });
 ```
 
+### 7. Resolution Detection from Multiple Fields
+**UPDATED PATTERN**: Resolution is extracted from multiple stream fields, including both filename locations:
+```js
+function extractResolution(stream) {
+  // Check multiple places for resolution info
+  const title = stream.title || '';
+  const name = stream.name || '';
+  const description = stream.description || '';
+  const filename = stream.behaviorHints?.filename || stream.filename || '';
+  const tag = stream.tag || '';
+  
+  const text = `${title} ${name} ${description} ${filename} ${tag}`.toLowerCase();
+  if (/\b(2160p|2160|4k|uhd)\b/i.test(text)) return '4K';
+  // ... other resolutions
+}
+```
+
 ## Advanced Features
 
 ### Episode Detection System
@@ -115,7 +125,7 @@ const patterns = [
   new RegExp(`s0*${seasonNum}.*e0*${episodeNum}`, 'i') // Flexible S##E## matching
 ];
 ```
-**Testing**: Use `node test_episode_matching.js` to validate episode filtering across multiple series.
+**Testing**: Use `node test_episode_fix.js` to validate episode filtering across multiple series.
 
 ### IMDB ID Validation & Correction
 Critical system for fixing common ID mapping issues:
@@ -250,8 +260,14 @@ The UI implements draggable language priority pills where **order matters**. Lan
 
 ### Beautified Names
 - **Addon name**: `"AutoStream (AD)"` - shows debrid provider
-- **Content title**: `"Movie Name (2025) - 4K"` - shows content with quality
+- **Content title**: `"Breaking Bad S1E1 - 4K"` - shows content with resolution
 - **Origin badges**: `⚡` for cookie streams, source tags for debugging
+
+### Content Title Building
+Use `buildContentTitle(metaName, stream, { type, id })` in `core/format.js`:
+- Automatically detects resolution from filename/title
+- Adds season/episode info for series
+- Handles fallback titles for missing metadata
 
 ### Cookie Stream Detection
 ```js
@@ -265,10 +281,15 @@ if (hasCookie && isShowBoxish) {
 ## Essential Development Workflows
 
 ### Local Development
-```bash
+```powershell
 node server.js  # Runs on http://localhost:7010
 # Configure at: http://localhost:7010/configure
 # Manifest at: http://localhost:7010/manifest.json
+```
+
+**Background Server (Windows)**: To run other commands while server is running:
+```powershell
+Start-Process powershell -ArgumentList "-NoProfile", "-Command", "node server.js" -WindowStyle Hidden
 ```
 
 ### API Testing
@@ -321,6 +342,18 @@ const scoringOptions = { debug: true }; // Shows detailed score breakdown
 - **Size limits**: Blacklist max 500 hosts per client
 - **Cleanup timers**: Automatic cleanup every hour
 
+### Error Handling
+**Defensive coding patterns** throughout:
+- Unhandled promise rejection handlers
+- Request timeouts (30s for debrid, 12s for sources)
+- Memory monitoring with automatic cleanup
+- Rate limiting and concurrency control
+
+### Security Features
+- **FORCE_SECURE_MODE**: Blocks environment credential fallbacks
+- **EMERGENCY_DISABLE_DEBRID**: Server-wide debrid shutdown
+- Input validation for IMDB IDs, API keys, and parameters
+
 ## Testing Patterns
 
 ### Memory Leak Testing
@@ -334,9 +367,46 @@ node test_memory_leak.js    # Run 100 requests, monitor heap usage
 ### Episode Matching Validation
 Test episode filtering with known series:
 ```powershell
-node test_episode_matching.js  # Tests multiple series episodes
+node test_episode_fix.js  # Tests multiple series episodes
 ```
 **Coverage**: Tests both primary and additional streams across multiple series.
+
+### Resolution Testing
+**UPDATED**: Test resolution detection with current system:
+```powershell
+node test_breaking_bad_resolution.js  # Tests resolution detection
+node test_office_resolution.js        # Tests additional resolution cases
+```
+
+### Additional Stream Testing
+Test secondary stream targeting:
+```powershell
+node test_simplified_system.js  # Tests secondary stream targeting
+```
+
+### Request Testing Pattern
+```js
+function makeRequest(url) {
+  return new Promise((resolve, reject) => {
+    const req = http.get(url, (res) => {
+      let data = '';
+      res.on('data', chunk => data += chunk);
+      res.on('end', () => resolve(JSON.parse(data)));
+    });
+    req.setTimeout(30000, () => reject(new Error('Timeout')));
+  });
+}
+```
+
+### Debugging Resolution Detection
+```js
+// Test with simulated stream data
+const stream = {
+  title: "Breaking Bad S1E1",
+  behaviorHints: { filename: "Breaking.Bad.S01E01.2160p.AMZN.WEB-DL.mkv" }
+};
+console.log(extractResolution(stream)); // Should output "4K"
+```
 
 ### Penalty System Testing
 API endpoints for reliability system management:
@@ -363,3 +433,5 @@ const { fetchTorrentioStreams } = (() => {
 
 ### Configuration UI Testing
 The configure page serves from multiple fallback locations and injects client-side JavaScript for interactive configuration.
+
+When editing this codebase, always check for existing fallback patterns and maintain the defensive coding approach. Test episode filtering and resolution detection with multiple content types.
