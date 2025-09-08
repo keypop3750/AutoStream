@@ -8,9 +8,38 @@
  * - Connection quality detection
  * - Cookie stream scoring
  * - Stream type bonuses
+ * - Device-aware scoring for TV/Mobile/Web optimization
  */
 
 const penaltyReliability = require('../services/penaltyReliability');
+
+/**
+ * Detect device type from request headers
+ * @param {Object} req - HTTP request object
+ * @returns {string} - 'tv', 'mobile', or 'web'
+ */
+function detectDeviceType(req) {
+  if (!req || !req.headers) return 'web'; // Default fallback
+  
+  const userAgent = req.headers['user-agent'] || '';
+  
+  // TV detection patterns (comprehensive)
+  if (/\b(smart[-\s]?tv|tizen|webos|vidaa|roku|fire[-\s]?tv|android[-\s]?tv|chromecast|shield\s*android\s*tv|lg\s*browser|samsung.*tizen)\b/i.test(userAgent)) {
+    return 'tv';
+  }
+  
+  // Mobile detection patterns (excluding TV)
+  if (/\b(android|iphone|ipad|mobile|phone)\b/i.test(userAgent) && 
+      !/\b(tv|television|chromecast|shield)\b/i.test(userAgent)) {
+    return 'mobile';
+  }
+  
+  // Stremio-specific headers (if they exist in future)
+  const stremioDevice = req.headers['stremio-device-type'];
+  if (stremioDevice) return stremioDevice.toLowerCase();
+  
+  return 'web'; // Default to web/desktop
+}
 
 /**
  * Compute stream score with penalty-based reliability
@@ -48,8 +77,9 @@ function computeStreamScore(stream, req, opts = {}) {
     penalties.push(`low_seeders(${seederScore.score})`);
   }
 
-  // QUALITY SCORING
-  const qualityScore = getQualityScore(stream);
+  // QUALITY SCORING (device-aware)
+  const deviceType = detectDeviceType(req);
+  const qualityScore = getQualityScore(stream, deviceType);
   score += qualityScore.score;
   if (qualityScore.score > 0) {
     bonuses.push(`quality_bonus(+${qualityScore.score})`);
@@ -111,7 +141,7 @@ function computeStreamScore(stream, req, opts = {}) {
 /**
  * Quality-based scoring with detailed differentiation
  */
-function getQualityScore(stream) {
+function getQualityScore(stream, deviceType = 'web') {
   const title = ((stream.title || '') + ' ' + (stream.name || '')).toLowerCase();
   let score = 0;
   const factors = [];
@@ -140,16 +170,40 @@ function getQualityScore(stream) {
     factors.push('hdr');
   }
 
-  // Codec preferences - prioritize TV compatibility over efficiency
+  // 10-bit color depth detection - TV compatibility concerns
+  if (/\b(10bit|10.?bit|hi10p)\b/.test(title)) {
+    if (deviceType === 'tv') {
+      // Many Smart TVs struggle with 10-bit content, causing "video not supported"
+      score -= 20; // Significant penalty for TV devices
+      factors.push('10bit_tv_compat_penalty');
+    } else {
+      // Web/mobile players handle 10-bit better
+      score -= 5; // Minor penalty for general compatibility
+      factors.push('10bit_general_penalty');
+    }
+  }
+
+  // Codec preferences - device-aware TV compatibility scoring
   if (/\b(x265|hevc|h\.?265)\b/.test(title)) {
     // x265/HEVC causes "video not supported" on many Smart TVs at ALL resolutions
-    // While more efficient, TV compatibility is more important than file size
-    score -= 10; // Universal TV compatibility penalty for x265/HEVC
-    factors.push('x265_tv_compat_penalty');
+    if (deviceType === 'tv') {
+      // Stronger penalty for TV devices - this is the main cause of "video not supported"
+      score -= 50; // Much stronger TV penalty to prioritize H.264
+      factors.push('x265_tv_strong_penalty');
+    } else {
+      // Lighter penalty for web/mobile (they handle x265 better)
+      score -= 10; // Standard compatibility penalty
+      factors.push('x265_general_penalty');
+    }
   } else if (/\b(x264|avc|h\.?264)\b/.test(title)) {
     // x264/H.264 has excellent TV compatibility across all devices
-    score += 15; // Strong bonus for TV-compatible codec
-    factors.push('x264_tv_compat_bonus');
+    if (deviceType === 'tv') {
+      score += 25; // Extra bonus for TV-perfect codec
+      factors.push('x264_tv_perfect_bonus');
+    } else {
+      score += 15; // Standard bonus for reliable codec
+      factors.push('x264_standard_bonus');
+    }
   }
 
   // Audio quality bonuses
@@ -179,17 +233,32 @@ function getQualityScore(stream) {
     factors.push('tv_source');
   }
 
-  // Container format preferences - prioritize TV compatibility
+  // Container format preferences - device-aware TV compatibility
   if (/\.mp4\b/.test(title)) {
-    score += 15; // Strong bonus for universal TV compatibility
-    factors.push('mp4_tv_compat_bonus');
+    if (deviceType === 'tv') {
+      score += 20; // Extra strong bonus for TV - MP4 is universally supported
+      factors.push('mp4_tv_perfect_compat');
+    } else {
+      score += 15; // Standard bonus for universal compatibility
+      factors.push('mp4_universal_compat');
+    }
   } else if (/\.mkv\b/.test(title)) {
     // MKV can cause compatibility issues on Smart TVs
-    score -= 5; // Universal penalty for potential TV compatibility issues
-    factors.push('mkv_tv_compat_penalty');
+    if (deviceType === 'tv') {
+      score -= 15; // Stronger penalty for TV devices - MKV support varies
+      factors.push('mkv_tv_compat_risk');
+    } else {
+      score -= 5; // Lighter penalty for web/mobile (better MKV support)
+      factors.push('mkv_general_penalty');
+    }
   } else if (/\.avi\b/.test(title)) {
-    score += 8; // Good TV compatibility, but not as universal as MP4
-    factors.push('avi_tv_compat');
+    if (deviceType === 'tv') {
+      score += 12; // Good TV compatibility, older but well-supported format
+      factors.push('avi_tv_compat');
+    } else {
+      score += 8; // Standard compatibility for web/mobile
+      factors.push('avi_standard_compat');
+    }
   }
 
   // Release group scoring - prioritize TV compatibility
