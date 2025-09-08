@@ -653,7 +653,7 @@ function startServer(port = PORT) {
         return res.end('<!DOCTYPE html><html><head><title>AutoStream</title></head><body><h1>AutoStream Addon</h1><p>Running and ready.</p></body></html>');
       }
       
-      if (pathname === '/status') return writeJson(res, { status: 'ok', addon: 'AutoStream', version: '3.4.3' }, 200);
+      if (pathname === '/status') return writeJson(res, { status: 'ok', addon: 'AutoStream', version: '3.4.5' }, 200);
 
       // Penalty reliability API endpoints
       if (pathname === '/reliability/stats') {
@@ -829,7 +829,7 @@ function startServer(port = PORT) {
         
         const manifest = {
           id: 'com.stremio.autostream.addon',
-          version: '3.4.3',
+          version: '3.4.5',
           name: tag ? `AutoStream (${tag})` : 'AutoStream',
           description: 'Curated best-pick streams with optional debrid; Nuvio direct-host supported.',
           logo: 'https://github.com/keypop3750/AutoStream/blob/main/logo.png?raw=true',
@@ -910,21 +910,26 @@ function startServer(port = PORT) {
         console.log(`[${reqId}] ${msg}`);
       };
       
-      // Apply ID correction for known problematic IDs
-      const { enhancedIDProcessing } = (() => {
+      // Apply dynamic ID validation and correction for problematic IDs
+      const { validateAndCorrectIMDBID } = (() => {
         try { return require('./utils/id-correction'); }
-        catch { return { enhancedIDProcessing: async (id) => ({ id, corrected: false }) }; }
+        catch { return { validateAndCorrectIMDBID: async (id) => ({ originalId: id, correctedId: id, needsCorrection: false }) }; }
       })();
       
-      // Correct the ID if needed (this is where tt13623136 becomes tt13159924)
-      const idResult = await enhancedIDProcessing(id, fetchMeta, (msg) => log(`ID: ${msg}`));
-      const actualId = idResult.id;
+      // Validate and potentially correct the IMDB ID before fetching streams
+      log(`🔍 Validating IMDB ID: ${id}`);
+      const idValidationResult = await validateAndCorrectIMDBID(id);
+      const actualId = idValidationResult.correctedId;
       
-      if (idResult.corrected) {
-        log(`📍 Stream request: ${type}/${id} → ${actualId} (corrected)`);
+      if (idValidationResult.needsCorrection) {
+        log(`� ID corrected: ${id} → ${actualId} (${idValidationResult.reason})`);
+      } else if (!idValidationResult.metadata) {
+        log(`⚠️ ID validation warning: ${idValidationResult.reason}`);
       } else {
-        log(`📍 Stream request: ${type}/${actualId}`);
+        log(`✅ ID validated: "${idValidationResult.metadata.name}" (${idValidationResult.metadata.year})`);
       }
+      
+      log(`📍 Stream request: ${type}/${actualId}`);
       
       // Parse enhanced configuration parameters
       const langPrioStr = getQ(q, 'lang_prio') || MANIFEST_DEFAULTS.lang_prio || '';
@@ -942,7 +947,18 @@ function startServer(port = PORT) {
       // Fetch metadata for proper titles (async, don't block stream fetching)
       // For series episodes, fetch metadata using base series ID (without :season:episode)
       const metaId = type === 'series' ? actualId.split(':')[0] : actualId;
-      const metaPromise = fetchMeta(type, metaId, (msg) => log('Meta: ' + msg, 'verbose'));
+      
+      // Use metadata from ID validation if available, otherwise fetch fresh metadata
+      let metaPromise;
+      if (idValidationResult.metadata) {
+        // We already have metadata from ID validation - use it directly
+        log(`✅ Using metadata from ID validation: "${idValidationResult.metadata.name}"`);
+        metaPromise = Promise.resolve(idValidationResult.metadata);
+      } else {
+        // Fall back to normal metadata fetching
+        log(`🔄 Fetching fresh metadata for ${metaId}`);
+        metaPromise = fetchMeta(type, metaId, (msg) => log('Meta: ' + msg, 'verbose'));
+      }
 
       // which sources
       const dhosts = String(getQ(q,'dhosts') || MANIFEST_DEFAULTS.dhosts || '').toLowerCase().split(',').map(s=>s.trim()).filter(Boolean);

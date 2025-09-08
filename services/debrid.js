@@ -465,7 +465,8 @@ async function handlePlay(req, res, defaults = {}) {
               'MAGNET_MUST_BE_PREMIUM',
               'AUTH_BLOCKED',
               'AUTH_BAD_APIKEY', 
-              'AUTH_USER_BANNED'
+              'AUTH_USER_BANNED',
+              'NO_SERVER'  // AllDebrid blocks server/VPN IPs - user needs to check their network
             ];
             
             if (permanentUploadErrors.includes(errorCode)) {

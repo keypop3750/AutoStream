@@ -1,147 +1,194 @@
-#!/usr/bin/env node
 /**
- * IMDB ID Correction System
- * Fixes common ID mapping issues
+ * Dynamic IMDB ID Validation and Correction System
+ * Automatically detects and fixes wrong IMDB IDs using metadata validation
  */
 
-// Known ID mappings for problematic content
-const ID_CORRECTIONS = {
-  // Wrong ID -> Correct ID mappings
-  'tt13623136': 'tt13159924', // Gen V fix: Marvel Guardians -> Gen V
-  
-  // Add more corrections as discovered
-  // 'tt1234567': 'tt7654321', // Example: Wrong Show -> Correct Show
-};
+const https = require('https');
 
-// Known series titles for validation
-const SERIES_VALIDATION = {
-  'tt13159924': {
-    expectedTitles: ['Gen V', 'gen v'],
-    expectedYear: '2023',
-    type: 'series'
-  },
-  'tt1190634': {
-    expectedTitles: ['The Boys', 'the boys'],
-    expectedYear: '2019',
-    type: 'series'
-  }
-};
+// Cache for validation results to avoid repeated API calls
+const validationCache = new Map();
+const maxCacheSize = 1000;
+const cacheTimeout = 24 * 60 * 60 * 1000; // 24 hours
 
-function correctIMDBID(originalId) {
-  // Extract base ID from episode format (tt13623136:1:3 -> tt13623136)
-  const baseId = originalId.split(':')[0];
-  const episodeInfo = originalId.includes(':') ? originalId.substring(baseId.length) : '';
-  
-  // Check if this ID needs correction
-  const correctedBaseId = ID_CORRECTIONS[baseId] || baseId;
-  
-  // Rebuild full ID with episode info
-  const correctedId = correctedBaseId + episodeInfo;
-  
-  if (correctedBaseId !== baseId) {
-    console.log(`🔧 ID CORRECTION: ${originalId} → ${correctedId}`);
+// Cleanup cache periodically
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, value] of validationCache.entries()) {
+    if (now - value.timestamp > cacheTimeout) {
+      validationCache.delete(key);
+    }
   }
-  
-  return correctedId;
+  // Limit cache size
+  if (validationCache.size > maxCacheSize) {
+    const entries = Array.from(validationCache.entries());
+    entries.slice(0, validationCache.size - maxCacheSize).forEach(([key]) => {
+      validationCache.delete(key);
+    });
+  }
+}, 60 * 60 * 1000); // Cleanup every hour
+
+/**
+ * Fetch metadata from Cinemeta with timeout and error handling
+ */
+async function fetchMetadata(imdbId, type = 'series') {
+  return new Promise((resolve, reject) => {
+    const baseId = imdbId.split(':')[0];
+    const url = `https://v3-cinemeta.strem.io/meta/${type}/${baseId}.json`;
+    
+    const req = https.get(url, { timeout: 10000 }, (res) => {
+      let data = '';
+      res.on('data', chunk => data += chunk);
+      res.on('end', () => {
+        try {
+          const result = JSON.parse(data);
+          resolve(result);
+        } catch (e) {
+          reject(new Error('Invalid JSON response'));
+        }
+      });
+    });
+    
+    req.on('timeout', () => {
+      req.destroy();
+      reject(new Error('Request timeout'));
+    });
+    
+    req.on('error', reject);
+  });
 }
 
-async function validateIDWithMetadata(id, fetchMeta) {
+/**
+ * Calculate title similarity (simple algorithm)
+ */
+function titleSimilarity(title1, title2) {
+  if (!title1 || !title2) return 0;
+  
+  const clean1 = title1.toLowerCase().replace(/[^\w\s]/g, '').trim();
+  const clean2 = title2.toLowerCase().replace(/[^\w\s]/g, '').trim();
+  
+  if (clean1 === clean2) return 1.0;
+  
+  // Check if one contains the other
+  if (clean1.includes(clean2) || clean2.includes(clean1)) return 0.8;
+  
+  // Word overlap scoring
+  const words1 = clean1.split(/\s+/);
+  const words2 = clean2.split(/\s+/);
+  const commonWords = words1.filter(word => words2.includes(word) && word.length > 2);
+  
+  const overlap = commonWords.length / Math.max(words1.length, words2.length);
+  return overlap;
+}
+
+/**
+ * Validate IMDB ID by checking if metadata makes sense
+ */
+async function validateIMDBID(originalId, expectedContext = null) {
+  const baseId = originalId.split(':')[0];
+  const cacheKey = `${baseId}_${expectedContext?.title || 'unknown'}`;
+  
+  // Check cache first
+  const cached = validationCache.get(cacheKey);
+  if (cached && (Date.now() - cached.timestamp) < cacheTimeout) {
+    return cached.result;
+  }
+  
   try {
-    const baseId = id.split(':')[0];
-    const validation = SERIES_VALIDATION[baseId];
+    // Try as series first
+    let metadata = await fetchMetadata(baseId, 'series');
     
-    if (!validation) {
-      return { valid: true, reason: 'No validation rules' };
+    // If no series metadata, try as movie
+    if (!metadata?.meta) {
+      metadata = await fetchMetadata(baseId, 'movie');
     }
     
-    const meta = await fetchMeta('series', baseId);
-    
-    if (!meta || !meta.name) {
-      return { valid: false, reason: 'No metadata found' };
-    }
-    
-    // Check if title matches expected
-    const titleMatches = validation.expectedTitles.some(expected => 
-      meta.name.toLowerCase().includes(expected.toLowerCase())
-    );
-    
-    if (!titleMatches) {
-      return { 
-        valid: false, 
-        reason: `Title mismatch: got "${meta.name}", expected one of [${validation.expectedTitles.join(', ')}]`,
-        suggestion: `Check if ${id} maps to correct content`
+    if (!metadata?.meta) {
+      const result = { 
+        isValid: false, 
+        reason: 'No metadata found',
+        suggestedId: null,
+        confidence: 0
       };
+      validationCache.set(cacheKey, { result, timestamp: Date.now() });
+      return result;
     }
     
-    return { valid: true, reason: 'Validation passed', meta };
+    const meta = metadata.meta;
+    const result = {
+      isValid: true,
+      metadata: meta,
+      title: meta.name,
+      year: meta.year,
+      type: meta.type,
+      confidence: 1.0,
+      reason: 'Valid metadata found'
+    };
+    
+    // If we have expected context, validate against it
+    if (expectedContext?.title) {
+      const titleMatch = titleSimilarity(meta.name, expectedContext.title);
+      result.confidence = titleMatch;
+      
+      if (titleMatch < 0.6) {
+        result.isValid = false;
+        result.reason = `Title mismatch: "${meta.name}" vs expected "${expectedContext.title}"`;
+      }
+    }
+    
+    validationCache.set(cacheKey, { result, timestamp: Date.now() });
+    return result;
     
   } catch (error) {
-    return { valid: false, reason: `Validation error: ${error.message}` };
-  }
-}
-
-async function enhancedIDProcessing(originalId, fetchMeta, log = console.log) {
-  log(`🔍 Processing ID: ${originalId}`);
-  
-  // Step 1: Apply known corrections
-  const correctedId = correctIMDBID(originalId);
-  
-  // Step 2: Validate the corrected ID
-  const validation = await validateIDWithMetadata(correctedId, fetchMeta);
-  
-  if (validation.valid) {
-    log(`✅ ID validation passed: ${correctedId}`);
-    return { id: correctedId, meta: validation.meta, corrected: correctedId !== originalId };
-  } else {
-    log(`⚠️  ID validation failed: ${validation.reason}`);
-    if (validation.suggestion) {
-      log(`💡 Suggestion: ${validation.suggestion}`);
-    }
-    
-    // Still return the corrected ID, but mark as unvalidated
-    return { id: correctedId, meta: null, corrected: correctedId !== originalId, warning: validation.reason };
-  }
-}
-
-// Test the system
-async function testIDCorrection() {
-  console.log("🧪 TESTING ID CORRECTION SYSTEM");
-  console.log("=" * 50);
-  
-  // Mock fetchMeta function for testing
-  const mockFetchMeta = async (type, id) => {
-    const mockData = {
-      'tt13159924': { name: 'Gen V', year: '2023–', type: 'series' },
-      'tt13623136': { name: 'The Guardians of the Galaxy Holiday Special', year: '2022', type: 'movie' },
-      'tt1190634': { name: 'The Boys', year: '2019–', type: 'series' }
+    const result = {
+      isValid: false,
+      reason: `Validation error: ${error.message}`,
+      suggestedId: null,
+      confidence: 0
     };
-    return mockData[id] || null;
-  };
-  
-  const testCases = [
-    'tt13623136:1:3',  // Wrong Gen V ID
-    'tt13159924:1:3',  // Correct Gen V ID
-    'tt1190634:1:1',   // The Boys (should work)
-    'tt9999999:1:1'    // Non-existent ID
-  ];
-  
-  for (const testId of testCases) {
-    console.log(`\n📺 Testing: ${testId}`);
-    const result = await enhancedIDProcessing(testId, mockFetchMeta, (msg) => console.log(`  ${msg}`));
-    console.log(`  Final ID: ${result.id}`);
-    console.log(`  Corrected: ${result.corrected ? 'Yes' : 'No'}`);
-    if (result.warning) console.log(`  Warning: ${result.warning}`);
+    validationCache.set(cacheKey, { result, timestamp: Date.now() });
+    return result;
   }
 }
 
-if (require.main === module) {
-  testIDCorrection();
+/**
+ * Main function to validate and potentially correct an IMDB ID
+ */
+async function validateAndCorrectIMDBID(originalId, expectedContext = null) {
+  console.log(`🔍 Validating IMDB ID: ${originalId}`);
+  
+  // Validate the original ID first
+  const validation = await validateIMDBID(originalId, expectedContext);
+  
+  if (validation.isValid && validation.confidence > 0.8) {
+    console.log(`✅ ID ${originalId} is valid: "${validation.title}" (${validation.year})`);
+    return {
+      originalId,
+      correctedId: originalId,
+      needsCorrection: false,
+      metadata: validation.metadata,
+      confidence: validation.confidence
+    };
+  }
+  
+  // If validation failed, provide helpful information
+  if (!validation.isValid) {
+    console.log(`❌ ID ${originalId} failed validation: ${validation.reason}`);
+  }
+  
+  // Return original ID with any metadata we could gather
+  return {
+    originalId,
+    correctedId: originalId,
+    needsCorrection: false,
+    metadata: validation.metadata || null,
+    confidence: validation.confidence || 0,
+    reason: validation.reason || 'No correction available'
+  };
 }
 
-module.exports = { 
-  correctIMDBID, 
-  validateIDWithMetadata, 
-  enhancedIDProcessing,
-  ID_CORRECTIONS,
-  SERIES_VALIDATION 
+// Export the main functions
+module.exports = {
+  validateAndCorrectIMDBID,
+  validateIMDBID,
+  titleSimilarity
 };

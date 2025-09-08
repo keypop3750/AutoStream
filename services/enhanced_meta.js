@@ -31,12 +31,6 @@
 
 const { fetchWithTimeout } = require('../utils/http');
 
-// Known IMDB ID corrections for common mismatches
-const IMDB_ID_CORRECTIONS = {
-  'tt13623136': 'tt13159924', // Gen V correction
-  // Add more corrections as discovered
-};
-
 // Cache for metadata to avoid repeated requests
 const metaCache = new Map();
 const CACHE_TTL = 6 * 60 * 60 * 1000; // 6 hours
@@ -95,53 +89,32 @@ async function fetchJson(url, timeout = 15000) {
 }
 
 async function validateAndCorrectIMDBID(id, expectedTitle = null) {
-  console.log(`🔍 Validating IMDB ID: ${id}`);
-  
-  // Step 1: Check if this ID needs correction
-  if (IMDB_ID_CORRECTIONS[id]) {
-    const correctedId = IMDB_ID_CORRECTIONS[id];
-    console.log(`🔧 Auto-correcting ${id} → ${correctedId}`);
-    return correctedId;
-  }
-  
-  // Step 2: Validate metadata exists and is reasonable
+  // Use the new dynamic validation system
   try {
-    // For series, extract base ID (tt13406094:1:1 -> tt13406094)
-    let metaId = id;
-    if (id.includes(':')) {
-      metaId = id.split(':')[0]; // Get base IMDB ID for series
-    }
+    const { validateAndCorrectIMDBID: dynamicValidate } = require('../utils/id-correction');
     
-    const metaUrl = `https://v3-cinemeta.strem.io/meta/series/${metaId}.json`;
-    const result = await fetchJson(metaUrl, 10000);
+    const result = await dynamicValidate(id, expectedTitle ? { title: expectedTitle } : null);
     
-    if (result.error) {
-      console.log(`❌ Metadata validation failed: ${result.error} (using base ID: ${metaId})`);
-      return { id }; // Return original if validation fails
-    }
-    
-    const meta = result.meta;
-    
-    // Check if metadata looks suspicious (empty or generic)
-    if (!meta?.name || meta.name === 'Unknown' || !meta.imdb_id) {
-      console.log(`⚠️ Suspicious metadata for ${id}: empty or generic data`);
-      
-      // If we have an expected title, try to find alternatives
-      if (expectedTitle) {
-        console.log(`🔍 Searching for alternative ID for "${expectedTitle}"`);
-        // Future: Could implement title-based search here
-      }
+    if (result.needsCorrection) {
+      console.log(`🔧 Dynamic correction: ${id} → ${result.correctedId}`);
+      return { 
+        id: result.correctedId, 
+        meta: result.metadata,
+        corrected: true 
+      };
+    } else if (result.metadata) {
+      return { 
+        id: result.originalId, 
+        meta: result.metadata,
+        corrected: false 
+      };
     } else {
-      console.log(`✅ Valid metadata: "${meta.name}" (${meta.year})`);
-      // Return both the ID and the fetched metadata to avoid duplicate fetches
-      return { id, meta, metaUrl };
+      // No metadata available
+      return { id: result.originalId };
     }
-    
-    return { id }; // Return original ID if validation passes but no meta cached
-    
   } catch (error) {
-    console.log(`❌ Metadata fetch error: ${error.message} (episode may not exist in Cinemeta database)`);
-    return { id }; // Return original on error
+    console.log(`⚠️ Dynamic validation failed, using original ID: ${error.message}`);
+    return { id };
   }
 }
 
@@ -160,7 +133,7 @@ async function fetchEnhancedMeta(type, originalId, log = () => {}) {
     const validationResult = await validateAndCorrectIMDBID(originalId);
     const validatedId = validationResult.id;
     const validatedMeta = validationResult.meta; // Get the already-fetched metadata
-    const idChanged = validatedId !== originalId;
+    const idChanged = validationResult.corrected;
     
     if (idChanged) {
       log(`🔧 ID corrected: ${originalId} → ${validatedId}`);
@@ -172,7 +145,7 @@ async function fetchEnhancedMeta(type, originalId, log = () => {}) {
       log(`🎯 Using already-validated metadata: "${validatedMeta.name}"`);
       result = { meta: validatedMeta };
     } else {
-      // Fetch metadata with corrected ID
+      // Fetch metadata with validated ID
       const metaUrl = `https://v3-cinemeta.strem.io/meta/${type}/${validatedId.split(':')[0]}.json`;
       log(`📡 Fetching metadata from: ${metaUrl}`);
       result = await fetchJson(metaUrl, 15000);
