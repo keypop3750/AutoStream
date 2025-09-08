@@ -418,8 +418,7 @@ const { beautifyStreamName, shouldShowOriginTags, buildContentTitle } = (() => {
       shouldShowOriginTags: () => false, 
       buildContentTitle: (metaName, stream, opts) => {
         // Fallback content title builder with user-friendly resolution labels
-        const noResolution = opts?.noResolution;
-        const quality = noResolution ? '' : (() => {
+        const quality = (() => {
           const t = ((stream?.title||'') + ' ' + (stream?.name||'')).toLowerCase();
           if (/\b(2160p|2160|4k|uhd)\b/.test(t)) return ' - 4K';
           if (/\b(1440p|1440|2k|qhd)\b/.test(t)) return ' - 2K';
@@ -654,7 +653,7 @@ function startServer(port = PORT) {
         return res.end('<!DOCTYPE html><html><head><title>AutoStream</title></head><body><h1>AutoStream Addon</h1><p>Running and ready.</p></body></html>');
       }
       
-      if (pathname === '/status') return writeJson(res, { status: 'ok', addon: 'AutoStream', version: '3.4.1' }, 200);
+      if (pathname === '/status') return writeJson(res, { status: 'ok', addon: 'AutoStream', version: '3.4.2' }, 200);
 
       // Penalty reliability API endpoints
       if (pathname === '/reliability/stats') {
@@ -830,7 +829,7 @@ function startServer(port = PORT) {
         
         const manifest = {
           id: 'com.stremio.autostream.addon',
-          version: '3.4.1',
+          version: '3.4.2',
           name: tag ? `AutoStream (${tag})` : 'AutoStream',
           description: 'Curated best-pick streams with optional debrid; Nuvio direct-host supported.',
           logo: 'https://github.com/keypop3750/AutoStream/blob/main/logo.png?raw=true',
@@ -1399,7 +1398,7 @@ function startServer(port = PORT) {
         return null;
       })();
       
-      // Apply beautified names and titles (WITHOUT resolution - we'll add that at the end)
+      // Apply beautified names and titles
       const showOriginTags = shouldShowOriginTags(labelOrigin);
       streams.forEach(s => {
         if (s && (s.url || s.infoHash)) {
@@ -1411,8 +1410,8 @@ function startServer(port = PORT) {
             debridProvider 
           });
           
-          // Set content title WITHOUT resolution (we'll add resolution at the very end)
-          s.title = buildContentTitle(finalMeta.name, s, { type, id: actualId, noResolution: true });
+          // Set content title with resolution (e.g., "Gen V S1E1 - 4K")
+          s.title = buildContentTitle(finalMeta.name, s, { type, id: actualId });
         }
       });
 
@@ -1494,8 +1493,8 @@ function startServer(port = PORT) {
                 debridProvider 
               });
               
-              // Set content title WITHOUT resolution (we'll add resolution at the very end)
-              finalizedAdditional.title = buildContentTitle(finalMeta.name, finalizedAdditional, { type, id: actualId, noResolution: true });
+              // Set content title with resolution (e.g., "Gen V S1E1 - 1080p")
+              finalizedAdditional.title = buildContentTitle(finalMeta.name, finalizedAdditional, { type, id: actualId });
               
               // buildContentTitle already adds resolution, so no need to add it again
               // Just log what we have
@@ -1576,29 +1575,6 @@ function startServer(port = PORT) {
         }
       });
 
-      // ========== UNIFIED RESOLUTION DISPLAY SYSTEM ==========
-      // This is the SINGLE place where we add resolution to ALL stream titles
-      // It runs after everything else is complete to ensure consistency
-      streams.forEach((stream, index) => {
-        if (!stream || !stream.title) return;
-        
-        const resolution = resOf(stream);
-        if (resolution > 0) {
-          const friendlyRes = getFriendlyResolution(resolution);
-          
-          // Only add resolution if it's not already in the title
-          if (!stream.title.toLowerCase().includes(friendlyRes.toLowerCase()) && 
-              !stream.title.includes(`${resolution}p`)) {
-            stream.title = `${stream.title} - ${friendlyRes}`;
-            log(`🎯 Added resolution to stream ${index + 1}: ${friendlyRes}`, 'verbose');
-          } else {
-            log(`🔍 Resolution already present in stream ${index + 1}: ${stream.title}`, 'verbose');
-          }
-        } else {
-          log(`⚠️  No resolution detected for stream ${index + 1}: ${stream.title}`, 'verbose');
-        }
-      });
-
       // Apply visibility control based on additionalStreamEnabled flag
       // Both streams are always processed, but this controls what the user sees
       if (!additionalStreamEnabled && streams.length > 1) {
@@ -1608,17 +1584,11 @@ function startServer(port = PORT) {
         log(`🎛️ Additional stream enabled: showing ${streams.length} streams`);
       }
 
-      // Reduce cache time if we filtered problematic URLs or have penalties
-      // EXPERIMENTAL: Test if caching causes URL expiry for specific content
-      // Disable caching for Gen V to test if our caching triggers immediate expiry
-      const isGenV = id.includes('tt13623136');
+      // Reduce cache time if we have penalties
       const hasPenalties = Object.keys(penaltyReliability.getState().penalties || {}).length > 0;
       let cacheTime = 3600; // Default: 1 hour
       
-      if (isGenV) {
-        cacheTime = 0; // No cache for Gen V - always fetch fresh
-        log(`🧪 EXPERIMENTAL: Disabled caching for Gen V to test if caching triggers URL expiry`);
-      } else if (hasPenalties) {
+      if (hasPenalties) {
         cacheTime = 300; // 5 minutes with penalties
         log(`⚡ Reduced cache time to 5 minutes due to penalties`);
       }

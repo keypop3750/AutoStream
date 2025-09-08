@@ -21,15 +21,30 @@ function normaliseQuality(quality) {
 }
 
 function extractResolution(stream) {
-  const text = `${stream.title || ''} ${stream.name || ''}`.toLowerCase();
+  // Check multiple places for resolution info
+  const title = stream.title || '';
+  const name = stream.name || '';
+  const description = stream.description || '';
+  const filename = stream.behaviorHints?.filename || stream.filename || '';
+  const tag = stream.tag || '';
   
-  if (/\b(2160p|4k|uhd)\b/i.test(text)) return '4K';
-  if (/\b(1080p|full\s*hd|fhd)\b/i.test(text)) return '1080p';
-  if (/\b(720p|hd)\b/i.test(text)) return '720p';  
-  if (/\b(480p|sd)\b/i.test(text)) return '480p';
+  const text = `${title} ${name} ${description} ${filename} ${tag}`.toLowerCase();
   
-  // Default fallback
-  return '1080p';
+  // Check for explicit resolution markers (most specific first)
+  if (/\b(2160p|2160|4k|uhd)\b/i.test(text)) return '4K';
+  if (/\b(1440p|1440|2k|qhd)\b/i.test(text)) return '2K';
+  if (/\b(1080p|1080|full\s*hd|fhd)\b/i.test(text)) return '1080p';
+  if (/\b(720p|720|hd)\b/i.test(text)) return '720p';  
+  if (/\b(480p|480|sd)\b/i.test(text)) return '480p';
+  
+  // Fallback: Use resOf-style detection logic directly here
+  if (/\b(2160p|2160|4k|uhd)\b/.test(text)) return '4K';
+  if (/\b(1080p|1080|fhd)\b/.test(text)) return '1080p';
+  if (/\b(720p|720|hd)\b/.test(text)) return '720p';
+  if (/\b(480p|480|sd)\b/.test(text)) return '480p';
+  
+  // Final fallback - no resolution detected, return empty string
+  return '';
 }
 
 function extractQualityTags(stream) {
@@ -103,9 +118,9 @@ function beautifyStreamName(stream, { type, id, includeOriginTag = false, debrid
   return 'AutoStream';
 }
 
-function buildContentTitle(metaName, stream, { type, id, noResolution = false } = {}) {
-  // Build clean content title like "KPop Demon Hunters (2025) - 4K"
-  const resolution = noResolution ? null : extractResolution(stream);
+function buildContentTitle(metaName, stream, { type, id } = {}) {
+  // Build clean content title like "Gen V S1E1 - 4K"
+  const resolution = extractResolution(stream);
   const contentInfo = detectContentInfo(type, id);
   
   let title = metaName;
@@ -126,8 +141,8 @@ function buildContentTitle(metaName, stream, { type, id, noResolution = false } 
     title += ` ${contentInfo}`;
   }
   
-  // Add resolution only if not disabled
-  if (!noResolution && resolution) {
+  // Add resolution only if detected
+  if (resolution) {
     title += ` - ${resolution}`;
   }
   
