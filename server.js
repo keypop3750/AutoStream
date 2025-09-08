@@ -1424,19 +1424,39 @@ function startServer(port = PORT) {
           
           // Get primary stream identifier for comparison (use infoHash for torrents)
           const primaryId = selectedStreams[0]?.infoHash || selectedStreams[0]?.url;
-          const primaryTorrent = selectedStreams[0]; // Reference to primary for episode matching
           
-          // Look through scored streams to find target resolution
+          log(`🔍 Looking for additional stream: primary is ${pRes}p, seeking ${targetRes}p`);
+          
+          // Look through scored streams to find target resolution (or fallback)
           for (const candidate of allScoredStreams.slice(1)) { // Skip first (primary)
             const candidateRes = resOf(candidate);
             const candidateId = candidate.infoHash || candidate.url;
             
+            log(`📋 Candidate: ${candidateRes}p (${candidate.title?.substring(0, 30) || candidate.name?.substring(0, 30)}...)`, 'verbose');
+            
             // Make sure it's different content and target resolution
             if (candidateRes === targetRes && candidateId !== primaryId) {
-              // SIMPLIFIED: Since streams are already episode-filtered, just use any valid candidate
               additional = { ...candidate }; // Copy to avoid mutations
               log(`✅ Found secondary stream: ${candidate.title?.substring(0, 50) || candidate.name?.substring(0, 50) || 'Unknown'}...`);
               break;
+            }
+          }
+          
+          // If no exact target resolution found, try fallback to next lower resolution
+          if (!additional && targetRes > 480) {
+            const fallbackRes = targetRes === 1080 ? 720 : (targetRes === 720 ? 480 : 0);
+            if (fallbackRes > 0) {
+              log(`🔍 No ${targetRes}p found, trying fallback to ${fallbackRes}p`);
+              for (const candidate of allScoredStreams.slice(1)) {
+                const candidateRes = resOf(candidate);
+                const candidateId = candidate.infoHash || candidate.url;
+                
+                if (candidateRes === fallbackRes && candidateId !== primaryId) {
+                  additional = { ...candidate };
+                  log(`✅ Found fallback secondary stream: ${candidate.title?.substring(0, 50) || candidate.name?.substring(0, 50) || 'Unknown'}...`);
+                  break;
+                }
+              }
             }
           }
           
@@ -1465,9 +1485,21 @@ function startServer(port = PORT) {
               
               finalizedAdditional.title = buildContentTitle(finalMeta.name, finalizedAdditional, { type, id: actualId });
               
+              // Ensure both streams show their resolution clearly
+              const additionalRes = resOf(finalizedAdditional);
+              const primaryRes = resOf(primary);
+              
+              // Add resolution to titles if not already present
+              if (additionalRes && !finalizedAdditional.title.includes(`${additionalRes}p`)) {
+                finalizedAdditional.title = `${finalizedAdditional.title} - ${additionalRes}p`;
+              }
+              if (primaryRes && !primary.title.includes(`${primaryRes}p`)) {
+                primary.title = `${primary.title} - ${primaryRes}p`;
+              }
+              
               // ALWAYS prepare both streams - visibility control comes at the end
               streams = [primary, finalizedAdditional];
-              log(`🎯 Processed both primary and secondary streams: ${streams.length} total`);
+              log(`🎯 Processed both primary(${primaryRes}p) and secondary(${additionalRes}p) streams: ${streams.length} total`);
             }
           } else {
             log(`📝 No suitable ${targetRes}p secondary stream found for additional processing`);
