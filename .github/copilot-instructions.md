@@ -1,13 +1,13 @@
 @ -1,180 +0,0 @@
 # AutoStream V3 - AI Coding Instructions
 
-AutoStream is a **Stremio addon** that aggregates and intelligently selects the best streaming sources with click-time debrid resolution. The system follows a **layered service architecture** with **comprehensive memory management**.
+AutoStream is a **Stremio addon** that aggregates and intelligently selects the best streaming sources with click-time debrid resolution. The system follows a **layered service architecture** with **comprehensive memory management** and **platform-specific optimization**.
 
 ## 🏗️ Architecture Overview
 
-- **Server Layer** (`server.js`): Main HTTP server with defensive coding, memory monitoring, and click-time debrid resolution
-- **Services Layer** (`services/`): Stream aggregation (`sources.js`), debrid integration (`debrid.js`), reliability tracking (`penaltyReliability.js`), enhanced metadata (`enhanced_meta.js`)
-- **Core Layer** (`core/`): Scoring algorithms (`scoring_v6.js`), content formatting (`format.js`), series caching (`series-cache.js`)
+- **Server Layer** (`server.js`): Main HTTP server with defensive coding, memory monitoring, click-time debrid resolution, and platform-aware request handling
+- **Services Layer** (`services/`): Stream aggregation (`sources.js`), debrid integration (`debrid.js`), reliability tracking (`penaltyReliability.js`), enhanced metadata with ID validation (`enhanced_meta.js`)
+- **Core Layer** (`core/`): Platform-specific scoring (`scoring_v6.js`), content formatting (`format.js`), series caching (`series-cache.js`), stream prefiltering (`prefilter.js`)
 - **UI Layer** (`ui/`): Configuration interface with client-side state management
 - **Utils Layer** (`utils/`): TTL caches (`cache.js`), HTTP utilities (`http.js`), ID correction systems (`id-correction.js`)
 
@@ -52,7 +52,36 @@ const baseId = id.split(':')[0]; // tt14452776:2:1 → tt14452776
 const metaUrl = `https://v3-cinemeta.strem.io/meta/series/${baseId}.json`;
 ```
 
-### 4. Multi-Source Stream Aggregation
+### 4. Enhanced Metadata Service with ID Validation
+**NEW PATTERN**: Automatic ID correction and validation before metadata fetching:
+```js
+// services/enhanced_meta.js - ID correction system
+const IMDB_ID_CORRECTIONS = {
+  'tt13623136': 'tt13159924', // Gen V correction
+};
+
+async function validateAndCorrectIMDBID(id, expectedTitle = null) {
+  // Step 1: Auto-correct known mismatches
+  if (IMDB_ID_CORRECTIONS[id]) {
+    const correctedId = IMDB_ID_CORRECTIONS[id];
+    console.log(`🔧 Auto-correcting ${id} → ${correctedId}`);
+    return correctedId;
+  }
+  
+  // Step 2: Extract base ID for series validation
+  let metaId = id.includes(':') ? id.split(':')[0] : id;
+  const metaUrl = `https://v3-cinemeta.strem.io/meta/series/${metaId}.json`;
+  
+  // Validate metadata exists before proceeding
+  const result = await fetchJson(metaUrl, 10000);
+  if (result.error) return { id }; // Fallback to original
+  
+  return { id: correctedId || id, meta: result.meta };
+}
+```
+**Key Features**: Prevents 404 errors, corrects known ID mismatches, validates metadata availability.
+
+### 5. Multi-Source Stream Aggregation
 The system fetches from multiple providers **in parallel**:
 ```js
 const [fromTorrentio, fromTPB, fromNuvio] = await Promise.all([
@@ -63,7 +92,7 @@ const [fromTorrentio, fromTPB, fromNuvio] = await Promise.all([
 ```
 Each source is **tagged** with origin (`torrentio`, `tpb`, `nuvio`) for scoring and filtering.
 
-### 5. Click-Time Debrid Resolution
+### 6. Click-Time Debrid Resolution
 **Critical**: Torrents are NOT pre-resolved during `/stream` requests. Instead, they're wrapped with `/play?ih=...` URLs that resolve to debrid services only when clicked:
 ```js
 // Step 3: Convert selected torrents to debrid URLs ONLY
@@ -76,7 +105,7 @@ if (adParam && selectedStreams.length > 0) {
 }
 ```
 
-### 6. Episode Processing with Smart Filtering
+### 7. Episode Processing with Smart Filtering
 Episodes require season/episode extraction and validation:
 ```js
 // Extract season/episode from ID: tt14452776:2:1 → S2E1
@@ -94,7 +123,45 @@ const episodeStreams = allStreams.filter(stream => {
 });
 ```
 
-### 7. Resolution Detection from Multiple Fields
+### 8. Platform-Specific Scoring System (V6)
+**NEW CRITICAL PATTERN**: Scoring varies by device type (TV/Mobile/Web) for optimal compatibility:
+```js
+// Device detection from User-Agent
+function detectDeviceType(req) {
+  const userAgent = req.headers['user-agent'] || '';
+  if (/\b(smart[-\s]?tv|tizen|webos|roku)\b/i.test(userAgent)) return 'tv';
+  if (/\b(android|iphone|mobile)\b/i.test(userAgent)) return 'mobile';
+  return 'web';
+}
+
+// TV scoring prioritizes compatibility over quality
+function getTVQualityScore(title, factors) {
+  let score = 0;
+  if (/\b(4k|2160p)\b/.test(title)) score += 40; // Highest bonus for 4K
+  if (/\b(x265|hevc)\b/.test(title)) score -= 60; // Heavy penalty for codec issues
+  if (/\b(x264|h\.?264)\b/.test(title)) score += 40; // Big bonus for compatibility
+  return score;
+}
+```
+**Key Behavior**: Same content shows different quality on different platforms (TV gets 720p x264, Web gets 1080p x265).
+
+### 9. URL Assignment & Non-Debrid Support
+**CRITICAL FIX**: Prevent undefined URLs that cause infinite loading in Stremio:
+```js
+// In __finalize function - ensure URLs are assigned for all scenarios
+if (s.infoHash && (!s.url || /^magnet:/i.test(s.url))) {
+  if (s._isDebrid) {
+    // Keep the debrid play URL, don't replace with magnet
+  } else {
+    // Non-debrid: ensure we have a proper magnet URL for external clients
+    if (!s.url || /^magnet:/i.test(s.url)) {
+      s.url = `magnet:?xt=urn:btih:${s.infoHash}`;
+    }
+  }
+}
+```
+**Result**: Non-debrid users get magnet URLs, debrid users get `/play?ih=...` URLs, no undefined URLs ever.
+### 10. Resolution Detection from Multiple Fields
 **UPDATED PATTERN**: Resolution is extracted from multiple stream fields, including both filename locations:
 ```js
 function extractResolution(stream) {
@@ -356,33 +423,33 @@ const scoringOptions = { debug: true }; // Shows detailed score breakdown
 
 ## Testing Patterns
 
+## Testing Patterns
+
 ### Memory Leak Testing
 Use the built-in memory test to validate cache limits:
 ```powershell
 node --expose-gc server.js  # Enable garbage collection
-node test_memory_leak.js    # Run 100 requests, monitor heap usage
+node dev-files/test_penalty_system.js  # Test penalty system behavior
 ```
 **Target**: Stable heap under 50MB for production use.
 
-### Episode Matching Validation
-Test episode filtering with known series:
+### Comprehensive System Testing
+Test all user scenarios with single command:
 ```powershell
-node test_episode_fix.js  # Tests multiple series episodes
+node dev-files/test_comprehensive_final.js  # Tests all user flows
 ```
-**Coverage**: Tests both primary and additional streams across multiple series.
+**Coverage**: Non-debrid users, debrid validation, additional streams, fallback scenarios.
 
-### Resolution Testing
-**UPDATED**: Test resolution detection with current system:
+### Platform-Specific Testing
+Test device-aware scoring across platforms:
 ```powershell
-node test_breaking_bad_resolution.js  # Tests resolution detection
-node test_office_resolution.js        # Tests additional resolution cases
-```
+# Test TV optimization (4K+40pts, x265-60pts)
+curl "localhost:7010/stream/series/tt13159924:1:3.json" -H "User-Agent: SmartTV"
 
-### Additional Stream Testing
-Test secondary stream targeting:
-```powershell
-node test_simplified_system.js  # Tests secondary stream targeting
+# Test mobile optimization
+curl "localhost:7010/stream/series/tt13159924:1:3.json" -H "User-Agent: Android"
 ```
+**Coverage**: Validates platform-specific scoring differences.
 
 ### Request Testing Pattern
 ```js
@@ -420,6 +487,17 @@ Invoke-RestMethod -Uri "http://localhost:7010/reliability/penalties"
 # Clear all penalties
 $body = @{} | ConvertTo-Json
 Invoke-RestMethod -Uri "http://localhost:7010/reliability/clear" -Method Post -Body $body -ContentType "application/json"
+
+# Test penalty accumulation
+node dev-files/test_penalty_system.js
+```
+
+### Real-World Testing
+Test actual user scenarios in development:
+```powershell
+# Test different user types
+node dev-files/test_comprehensive_final.js  # All scenarios
+node dev-files/simple-test.js              # Quick validation
 ```
 
 ### Stream Source Mocking
