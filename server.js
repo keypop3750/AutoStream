@@ -493,11 +493,22 @@ function __finalize(list, { nuvioCookie, labelOrigin }) {
     // First try existing URLs
     s.url = s.url || s.externalUrl || s.link || (s.sources && s.sources[0] && s.sources[0].url) || '';
     
-    // For web Stremio compatibility: if we have infoHash, don't set magnet URL
-    // Web Stremio prefers infoHash-only streams for torrent handling
+    // For web Stremio compatibility: handle URLs based on stream type
     if (s.infoHash && (!s.url || /^magnet:/i.test(s.url))) {
-      // Keep infoHash, remove magnet URL for web compatibility
-      delete s.url;
+      // Check if this is a debrid stream (should have a play URL by now)
+      const isDebridStream = s._debrid || s._isDebrid;
+      if (isDebridStream) {
+        // Debrid stream should have a play URL assigned - if not, this is an error
+        if (!s.url || /^magnet:/i.test(s.url)) {
+          console.warn(`⚠️ Debrid stream missing play URL: ${s.infoHash?.substring(0, 8)}...`);
+        }
+        // Keep the debrid play URL, don't replace with magnet
+      } else {
+        // Non-debrid: ensure we have a proper magnet URL for external clients
+        if (!s.url) {
+          s.url = `magnet:?xt=urn:btih:${s.infoHash}`;
+        }
+      }
     }
     
     const isHttp = /^https?:/i.test(String(s.url||''));
@@ -616,9 +627,10 @@ function getQ(q, k){
 }
 function resOf(s) {
   const t = ((s?.title||'') + ' ' + (s?.name||'') + ' ' + (s?.tag||'')).toLowerCase();
+  // Use same patterns as extractResolution() for consistency
   if (/\b(2160p|2160|4k|uhd)\b/.test(t)) return 2160;
   if (/\b(1440p|1440|2k|qhd)\b/.test(t)) return 1440;
-  if (/\b(1080p|1080|fhd)\b/.test(t)) return 1080;
+  if (/\b(1080p|1080|full\s*hd|fhd)\b/.test(t)) return 1080;
   if (/\b(720p|720|hd)\b/.test(t)) return 720;
   if (/\b(480p|480|sd)\b/.test(t)) return 480;
   return 0;
@@ -1318,19 +1330,18 @@ function startServer(port = PORT) {
       // Use new enhanced scoring system with penalty filtering
       let allScoredStreams = scoring.filterAndScoreStreams(combined, req, scoringOptions);
       
-      // ALWAYS select both primary and secondary streams for processing
-      // The additionalStreamEnabled flag will only control final visibility, not processing
-      const processingLimit = 2; // Always process top 2 streams to ensure both primary and secondary are available
+      // For additional stream logic, we need access to more streams to find different resolutions
+      // But for final output, we'll only use what's needed
       
       let selectedStreams;
       if (effectiveAdParam) {
-        // Debrid mode: take top 2 streams for processing (visibility controlled later)
-        selectedStreams = allScoredStreams.slice(0, processingLimit);
-        log(`🔧 Debrid mode: selected top ${selectedStreams.length} streams for processing`);
+        // Debrid mode: take top stream for processing, but keep all scored streams for additional stream logic
+        selectedStreams = [allScoredStreams[0]].filter(Boolean); // Just the top stream initially
+        log(`🔧 Debrid mode: selected top stream for processing, ${allScoredStreams.length} total available for additional stream selection`);
       } else {
-        // Non-debrid mode: take top 2 streams for processing (visibility controlled later)
-        selectedStreams = allScoredStreams.slice(0, processingLimit);
-        log(`📺 Non-debrid mode: selected top ${selectedStreams.length} streams for processing`);
+        // Non-debrid mode: take top stream for processing, but keep all scored streams for additional stream logic  
+        selectedStreams = [allScoredStreams[0]].filter(Boolean); // Just the top stream initially
+        log(`📺 Non-debrid mode: selected top stream for processing, ${allScoredStreams.length} total available for additional stream selection`);
       }
       
       // Define originBase for URL building (used in multiple places)
@@ -1361,8 +1372,24 @@ function startServer(port = PORT) {
           }
         }
       } else {
-        // No debrid available - keep ALL streams (magnets + direct)
+        // No debrid available - ensure magnet URLs are properly assigned for external clients
         log('ℹ️ No debrid available - providing raw magnet URLs for external torrent clients');
+        
+        for (const s of selectedStreams) {
+          if (!s) continue;
+          
+          // For torrents without URLs, create magnet URLs from infoHash
+          if (s.infoHash && !s.url) {
+            s.url = `magnet:?xt=urn:btih:${s.infoHash}`;
+            log(`🧲 Generated magnet URL for ${s.infoHash.substring(0, 8)}...`);
+          }
+          
+          // Preserve original magnet URLs if they exist
+          if (s._originalMagnet && !s.url) {
+            s.url = s._originalMagnet;
+            log(`🧲 Restored original magnet URL for ${s.infoHash?.substring(0, 8) || 'stream'}...`);
+          }
+        }
       }
 
       // Step 4: Apply beautified names and finalize
