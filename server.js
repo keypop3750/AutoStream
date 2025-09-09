@@ -485,11 +485,11 @@ function attachNuvioCookie(list, cookie) {
     return s;
   });
 }
-function __finalize(list, { nuvioCookie, labelOrigin, req, originBase }) {
+function __finalize(list, { nuvioCookie, labelOrigin }, req) {
   let out = Array.isArray(list) ? list.slice() : [];
   
   // Detect device type for platform-specific handling
-  const deviceType = req ? scoring.detectDeviceType(req) : 'web';
+  const deviceType = scoring.detectDeviceType(req);
   
   out.forEach(s => {
     if (!s) return;
@@ -508,26 +508,30 @@ function __finalize(list, { nuvioCookie, labelOrigin, req, originBase }) {
         }
         // Keep the debrid play URL, don't replace with magnet
       } else {
-        // Non-debrid: handle platform-specific URL assignment
-        if (deviceType === 'tv' && originBase) {
-          // For TV devices, use proxy streaming instead of raw magnet URLs
-          s.url = `${originBase}/proxy/stream?ih=${s.infoHash}&idx=${s.fileIdx || 0}`;
-          console.log(`📺 TV device detected: Using proxy stream for ${s.infoHash?.substring(0, 8)}...`);
-        } else {
-          // For web/mobile: ensure we have a proper magnet URL for external clients
-          if (!s.url) {
-            s.url = `magnet:?xt=urn:btih:${s.infoHash}`;
-          }
+        // Non-debrid: ensure we have a proper magnet URL for external clients
+        if (!s.url) {
+          s.url = `magnet:?xt=urn:btih:${s.infoHash}`;
+        }
+        
+        // CRITICAL TV FIX: Only TV devices need notWebReady flag for magnet links
+        if (deviceType === 'tv') {
+          s.behaviorHints = Object.assign({}, s.behaviorHints || {}, { notWebReady: true });
         }
       }
     }
     
     const isHttp = /^https?:/i.test(String(s.url||''));
     const isMagnet = !isHttp && (s.infoHash || /^magnet:/i.test(String(s.url||'')));
-    // Web Stremio can handle magnet URLs just fine - remove notWebReady flag if present
+    
+    // Device-aware notWebReady handling:
+    // - TV devices: Keep notWebReady for magnet links (tells TV to use internal streaming)
+    // - Web/Mobile: Remove notWebReady (they can handle magnet links directly)
     if (s.behaviorHints && s.behaviorHints.notWebReady) {
-      delete s.behaviorHints.notWebReady;
+      if (deviceType !== 'tv' || !isMagnet) {
+        delete s.behaviorHints.notWebReady;
+      }
     }
+    
     if (s.autostreamOrigin === 'nuvio' && nuvioCookie) s._usedCookie = true;
   });
   out = attachNuvioCookie(out, nuvioCookie);
@@ -655,181 +659,6 @@ function getUserFriendlyResolution(resNumber) {
   return `${resNumber}p`;
 }
 
-// Torrent proxy handler for TV devices
-async function handleTorrentProxy(req, res) {
-  const url = new URL(req.url, `http://${req.headers.host}`);
-  const ih = url.searchParams.get('ih'); // Info hash
-  const idx = parseInt(url.searchParams.get('idx') || '0', 10); // File index
-  
-  if (!ih || ih.length !== 40) {
-    res.writeHead(400, { 'Content-Type': 'text/plain' });
-    return res.end('Invalid info hash');
-  }
-
-  try {
-    // Import torrent-stream for server-side torrent streaming
-    let torrentStream;
-    try {
-      torrentStream = require('torrent-stream');
-    } catch (importError) {
-      console.warn('torrent-stream not available, falling back to magnet URL');
-      res.writeHead(302, { 'Location': `magnet:?xt=urn:btih:${ih}` });
-      return res.end();
-    }
-    
-    const magnetUri = `magnet:?xt=urn:btih:${ih}`;
-    console.log(`🔄 TV proxy request for torrent: ${ih.substring(0, 8)}...`);
-    
-    // For immediate testing, let's use a shorter timeout initially
-    const quickTimeout = setTimeout(() => {
-      if (!res.headersSent) {
-        console.warn(`⚡ Quick timeout for ${ih.substring(0, 8)}... - redirecting to magnet`);
-        res.writeHead(302, { 
-          'Location': magnetUri,
-          'Cache-Control': 'no-cache' 
-        });
-        res.end();
-      }
-    }, 10000); // 10 second initial timeout for testing
-    
-    // Create torrent engine with optimized settings
-    const engine = torrentStream(magnetUri, {
-      connections: 50,        // Reduced connections for faster start
-      uploads: 5,             // Minimal uploads 
-      tmp: false,             // Don't save to disk
-      path: false,            // Stream only
-      verify: false           // Skip verification for faster startup
-    });
-    
-    engine.on('ready', () => {
-      clearTimeout(quickTimeout);
-      console.log(`✅ Torrent ready: ${ih.substring(0, 8)}... (${engine.files.length} files)`);
-      
-      if (!engine.files || engine.files.length === 0) {
-        res.writeHead(404, { 'Content-Type': 'text/plain' });
-        return res.end('No files found in torrent');
-      }
-      
-      // Select file by index (default to largest video file if index invalid)
-      let file = engine.files[idx];
-      if (!file) {
-        // Find largest video file as fallback
-        const videoFiles = engine.files.filter(f => 
-          /\.(mp4|mkv|avi|mov|wmv|flv|webm|m4v)$/i.test(f.name)
-        );
-        file = videoFiles.length > 0 
-          ? videoFiles.reduce((largest, current) => current.length > largest.length ? current : largest)
-          : engine.files.reduce((largest, current) => current.length > largest.length ? current : largest);
-      }
-      
-      if (!file) {
-        res.writeHead(404, { 'Content-Type': 'text/plain' });
-        return res.end('Video file not found');
-      }
-      
-      console.log(`📺 Streaming file: ${file.name} (${(file.length / 1024 / 1024).toFixed(1)}MB)`);
-      
-      // Set appropriate headers for streaming
-      const range = req.headers.range;
-      const fileSize = file.length;
-      
-      // Determine content type from file extension
-      const contentType = getContentType(file.name);
-      
-      if (range) {
-        const parts = range.replace(/bytes=/, "").split("-");
-        const start = parseInt(parts[0], 10);
-        const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
-        const chunksize = (end - start) + 1;
-        
-        res.writeHead(206, {
-          'Content-Range': `bytes ${start}-${end}/${fileSize}`,
-          'Accept-Ranges': 'bytes',
-          'Content-Length': chunksize,
-          'Content-Type': contentType,
-          'Access-Control-Allow-Origin': '*',
-          'Cache-Control': 'no-cache',
-          'Connection': 'keep-alive'
-        });
-        
-        const stream = file.createReadStream({ start, end });
-        stream.pipe(res);
-        
-        stream.on('error', (err) => {
-          console.error('Stream error:', err);
-          if (!res.headersSent) res.end();
-        });
-      } else {
-        res.writeHead(200, {
-          'Content-Length': fileSize,
-          'Content-Type': contentType,
-          'Accept-Ranges': 'bytes',
-          'Access-Control-Allow-Origin': '*',
-          'Cache-Control': 'no-cache',
-          'Connection': 'keep-alive'
-        });
-        
-        const stream = file.createReadStream();
-        stream.pipe(res);
-        
-        stream.on('error', (err) => {
-          console.error('Stream error:', err);
-          if (!res.headersSent) res.end();
-        });
-      }
-    });
-    
-    // Handle engine errors
-    engine.on('error', (err) => {
-      console.error('Torrent engine error:', err);
-      clearTimeout(quickTimeout);
-      if (!res.headersSent) {
-        console.log(`🔄 Torrent failed, redirecting to magnet: ${ih.substring(0, 8)}...`);
-        res.writeHead(302, { 
-          'Location': magnetUri,
-          'Cache-Control': 'no-cache' 
-        });
-        res.end();
-      }
-    });
-    
-    // Clean up when client disconnects
-    res.on('close', () => {
-      if (engine) {
-        console.log(`🧹 Client disconnected, cleaning up torrent ${ih.substring(0, 8)}...`);
-        engine.destroy();
-      }
-    });
-    
-  } catch (error) {
-    console.error('Torrent proxy error:', error);
-    if (!res.headersSent) {
-      // Fallback to magnet URL
-      res.writeHead(302, { 
-        'Location': `magnet:?xt=urn:btih:${ih}`,
-        'Cache-Control': 'no-cache' 
-      });
-      res.end();
-    }
-  }
-}
-
-// Helper function to determine content type from filename
-function getContentType(filename) {
-  const ext = filename.toLowerCase().split('.').pop();
-  switch (ext) {
-    case 'mp4': return 'video/mp4';
-    case 'mkv': return 'video/x-matroska';
-    case 'avi': return 'video/x-msvideo';
-    case 'mov': return 'video/quicktime';
-    case 'wmv': return 'video/x-ms-wmv';
-    case 'flv': return 'video/x-flv';
-    case 'webm': return 'video/webm';
-    case 'm4v': return 'video/mp4';
-    default: return 'video/mp4';
-  }
-}
-
 // ---------- server ----------
 function startServer(port = PORT) {
   const server = http.createServer();
@@ -851,7 +680,7 @@ function startServer(port = PORT) {
         return res.end('<!DOCTYPE html><html><head><title>AutoStream</title></head><body><h1>AutoStream Addon</h1><p>Running and ready.</p></body></html>');
       }
       
-      if (pathname === '/status') return writeJson(res, { status: 'ok', addon: 'AutoStream', version: '3.5.1' }, 200);
+      if (pathname === '/status') return writeJson(res, { status: 'ok', addon: 'AutoStream', version: '3.4.6' }, 200);
 
       // Penalty reliability API endpoints
       if (pathname === '/reliability/stats') {
@@ -884,9 +713,6 @@ function startServer(port = PORT) {
 
       // /play — click-time debrid resolver
       if (pathname === '/play') return handlePlay(req, res, MANIFEST_DEFAULTS);
-
-      // /proxy/stream — torrent-to-HTTP proxy for TV devices
-      if (pathname === '/proxy/stream') return handleTorrentProxy(req, res);
 
       // Test dashboard for debugging issues
       if (pathname === '/test_issues_dashboard.html') {
@@ -1030,7 +856,7 @@ function startServer(port = PORT) {
         
         const manifest = {
           id: 'com.stremio.autostream.addon',
-          version: '3.5.1',
+          version: '3.4.6',
           name: tag ? `AutoStream (${tag})` : 'AutoStream',
           description: 'Curated best-pick streams with optional debrid; Nuvio direct-host supported.',
           logo: 'https://github.com/keypop3750/AutoStream/blob/main/logo.png?raw=true',
@@ -1361,7 +1187,7 @@ function startServer(port = PORT) {
           title: `No streams found for this content. This may be because:\n• Content is too new or not yet indexed\n• Episode is not available on current sources\n• Try checking back later or use different sources`,
           url: "data:text/plain;charset=utf-8,No%20streams%20available%20for%20this%20content",
           behaviorHints: {
-            // REMOVED: notWebReady: true - causes TV compatibility issues
+            // Message streams don't need notWebReady since they use data: URLs, not magnet links
             filename: "no_streams_available.txt"
           }
         };
@@ -1556,8 +1382,7 @@ function startServer(port = PORT) {
               imdb: id
             }, { origin: originBase, ad: effectiveAdParam });
             
-            // Note: Removed notWebReady flag to fix playback issues in Stremio v5
-            // s.behaviorHints = Object.assign({}, s.behaviorHints, { notWebReady: true });
+            // notWebReady flag is now handled device-aware in __finalize function
           }
         }
       } else {
@@ -1582,7 +1407,7 @@ function startServer(port = PORT) {
       }
 
       // Step 4: Apply beautified names and finalize
-      let streams = __finalize(selectedStreams, { nuvioCookie, labelOrigin, req, originBase });
+      let streams = __finalize(selectedStreams, { nuvioCookie, labelOrigin }, req);
       
       // CRITICAL: Validate stream format for Stremio compatibility
       streams = streams.filter(s => {
@@ -1607,11 +1432,6 @@ function startServer(port = PORT) {
         // Ensure stream has proper structure
         if (typeof s.name !== 'string' || typeof s.title !== 'string') {
           return false;
-        }
-        
-        // Remove notWebReady flag - web Stremio can handle magnet URLs fine
-        if (s.behaviorHints && s.behaviorHints.notWebReady) {
-          delete s.behaviorHints.notWebReady;
         }
         
         return true;
@@ -1714,7 +1534,7 @@ function startServer(port = PORT) {
             }
             
             // Finalize additional stream
-            const finalizedAdditional = __finalize([additional], { nuvioCookie, labelOrigin, req, originBase })[0];
+            const finalizedAdditional = __finalize([additional], { nuvioCookie, labelOrigin }, req)[0];
             
             if (finalizedAdditional && (finalizedAdditional.url || finalizedAdditional.infoHash)) {
               // Apply same beautification as primary
@@ -1799,13 +1619,6 @@ function startServer(port = PORT) {
         streams = streams.slice(0, 10);
         console.log(`[${reqId}] ⚠️ Limited to 10 streams to prevent mobile crashes (had ${streams.length + (streams.length - 10)})`);
       }
-
-      // Final cleanup: Remove notWebReady flags - web Stremio can handle magnet URLs
-      streams.forEach(s => {
-        if (s && s.behaviorHints && s.behaviorHints.notWebReady) {
-          delete s.behaviorHints.notWebReady;
-        }
-      });
 
       // Apply visibility control based on additionalStreamEnabled flag
       // Both streams are always processed, but this controls what the user sees
