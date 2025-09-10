@@ -9,6 +9,29 @@
  * - Configure UI served via your existing ./ui/configure.js (no change to your files).
  */
 
+// ============ SIMPLE LOGGING SYSTEM ============
+const ENABLE_DEBUG_LOGS = process.env.ENABLE_DEBUG_LOGS === 'true';
+
+// Simple, bulletproof logging
+function debugLog(...args) {
+  if (ENABLE_DEBUG_LOGS) {
+    console.log(...args);
+  }
+}
+
+// Always show these
+function errorLog(...args) {
+  console.error(...args);
+}
+
+function warnLog(...args) {
+  console.warn(...args);
+}
+
+function infoLog(...args) {
+  console.log(...args);
+}
+
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
@@ -156,11 +179,11 @@ class MemoryMonitor {
     const usedMB = usage.heapUsed / 1024 / 1024;
     
     if (usedMB > this.maxMemoryMB) {
-      console.warn(`⚠️ High memory usage: ${usedMB.toFixed(2)}MB`);
+      warnLog(`⚠️ High memory usage: ${usedMB.toFixed(2)}MB`);
       // Force garbage collection if available
       if (global.gc) {
         global.gc();
-        console.log('🧹 Forced garbage collection');
+        debugLog('🧹 Forced garbage collection');
       }
     }
   }
@@ -215,11 +238,11 @@ const BLOCK_ENV_CREDENTIALS = process.env.BLOCK_ENV_CREDENTIALS !== 'false'; // 
 const EMERGENCY_DISABLE_DEBRID = process.env.EMERGENCY_DISABLE_DEBRID === 'true';
 
 if (FORCE_SECURE_MODE) {
-  console.log('🔒 SECURE MODE: Environment credential fallbacks disabled');
+  infoLog('🔒 SECURE MODE: Environment credential fallbacks disabled');
 }
 
 if (EMERGENCY_DISABLE_DEBRID) {
-  console.log('🚨 EMERGENCY MODE: All debrid features disabled');
+  infoLog('🚨 EMERGENCY MODE: All debrid features disabled');
 }
 
 // ----- remember manifest params -----
@@ -252,16 +275,16 @@ setInterval(() => {
   const rssMB = Math.round(memUsage.rss / 1024 / 1024);
   
   if (heapUsedMB > 200) { // Alert if over 200MB
-    console.log(`⚠️  High memory usage: ${heapUsedMB}MB heap, ${rssMB}MB RSS`);
+    warnLog(`⚠️  High memory usage: ${heapUsedMB}MB heap, ${rssMB}MB RSS`);
     
     // Force garbage collection if available (requires --expose-gc flag)
     if (global.gc && heapUsedMB > 300) {
-      console.log(`🧹 Forcing garbage collection...`);
+      debugLog(`🧹 Forcing garbage collection...`);
       global.gc();
       
       const afterGC = process.memoryUsage();
       const newHeapMB = Math.round(afterGC.heapUsed / 1024 / 1024);
-      console.log(`🧹 After GC: ${newHeapMB}MB heap (freed ${heapUsedMB - newHeapMB}MB)`);
+      debugLog(`🧹 After GC: ${newHeapMB}MB heap (freed ${heapUsedMB - newHeapMB}MB)`);
     }
   }
 }, 5 * 60 * 1000); // Run every 5 minutes
@@ -298,13 +321,13 @@ function clearEpisodeCaches() {
     adKeyValidationCache.clear();
     
     if (adCacheSize > 0) {
-      console.log(`🧹 Cleared debrid validation cache: ${adCacheSize} entries removed`);
+      debugLog(`🧹 Cleared debrid validation cache: ${adCacheSize} entries removed`);
       totalCleared += adCacheSize;
     }
     
     if (totalCleared > 0) {
-      console.log(`🎯 Cache clearing complete: ${totalCleared} total entries cleared`);
-      console.log(`⚠️  Note: Penalty/reliability data preserved for service stability`);
+      debugLog(`🎯 Cache clearing complete: ${totalCleared} total entries cleared`);
+      debugLog(`⚠️  Note: Penalty/reliability data preserved for service stability`);
     }
     
   } catch (error) {
@@ -415,7 +438,7 @@ const { fetchMeta } = (() => {
 const { beautifyStreamName, shouldShowOriginTags, buildContentTitle } = (() => {
   try { return require('./core/format'); }
   catch { 
-    console.log('⚠️  WARNING: core/format.js failed to load, using fallbacks');
+    warnLog('⚠️  WARNING: core/format.js failed to load, using fallbacks');
     return { 
       beautifyStreamName: (s) => s.name || 'Stream', 
       shouldShowOriginTags: () => false, 
@@ -495,18 +518,18 @@ function __finalize(list, { nuvioCookie, labelOrigin }, req, actualDeviceType = 
   const deviceType = actualDeviceType || scoring.detectDeviceType(req);
   const requestId = req._requestId || 'unknown';
   
-  console.log(`\n🔧 [${requestId}] ===== STREAM FINALIZATION START =====`);
-  console.log(`[${requestId}] 🖥️  Device Type: ${deviceType}`);
-  console.log(`[${requestId}] 📊 Input streams: ${out.length}`);
+  debugLog(`\n🔧 [${requestId}] ===== STREAM FINALIZATION START =====`);
+  debugLog(`[${requestId}] 🖥️  Device Type: ${deviceType}`);
+  debugLog(`[${requestId}] 📊 Input streams: ${out.length}`);
   
   out.forEach((s, index) => {
     if (!s) return;
     
-    console.log(`\n[${requestId}] 🔍 Processing stream [${index + 1}/${out.length}]:`);
-    console.log(`[${requestId}]   Name: "${s.name || 'Unnamed'}"`);
-    console.log(`[${requestId}]   URL (before): "${(s.url || '').substring(0, 100)}${(s.url || '').length > 100 ? '...' : ''}"`);
-    console.log(`[${requestId}]   InfoHash: ${s.infoHash || 'none'}`);
-    console.log(`[${requestId}]   Is Debrid: ${!!(s._debrid || s._isDebrid)}`);
+    debugLog(`\n[${requestId}] 🔍 Processing stream [${index + 1}/${out.length}]:`);
+    debugLog(`[${requestId}]   Name: "${s.name || 'Unnamed'}"`);
+    debugLog(`[${requestId}]   URL (before): "${(s.url || '').substring(0, 100)}${(s.url || '').length > 100 ? '...' : ''}"`);
+    debugLog(`[${requestId}]   InfoHash: ${s.infoHash || 'none'}`);
+    debugLog(`[${requestId}]   Is Debrid: ${!!(s._debrid || s._isDebrid)}`);
     
     // First try existing URLs
     s.url = s.url || s.externalUrl || s.link || (s.sources && s.sources[0] && s.sources[0].url) || '';
@@ -515,18 +538,18 @@ function __finalize(list, { nuvioCookie, labelOrigin }, req, actualDeviceType = 
     if (s.infoHash && (!s.url || /^magnet:/i.test(s.url))) {
       // Check if this is a debrid stream (should have a play URL by now)
       const isDebridStream = s._debrid || s._isDebrid;
-      console.log(`[${requestId}]   InfoHash stream - isDebrid: ${isDebridStream}`);
+      debugLog(`[${requestId}]   InfoHash stream - isDebrid: ${isDebridStream}`);
       
       if (isDebridStream) {
         // Debrid stream should have a play URL assigned - if not, this is an error
         if (!s.url || /^magnet:/i.test(s.url)) {
-          console.warn(`[${requestId}] ⚠️ Debrid stream missing play URL: ${s.infoHash?.substring(0, 8)}...`);
+          warnLog(`[${requestId}] ⚠️ Debrid stream missing play URL: ${s.infoHash?.substring(0, 8)}...`);
         }
         // Keep the debrid play URL, don't replace with magnet
       } else {
         // Non-debrid: Torrentio pattern - provide infoHash + sources, NO URL
         // Let Stremio handle the torrent internally (this works on Android TV)
-        console.log(`[${requestId}]   Non-debrid: using Torrentio pattern (infoHash + sources, no URL)`);
+        debugLog(`[${requestId}]   Non-debrid: using Torrentio pattern (infoHash + sources, no URL)`);
         
         // Remove any existing URL to force Stremio to use infoHash
         delete s.url;
@@ -547,13 +570,13 @@ function __finalize(list, { nuvioCookie, labelOrigin }, req, actualDeviceType = 
     else if (isInfoHashOnly) streamType = 'INFOHASH_ONLY';
     else if (isMagnet) streamType = 'MAGNET';
     
-    console.log(`[${requestId}]   Stream type: ${streamType}`);
+    debugLog(`[${requestId}]   Stream type: ${streamType}`);
     if (s.url) {
-      console.log(`[${requestId}]   URL (final): "${(s.url || '').substring(0, 100)}${(s.url || '').length > 100 ? '...' : ''}"`);
+      debugLog(`[${requestId}]   URL (final): "${(s.url || '').substring(0, 100)}${(s.url || '').length > 100 ? '...' : ''}"`);
     } else {
-      console.log(`[${requestId}]   No URL (infoHash-only stream for Stremio internal handling)`);
+      debugLog(`[${requestId}]   No URL (infoHash-only stream for Stremio internal handling)`);
     }
-    console.log(`[${requestId}]   Sources: ${s.sources ? s.sources.length : 0} available`);
+    debugLog(`[${requestId}]   Sources: ${s.sources ? s.sources.length : 0} available`);
     
     if (s.autostreamOrigin === 'nuvio' && nuvioCookie) s._usedCookie = true;
   });
@@ -561,7 +584,7 @@ function __finalize(list, { nuvioCookie, labelOrigin }, req, actualDeviceType = 
   out = attachNuvioCookie(out, nuvioCookie);
   if (labelOrigin) out.forEach(s => s.name = badgeName(s));
   
-  console.log(`[${requestId}] ✅ Finalization complete: ${out.length} streams ready`);
+  debugLog(`[${requestId}] ✅ Finalization complete: ${out.length} streams ready`);
   return out;
 }
 
@@ -783,11 +806,11 @@ function startServer(port = PORT) {
         const userAgent = req.headers['user-agent'] || '';
   const deviceType = scoring.detectDeviceType(req);
         
-        console.log(`\n🎬 [${playRequestId}] ===== PLAY REQUEST =====`);
-        console.log(`[${playRequestId}] 🖥️  Device: ${deviceType}`);
-        console.log(`[${playRequestId}] 🌐 User Agent: ${userAgent}`);
-        console.log(`[${playRequestId}] 🔗 URL: ${req.originalUrl}`);
-        console.log(`[${playRequestId}] 📊 Query: ${JSON.stringify(Object.fromEntries(q))}`);
+        debugLog(`\n🎬 [${playRequestId}] ===== PLAY REQUEST =====`);
+        debugLog(`[${playRequestId}] 🖥️  Device: ${deviceType}`);
+        debugLog(`[${playRequestId}] 🌐 User Agent: ${userAgent}`);
+        debugLog(`[${playRequestId}] 🔗 URL: ${req.originalUrl}`);
+        debugLog(`[${playRequestId}] 📊 Query: ${JSON.stringify(Object.fromEntries(q))}`);
         
         return handlePlay(req, res, MANIFEST_DEFAULTS);
       }
@@ -829,7 +852,7 @@ function startServer(port = PORT) {
         
         // Enhanced logging for configuration debugging
         if (Object.keys(paramsObj).length > 0) {
-          console.log('� MANIFEST: Saving configuration with params:', Object.keys(paramsObj));
+          debugLog('💾 MANIFEST: Saving configuration with params:', Object.keys(paramsObj));
         }
         
         const remembered = {};
@@ -867,7 +890,7 @@ function startServer(port = PORT) {
         
         // Validate each configured provider
         for (const { key, provider, token } of configuredProviders) {
-          console.log(`🔍 Validating ${provider.name} API key...`);
+          debugLog(`🔍 Validating ${provider.name} API key...`);
           
           try {
             let isWorking = false;
@@ -896,19 +919,19 @@ function startServer(port = PORT) {
                 isWorking = await validateDebridKey('dl', token);
                 break;
               default:
-                console.log(`⚠️ No validation method for provider: ${key}`);
+                warnLog(`⚠️ No validation method for provider: ${key}`);
                 isWorking = isValidApiKey(token, key); // Basic validation
             }
             
             if (isWorking) {
               workingProviders.push({ key, provider, token });
-              console.log(`✅ ${provider.name} API key validated successfully`);
+              debugLog(`✅ ${provider.name} API key validated successfully`);
             } else {
-              console.log(`❌ ${provider.name} API key validation failed`);
+              warnLog(`❌ ${provider.name} API key validation failed`);
             }
             
           } catch (e) {
-            console.log(`❌ ${provider.name} key validation error:`, e.message);
+            errorLog(`❌ ${provider.name} key validation error:`, e.message);
           }
         }
 
@@ -966,13 +989,13 @@ function startServer(port = PORT) {
       const userAgent = req.headers['user-agent'] || '';
       const deviceType = scoring.detectDeviceType(req);
       
-      console.log(`\n🎬 [${requestId}] ===== STREAM REQUEST START =====`);
-      console.log(`[${requestId}] 📺 Type: ${type}, ID: ${id}`);
-      console.log(`[${requestId}] 🖥️  Device Type: ${deviceType}`);
-      console.log(`[${requestId}] 🌐 User Agent: "${userAgent}"`);
-      console.log(`[${requestId}] 🔗 Full URL: ${req.originalUrl}`);
-      console.log(`[${requestId}] 📊 Query Params:`, Object.fromEntries(q));
-      console.log(`[${requestId}] 🌍 Client IP: ${req.headers['x-forwarded-for'] || req.connection.remoteAddress || 'unknown'}`);
+      debugLog(`\n🎬 [${requestId}] ===== STREAM REQUEST START =====`);
+      debugLog(`[${requestId}] 📺 Type: ${type}, ID: ${id}`);
+      debugLog(`[${requestId}] 🖥️  Device Type: ${deviceType}`);
+      debugLog(`[${requestId}] 🌐 User Agent: "${userAgent}"`);
+      debugLog(`[${requestId}] 🔗 Full URL: ${req.originalUrl}`);
+      debugLog(`[${requestId}] 📊 Query Params:`, Object.fromEntries(q));
+      debugLog(`[${requestId}] 🌍 Client IP: ${req.headers['x-forwarded-for'] || req.connection.remoteAddress || 'unknown'}`);
       
       // Simple universal device type (no TV-specific handling)
       const actualDeviceType = deviceType;
@@ -1016,26 +1039,23 @@ function startServer(port = PORT) {
       const onlySource = (q.get('only') || '').toLowerCase();
       const nuvioCookie = sanitizeCookieVal(getQ(q,'nuvio_cookie') || getQ(q,'dcookie') || getQ(q,'cookie') || MANIFEST_DEFAULTS.nuvio_cookie || MANIFEST_DEFAULTS.dcookie || MANIFEST_DEFAULTS.cookie || '');
       
-      // Enhanced logging with levels and detailed TV debugging
-      const VERBOSE_LOGGING = process.env.VERBOSE_LOGGING === 'true';
-      const log = (msg, level = 'info') => {
+      // Simple request logging
+      const requestLog = (msg, level = 'info') => {
         const timestamp = new Date().toISOString().substr(11, 8);
         const prefix = `[${requestId}] ${timestamp}`;
         
         if (level === 'error') {
-          console.error(`${prefix} ❌ ${msg}`);
+          errorLog(`${prefix} ❌ ${msg}`);
         } else if (level === 'warn') {
-          console.warn(`${prefix} ⚠️ ${msg}`);
-        } else if (level === 'verbose') {
-          if (VERBOSE_LOGGING || deviceType === 'tv') console.log(`${prefix} 🔍 ${msg}`);
+          warnLog(`${prefix} ⚠️ ${msg}`);
         } else {
-          console.log(`${prefix} 📝 ${msg}`);
+          debugLog(`${prefix} 📝 ${msg}`);
         }
       };
       
-      log(`🚀 Starting stream processing for ${type}/${id}`);
-      log(`🖥️  Device: ${actualDeviceType}`);
-      log(`🎛️  Config - labelOrigin: ${labelOrigin}, onlySource: ${onlySource}, nuvioCookie: ${!!nuvioCookie}`);
+      requestLog(`🚀 Starting stream processing for ${type}/${id}`);
+      requestLog(`🖥️  Device: ${actualDeviceType}`);
+      requestLog(`🎛️  Config - labelOrigin: ${labelOrigin}, onlySource: ${onlySource}, nuvioCookie: ${!!nuvioCookie}`);
       
       // Apply dynamic ID validation and correction for problematic IDs
       const { validateAndCorrectIMDBID } = (() => {
@@ -1044,19 +1064,19 @@ function startServer(port = PORT) {
       })();
       
       // Validate and potentially correct the IMDB ID before fetching streams
-      log(`🔍 Validating IMDB ID: ${id}`);
+      requestLog(`🔍 Validating IMDB ID: ${id}`);
       const idValidationResult = await validateAndCorrectIMDBID(id);
       const actualId = idValidationResult.correctedId;
       
       if (idValidationResult.needsCorrection) {
-        log(`� ID corrected: ${id} → ${actualId} (${idValidationResult.reason})`);
+        requestLog(`🔧 ID corrected: ${id} → ${actualId} (${idValidationResult.reason})`);
       } else if (!idValidationResult.metadata) {
-        log(`⚠️ ID validation warning: ${idValidationResult.reason}`);
+        requestLog(`⚠️ ID validation warning: ${idValidationResult.reason}`, 'warn');
       } else {
-        log(`✅ ID validated: "${idValidationResult.metadata.name}" (${idValidationResult.metadata.year})`);
+        requestLog(`✅ ID validated: "${idValidationResult.metadata.name}" (${idValidationResult.metadata.year})`);
       }
       
-      log(`📍 Stream request: ${type}/${actualId}`);
+      requestLog(`📍 Stream request: ${type}/${actualId}`);
       
       // Parse enhanced configuration parameters
       const langPrioStr = getQ(q, 'lang_prio') || MANIFEST_DEFAULTS.lang_prio || '';
@@ -1067,7 +1087,7 @@ function startServer(port = PORT) {
       const conserveCookie = getQ(q, 'conserve_cookie') !== '0'; // Default to true unless explicitly disabled
       
       // DEBUG: Log stream configuration
-      log(`🔧 Stream config - additionalstream: ${getQ(q, 'additionalstream')}, fallback: ${getQ(q, 'fallback')}, enabled: ${additionalStreamEnabled}`, 'verbose');
+      requestLog(`🔧 Stream config - additionalstream: ${getQ(q, 'additionalstream')}, fallback: ${getQ(q, 'fallback')}, enabled: ${additionalStreamEnabled}`, 'verbose');
       const blacklistStr = getQ(q, 'blacklist') || MANIFEST_DEFAULTS.blacklist || '';
       const blacklistTerms = blacklistStr ? blacklistStr.split(',').map(t => t.trim()).filter(Boolean) : [];
 
@@ -1079,12 +1099,12 @@ function startServer(port = PORT) {
       let metaPromise;
       if (idValidationResult.metadata) {
         // We already have metadata from ID validation - use it directly
-        log(`✅ Using metadata from ID validation: "${idValidationResult.metadata.name}"`);
+        requestLog(`✅ Using metadata from ID validation: "${idValidationResult.metadata.name}"`);
         metaPromise = Promise.resolve(idValidationResult.metadata);
       } else {
         // Fall back to normal metadata fetching
-        log(`🔄 Fetching fresh metadata for ${metaId}`);
-        metaPromise = fetchMeta(type, metaId, (msg) => log('Meta: ' + msg, 'verbose'));
+        requestLog(`🔄 Fetching fresh metadata for ${metaId}`);
+        metaPromise = fetchMeta(type, metaId, (msg) => requestLog('Meta: ' + msg, 'verbose'));
       }
 
       // which sources
@@ -1092,17 +1112,17 @@ function startServer(port = PORT) {
       const nuvioEnabled = dhosts.includes('nuvio') || q.get('nuvio') === '1' || q.get('include_nuvio') === '1' || MANIFEST_DEFAULTS.nuvio === '1' || MANIFEST_DEFAULTS.include_nuvio === '1' || onlySource === 'nuvio' || 
                           (!onlySource && dhosts.length === 0); // Enable by default when no specific sources requested
 
-      log(`🎯 Source selection - dhosts: [${dhosts.join(', ')}], nuvioEnabled: ${nuvioEnabled}, onlySource: ${onlySource}`);
+      requestLog(`🎯 Source selection - dhosts: [${dhosts.join(', ')}], nuvioEnabled: ${nuvioEnabled}, onlySource: ${onlySource}`);
 
       // fetch sources (no debrid here) - parallel execution with timeout for faster response
-      log('🚀 Fetching streams from sources...');
+      requestLog('🚀 Fetching streams from sources...');
       const sourcePromises = [
-        (!onlySource || onlySource === 'torrentio') ? fetchTorrentioStreams(type, actualId, {}, (msg) => log('Torrentio: ' + msg, 'verbose')) : Promise.resolve([]),
-        (!onlySource || onlySource === 'tpb')       ? fetchTPBStreams(type, actualId, {}, (msg) => log('TPB+: ' + msg, 'verbose'))       : Promise.resolve([]),
-        nuvioEnabled ? fetchNuvioStreams(type, actualId, { query: { direct: '1' }, cookie: nuvioCookie }, (msg) => log('Nuvio: ' + msg, 'verbose')) : Promise.resolve([])
+        (!onlySource || onlySource === 'torrentio') ? fetchTorrentioStreams(type, actualId, {}, (msg) => requestLog('Torrentio: ' + msg, 'verbose')) : Promise.resolve([]),
+        (!onlySource || onlySource === 'tpb')       ? fetchTPBStreams(type, actualId, {}, (msg) => requestLog('TPB+: ' + msg, 'verbose'))       : Promise.resolve([]),
+        nuvioEnabled ? fetchNuvioStreams(type, actualId, { query: { direct: '1' }, cookie: nuvioCookie }, (msg) => requestLog('Nuvio: ' + msg, 'verbose')) : Promise.resolve([])
       ];
       
-      log(`📊 Executing ${sourcePromises.length} source fetch promises...`);
+      requestLog(`📊 Executing ${sourcePromises.length} source fetch promises...`);
       
       // Use Promise.allSettled() with timeout for sources
       const [torrentioResult, tpbResult, nuvioResult] = await Promise.allSettled(sourcePromises);
@@ -1112,10 +1132,10 @@ function startServer(port = PORT) {
       const fromTPB = tpbResult.status === 'fulfilled' ? (tpbResult.value || []) : [];
       const fromNuvio = nuvioResult.status === 'fulfilled' ? (nuvioResult.value || []) : [];
       
-      log(`📦 Source results - Torrentio: ${fromTorr.length}, TPB+: ${fromTPB.length}, Nuvio: ${fromNuvio.length}`);
-      if (torrentioResult.status === 'rejected') log(`❌ Torrentio failed: ${torrentioResult.reason}`, 'error');
-      if (tpbResult.status === 'rejected') log(`❌ TPB+ failed: ${tpbResult.reason}`, 'error');
-      if (nuvioResult.status === 'rejected') log(`❌ Nuvio failed: ${nuvioResult.reason}`, 'error');
+      requestLog(`📦 Source results - Torrentio: ${fromTorr.length}, TPB+: ${fromTPB.length}, Nuvio: ${fromNuvio.length}`);
+      if (torrentioResult.status === 'rejected') requestLog(`❌ Torrentio failed: ${torrentioResult.reason}`, 'error');
+      if (tpbResult.status === 'rejected') requestLog(`❌ TPB+ failed: ${tpbResult.reason}`, 'error');
+      if (nuvioResult.status === 'rejected') requestLog(`❌ Nuvio failed: ${nuvioResult.reason}`, 'error');
       
       // Try to get meta quickly, but don't wait long
       let finalMeta;
@@ -1129,30 +1149,30 @@ function startServer(port = PORT) {
           }), 2500)) // Back to 2.5 seconds for better performance
         ]);
         
-        log(`🔧 Metadata result: name="${finalMeta.name}", timeout=${finalMeta.name === 'TIMEOUT_FALLBACK'}`);
+        requestLog(`🔧 Metadata result: name="${finalMeta.name}", timeout=${finalMeta.name === 'TIMEOUT_FALLBACK'}`);
         
         // If we timed out or got bad metadata, try to extract from streams
         if (finalMeta && (finalMeta.name === 'TIMEOUT_FALLBACK' || finalMeta.name === 'Content' || finalMeta.name?.startsWith('Content ') || finalMeta.name?.startsWith('Title ') || !finalMeta.name || finalMeta.name === actualId || finalMeta.name.startsWith('tt'))) {
-          log(`🔧 Attempting to extract title from streams (current: "${finalMeta.name}")`);
+          requestLog(`🔧 Attempting to extract title from streams (current: "${finalMeta.name}")`);
           
           // For series, try to get the base show name from any stream
           const allStreams = [...fromTorrentio, ...fromTPB, ...fromNuvio];
           if (allStreams.length > 0 && type === 'series') {
             // Look for common patterns in stream names to extract show title
             const streamTitles = allStreams.slice(0, 5).map(s => s.title || s.name || '').filter(Boolean);
-            log(`🔍 Sample stream titles for extraction: ${streamTitles.slice(0, 3).join(' | ')}`);
+            requestLog(`🔍 Sample stream titles for extraction: ${streamTitles.slice(0, 3).join(' | ')}`);
             
             if (streamTitles.length > 0) {
               // Try to extract show name from first few stream titles
               for (const title of streamTitles.slice(0, 3)) {
                 let extractedName = title;
-                log(`🔍 Processing stream title: "${title}"`);
+                requestLog(`🔍 Processing stream title: "${title}"`);
                 
                 // First, try to extract the show name part before season/episode info
                 let showNameMatch = title.match(/^([^\.]+?)[\.\s]+s\d+e\d+/i);
                 if (showNameMatch) {
                   extractedName = showNameMatch[1].replace(/\./g, ' ').trim();
-                  log(`🎯 Extracted from S##E## pattern: "${extractedName}"`);
+                  requestLog(`🎯 Extracted from S##E## pattern: "${extractedName}"`);
                 } else {
                   // Fallback: remove everything after season/episode markers
                   extractedName = extractedName.replace(/\b(S\d+E\d+|Season \d+|Episode \d+)\b.*$/i, '').trim();
@@ -1163,7 +1183,7 @@ function startServer(port = PORT) {
                   extractedName = extractedName.replace(/\b(Complete|Collection|Pack)\b.*$/i, '').trim(); // Remove pack info
                   // Clean up dots and dashes
                   extractedName = extractedName.replace(/[\.\-_]+/g, ' ').replace(/\s+/g, ' ').trim();
-                  log(`🔍 Cleaned title: "${extractedName}"`);
+                  requestLog(`🔍 Cleaned title: "${extractedName}"`);
                 }
                 
                 // Validate the extracted name
@@ -1174,10 +1194,10 @@ function startServer(port = PORT) {
                   ).join(' ');
                   
                   finalMeta.name = extractedName;
-                  log(`🎯 Successfully extracted title: "${extractedName}"`);
+                  requestLog(`🎯 Successfully extracted title: "${extractedName}"`);
                   break;
                 } else {
-                  log(`❌ Rejected extracted name: "${extractedName}" (too short, numeric, or invalid)`);
+                  requestLog(`❌ Rejected extracted name: "${extractedName}" (too short, numeric, or invalid)`);
                 }
               }
             }
@@ -1187,7 +1207,7 @@ function startServer(port = PORT) {
           if ((finalMeta.name === 'FALLBACK_NEEDED' || finalMeta.name === 'Content' || finalMeta.name.startsWith('tt')) && id.includes(':')) {
             const [baseId] = id.split(':');
             finalMeta.name = `Series ${baseId.replace('tt', '')}`;
-            log(`🆔 Using ID-based fallback: "${finalMeta.name}"`);
+            requestLog(`🆔 Using ID-based fallback: "${finalMeta.name}"`);
           }
         }
       } catch (e) {
@@ -1199,9 +1219,9 @@ function startServer(port = PORT) {
       }
       
       // Log which sources worked/failed for debugging
-      if (torrentioResult.status === 'rejected') log('⚠️  Torrentio failed: ' + (torrentioResult.reason?.message || 'Unknown error'), 'verbose');
-      if (tpbResult.status === 'rejected') log('⚠️  TPB+ failed: ' + (tpbResult.reason?.message || 'Unknown error'), 'verbose');
-      if (nuvioResult.status === 'rejected') log('⚠️  Nuvio failed: ' + (nuvioResult.reason?.message || 'Unknown error'), 'verbose');
+      if (torrentioResult.status === 'rejected') requestLog('⚠️  Torrentio failed: ' + (torrentioResult.reason?.message || 'Unknown error'), 'verbose');
+      if (tpbResult.status === 'rejected') requestLog('⚠️  TPB+ failed: ' + (tpbResult.reason?.message || 'Unknown error'), 'verbose');
+      if (nuvioResult.status === 'rejected') requestLog('⚠️  Nuvio failed: ' + (nuvioResult.reason?.message || 'Unknown error'), 'verbose');
       
       // Better breakdown of Nuvio streams
       const cookieStreams = fromNuvio.filter(s => hasNuvioCookie(s) || (nuvioCookie && s.autostreamOrigin === 'nuvio'));
@@ -1210,7 +1230,7 @@ function startServer(port = PORT) {
         (cookieStreams.length > 0 ? `Nuvio(${regularNuvio}), Nuvio+(${cookieStreams.length})` : `Nuvio(${fromNuvio.length})`) :
         'Nuvio(0)';
       
-      log(`📊 Sources: Torrentio(${fromTorr.length}), TPB+(${fromTPB.length}), ${nuvioDisplay}`);
+      requestLog(`📊 Sources: Torrentio(${fromTorr.length}), TPB+(${fromTPB.length}), ${nuvioDisplay}`);
 
       function tag(list, origin) {
         return (list || []).map(s => {
@@ -1236,7 +1256,7 @@ function startServer(port = PORT) {
           const seasonNum = parseInt(season);
           const episodeNum = parseInt(episode);
           
-          log(`🔍 Pre-filtering for S${seasonNum}E${episodeNum} before scoring...`);
+          requestLog(`🔍 Pre-filtering for S${seasonNum}E${episodeNum} before scoring...`);
           
           const episodeFilteredStreams = combined.filter((stream, index) => {
             const streamText = `${stream.title || ''} ${stream.name || ''}`.toLowerCase();
@@ -1260,34 +1280,34 @@ function startServer(port = PORT) {
             
             // DEBUG: Log first few mismatches to understand the issue
             if (!hasMatch && index < 3) {
-              log(`� Debug mismatch ${index + 1}: "${streamText}" - Patterns: ${matches.map(m => m ? '✓' : '✗').join('')}`);
-              log(`🔍 Looking for: S${seasonNum}E${episodeNum} (${season}:${episode})`);
+              requestLog(`🔍 Debug mismatch ${index + 1}: "${streamText}" - Patterns: ${matches.map(m => m ? '✓' : '✗').join('')}`);
+              requestLog(`🔍 Looking for: S${seasonNum}E${episodeNum} (${season}:${episode})`);
             }
             
             // Skip verbose logging for each match - only log mismatches and summary
             if (!hasMatch && index < 5) {
-              log(`🚫 Pre-filtered: "${streamText.substring(0, 40)}..." (wrong episode)`, 'verbose');
+              requestLog(`🚫 Pre-filtered: "${streamText.substring(0, 40)}..." (wrong episode)`, 'verbose');
             }
             
             return hasMatch;
           });
           
           const filteredCount = episodeFilteredStreams.length;
-          log(`📊 Episode pre-filter: ${combined.length} → ${filteredCount} streams (removed ${combined.length - filteredCount} wrong episodes)`);
+          requestLog(`📊 Episode pre-filter: ${combined.length} → ${filteredCount} streams (removed ${combined.length - filteredCount} wrong episodes)`);
           
           combined = episodeFilteredStreams;
           
           // Quick validation of final episode selection
           if (combined.length > 0) {
-            log(`✅ Final episode streams found for S${seasonNum}E${episodeNum}: ${combined.length} streams`);
+            requestLog(`✅ Final episode streams found for S${seasonNum}E${episodeNum}: ${combined.length} streams`);
           } else {
-            log(`🚨 No episode streams found for S${seasonNum}E${episodeNum} after filtering`);
+            requestLog(`🚨 No episode streams found for S${seasonNum}E${episodeNum} after filtering`);
           }
         }
       }
 
       if (combined.length === 0) {
-        log('⚠️  No streams found from any source');
+        requestLog('⚠️  No streams found from any source');
         
         // Instead of returning empty array (which causes infinite loading),
         // return a helpful message stream explaining the issue
@@ -1306,30 +1326,30 @@ function startServer(port = PORT) {
       }
 
       // Skip pre-filtering for better performance - apply scoring directly
-      log(`📊 Processing ${combined.length} streams from all sources`, 'verbose');
+      requestLog(`📊 Processing ${combined.length} streams from all sources`, 'verbose');
       
       // TEMPORARILY DISABLED: Filter out problematic URLs that cause infinite loading
       // combined = combined.filter(stream => {
       //   // Filter out Google Drive URLs that expire immediately (max-age=0)
       //   if (stream.url && stream.url.includes('googleusercontent.com')) {
-      //     log(`🚫 Filtered Google Drive URL (expires immediately): ${stream.title}`);
+      //     requestLog(`🚫 Filtered Google Drive URL (expires immediately): ${stream.title}`);
       //     return false;
       //   }
       //   
       //   // Filter out obviously invalid URLs
       //   if (stream.url && (stream.url.includes('error') || stream.url.includes('expired'))) {
-      //     log(`🚫 Filtered invalid URL: ${stream.title}`);
+      //     requestLog(`🚫 Filtered invalid URL: ${stream.title}`);
       //     return false;
       //   }
       //   
       //   return true;
       // });
       
-      log(`🔍 Skipped filtering, ${combined.length} streams remain`, 'verbose');
+      requestLog(`🔍 Skipped filtering, ${combined.length} streams remain`, 'verbose');
       
       // If all streams were filtered, prefer torrent/magnet sources instead
       if (combined.length === 0 && beforeFilterCount > 0) {
-        log(`⚠️ All ${beforeFilterCount} streams were Google Drive URLs - looking for torrent alternatives`);
+        requestLog(`⚠️ All ${beforeFilterCount} streams were Google Drive URLs - looking for torrent alternatives`);
         // Allow magnet/torrent streams to pass through as they don't expire
         combined = []
           .concat(tag(fromTorr, 'torrentio'))
@@ -1338,9 +1358,9 @@ function startServer(port = PORT) {
           .filter(stream => stream.infoHash || (stream.url && stream.url.startsWith('magnet:')));
         
         if (combined.length > 0) {
-          log(`✅ Found ${combined.length} torrent/magnet alternatives`);
+          requestLog(`✅ Found ${combined.length} torrent/magnet alternatives`);
         } else {
-          log(`⚠️ No torrent alternatives available - falling back to original sources with warning`);
+          requestLog(`⚠️ No torrent alternatives available - falling back to original sources with warning`);
           // Fall back to original sources but mark them as potentially problematic
           combined = []
             .concat(tag(fromTorr, 'torrentio'))
@@ -1356,7 +1376,7 @@ function startServer(port = PORT) {
       }
       
       if (beforeFilterCount !== combined.length) {
-        log(`🔍 Filtered ${beforeFilterCount - combined.length} problematic URLs, ${combined.length} remain`);
+        requestLog(`🔍 Filtered ${beforeFilterCount - combined.length} problematic URLs, ${combined.length} remain`);
       }
 
       // Apply blacklist filtering if configured
@@ -1382,7 +1402,7 @@ function startServer(port = PORT) {
         
         const filteredCount = beforeCount - combined.length;
         if (filteredCount > 0) {
-          log(`🚫 Blacklist filtered out ${filteredCount} streams containing: ${blacklistTerms.join(', ')}`);
+          requestLog(`🚫 Blacklist filtered out ${filteredCount} streams containing: ${blacklistTerms.join(', ')}`);
         }
       }
 
@@ -1459,19 +1479,19 @@ function startServer(port = PORT) {
               isWorking = await validateDebridKey('dl', token);
               break;
             default:
-              console.log(`⚠️ No validation method for provider: ${key}`);
+              warnLog(`⚠️ No validation method for provider: ${key}`);
               isWorking = isValidApiKey(token, key);
           }
           
           if (isWorking) {
             workingProviders.push({ key, token, provider: getProvider(key) });
-            log(`✅ ${getProvider(key)?.name || key} API key validated successfully`);
+            debugLog(`✅ ${getProvider(key)?.name || key} API key validated successfully`);
           } else {
-            log(`❌ ${getProvider(key)?.name || key} key validation failed`);
+            warnLog(`❌ ${getProvider(key)?.name || key} key validation failed`);
           }
           
         } catch (e) {
-          log(`⚠️ ${getProvider(key)?.name || key} key validation failed - falling back to non-debrid mode: ` + e.message);
+          warnLog(`⚠️ ${getProvider(key)?.name || key} key validation failed - falling back to non-debrid mode: ` + e.message);
         }
       }
       
@@ -1507,20 +1527,20 @@ function startServer(port = PORT) {
         debug: false // Standard debug setting
       };
       
-      log(`🎯 Starting scoring with options:`, JSON.stringify(scoringOptions, null, 2));
-      log(`📊 Input streams for scoring: ${combined.length}`);
+      requestLog(`🎯 Starting scoring with options:`, JSON.stringify(scoringOptions, null, 2));
+      requestLog(`📊 Input streams for scoring: ${combined.length}`);
       
       // Use new enhanced scoring system with penalty filtering
       let allScoredStreams = scoring.filterAndScoreStreams(combined, req, scoringOptions);
       
-      log(`📈 Scoring complete: ${allScoredStreams.length} streams scored and ranked`);
+      requestLog(`📈 Scoring complete: ${allScoredStreams.length} streams scored and ranked`);
       if (allScoredStreams.length > 0) {
-        log(`🥇 Top stream: "${allScoredStreams[0].name}" (score: ${allScoredStreams[0].score})`);
+        requestLog(`🥇 Top stream: "${allScoredStreams[0].name}" (score: ${allScoredStreams[0].score})`);
         if (allScoredStreams.length > 1) {
-          log(`🥈 Second stream: "${allScoredStreams[1].name}" (score: ${allScoredStreams[1].score})`);
+          requestLog(`🥈 Second stream: "${allScoredStreams[1].name}" (score: ${allScoredStreams[1].score})`);
         }
       } else {
-        log(`❌ ERROR: No streams survived scoring! This is likely the root cause.`, 'error');
+        requestLog(`❌ ERROR: No streams survived scoring! This is likely the root cause.`, 'error');
       }
       
       // For additional stream logic, we need access to more streams to find different resolutions
@@ -1530,11 +1550,11 @@ function startServer(port = PORT) {
       if (effectiveAdParam) {
         // Debrid mode: take top stream for processing, but keep all scored streams for additional stream logic
         selectedStreams = [allScoredStreams[0]].filter(Boolean); // Just the top stream initially
-        log(`🔧 Debrid mode: selected top stream for processing, ${allScoredStreams.length} total available for additional stream selection`);
+        requestLog(`🔧 Debrid mode: selected top stream for processing, ${allScoredStreams.length} total available for additional stream selection`);
       } else {
         // Non-debrid mode: take top stream for processing, but keep all scored streams for additional stream logic  
         selectedStreams = [allScoredStreams[0]].filter(Boolean); // Just the top stream initially
-        log(`📺 Non-debrid mode: selected top stream for processing, ${allScoredStreams.length} total available for additional stream selection`);
+        requestLog(`📺 Non-debrid mode: selected top stream for processing, ${allScoredStreams.length} total available for additional stream selection`);
       }
       
       // Define originBase for URL building (used in multiple places)
@@ -1542,7 +1562,7 @@ function startServer(port = PORT) {
       
       // Step 3: Convert torrents to debrid URLs if ANY debrid provider is configured
       if (hasDebridConfigured && selectedStreams.length > 0) {
-        log(`🔧 Converting ${selectedStreams.length} torrents to ${primaryProvider.provider.name} URLs...`);
+        requestLog(`🔧 Converting ${selectedStreams.length} torrents to ${primaryProvider.provider.name} URLs...`);
         for (const s of selectedStreams) {
           if (!s) continue;
           
@@ -1567,7 +1587,7 @@ function startServer(port = PORT) {
             
             // SECURITY: Ensure no magnet URLs leak when debrid is configured
             if (!s.url || /^magnet:/i.test(s.url)) {
-              log(`⚠️ SECURITY WARNING: Failed to convert torrent to debrid URL for ${s.infoHash?.substring(0,8)}...`);
+              requestLog(`⚠️ SECURITY WARNING: Failed to convert torrent to debrid URL for ${s.infoHash?.substring(0,8)}...`);
               // Remove the stream entirely rather than serving raw magnet
               s._invalid = true;
             }
@@ -1579,7 +1599,7 @@ function startServer(port = PORT) {
         
       } else {
         // No debrid available - use Torrentio pattern (infoHash + sources, no URLs)
-        log('ℹ️ No debrid available - using Torrentio pattern for universal compatibility');
+        requestLog('ℹ️ No debrid available - using Torrentio pattern for universal compatibility');
         
         // Don't assign URLs here - let __finalize handle the Torrentio pattern
         // For non-debrid streams, we want infoHash + sources but NO URL
@@ -1640,19 +1660,19 @@ function startServer(port = PORT) {
           // Get primary stream identifier for comparison (use infoHash for torrents)
           const primaryId = selectedStreams[0]?.infoHash || selectedStreams[0]?.url;
           
-          log(`🔍 Looking for additional stream: primary is ${pRes}p, seeking ${targetRes}p`);
+          requestLog(`🔍 Looking for additional stream: primary is ${pRes}p, seeking ${targetRes}p`);
           
           // Look through scored streams to find target resolution (or fallback)
           for (const candidate of allScoredStreams.slice(1)) { // Skip first (primary)
             const candidateRes = resOf(candidate);
             const candidateId = candidate.infoHash || candidate.url;
             
-            log(`📋 Candidate: ${candidateRes}p (${candidate.title?.substring(0, 30) || candidate.name?.substring(0, 30)}...)`, 'verbose');
+            requestLog(`📋 Candidate: ${candidateRes}p (${candidate.title?.substring(0, 30) || candidate.name?.substring(0, 30)}...)`, 'verbose');
             
             // Make sure it's different content and target resolution
             if (candidateRes === targetRes && candidateId !== primaryId) {
               additional = { ...candidate }; // Copy to avoid mutations
-              log(`✅ Found secondary stream: ${candidate.title?.substring(0, 50) || candidate.name?.substring(0, 50) || 'Unknown'}...`);
+              requestLog(`✅ Found secondary stream: ${candidate.title?.substring(0, 50) || candidate.name?.substring(0, 50) || 'Unknown'}...`);
               break;
             }
           }
@@ -1661,14 +1681,14 @@ function startServer(port = PORT) {
           if (!additional && targetRes > 480) {
             const fallbackRes = targetRes === 1080 ? 720 : (targetRes === 720 ? 480 : 0);
             if (fallbackRes > 0) {
-              log(`🔍 No ${targetRes}p found, trying fallback to ${fallbackRes}p`);
+              requestLog(`🔍 No ${targetRes}p found, trying fallback to ${fallbackRes}p`);
               for (const candidate of allScoredStreams.slice(1)) {
                 const candidateRes = resOf(candidate);
                 const candidateId = candidate.infoHash || candidate.url;
                 
                 if (candidateRes === fallbackRes && candidateId !== primaryId) {
                   additional = { ...candidate };
-                  log(`✅ Found fallback secondary stream: ${candidate.title?.substring(0, 50) || candidate.name?.substring(0, 50) || 'Unknown'}...`);
+                  requestLog(`✅ Found fallback secondary stream: ${candidate.title?.substring(0, 50) || candidate.name?.substring(0, 50) || 'Unknown'}...`);
                   break;
                 }
               }
@@ -1696,7 +1716,7 @@ function startServer(port = PORT) {
               
               // SECURITY: Ensure no magnet URLs leak in additional stream
               if (!additional.url || /^magnet:/i.test(additional.url)) {
-                log(`⚠️ SECURITY WARNING: Failed to convert additional stream to debrid URL for ${additional.infoHash?.substring(0,8)}...`);
+                requestLog(`⚠️ SECURITY WARNING: Failed to convert additional stream to debrid URL for ${additional.infoHash?.substring(0,8)}...`);
                 additional = null; // Remove the additional stream rather than serving raw magnet
               }
             }
@@ -1713,10 +1733,10 @@ function startServer(port = PORT) {
               
               // ALWAYS prepare both streams - visibility control comes at the end
               streams = [primary, finalizedAdditional];
-              log(`🎯 Processed both primary(${primaryLabel}) and secondary(${additionalLabel}) streams: ${streams.length} total`);
+              requestLog(`🎯 Processed both primary(${primaryLabel}) and secondary(${additionalLabel}) streams: ${streams.length} total`);
             }
           } else {
-            log(`📝 No suitable ${targetRes}p secondary stream found for additional processing`);
+            requestLog(`📝 No suitable ${targetRes}p secondary stream found for additional processing`);
           }
         }
       }
@@ -1773,16 +1793,16 @@ function startServer(port = PORT) {
       // Limit streams to prevent mobile crashes (max 10 streams)
       if (streams.length > 10) {
         streams = streams.slice(0, 10);
-        console.log(`[${reqId}] ⚠️ Limited to 10 streams to prevent mobile crashes (had ${streams.length + (streams.length - 10)})`);
+        warnLog(`[${reqId}] ⚠️ Limited to 10 streams to prevent mobile crashes (had ${streams.length + (streams.length - 10)})`);
       }
 
       // Apply visibility control based on additionalStreamEnabled flag
       // Both streams are always processed, but this controls what the user sees
       if (!additionalStreamEnabled && streams.length > 1) {
         streams = streams.slice(0, 1); // Only show primary stream
-        log(`🎛️ Additional stream disabled: showing only primary stream (${streams[0]?.title || 'Unknown'})`);
+        requestLog(`🎛️ Additional stream disabled: showing only primary stream (${streams[0]?.title || 'Unknown'})`);
       } else if (streams.length > 1) {
-        log(`🎛️ Additional stream enabled: showing ${streams.length} streams`);
+        requestLog(`🎛️ Additional stream enabled: showing ${streams.length} streams`);
       }
 
       // STEP: Apply beautified names and titles (AFTER all scoring and processing)
@@ -1809,18 +1829,18 @@ function startServer(port = PORT) {
       
       if (hasPenalties) {
         cacheTime = 300; // 5 minutes with penalties
-        log(`⚡ Reduced cache time to 5 minutes due to penalties`);
+        requestLog(`⚡ Reduced cache time to 5 minutes due to penalties`);
       }
 
       // Send final response with streams
-      log(`📤 Preparing final response for Stremio:`);
-      log(`   📊 Stream count: ${streams.length}`);
-      log(`   ⏰ Cache time: ${cacheTime}s`);
-      log(`   🖥️  Device: ${actualDeviceType}`);
+      requestLog(`📤 Preparing final response for Stremio:`);
+      requestLog(`   📊 Stream count: ${streams.length}`);
+      requestLog(`   ⏰ Cache time: ${cacheTime}s`);
+      requestLog(`   🖥️  Device: ${actualDeviceType}`);
       
       if (streams.length > 0) {
         streams.forEach((stream, index) => {
-          log(`   [${index + 1}] "${stream.name}" - ${stream.url ? 'HAS URL' : 'NO URL'} - notWebReady: ${!!(stream.behaviorHints && stream.behaviorHints.notWebReady)}`);
+          requestLog(`   [${index + 1}] "${stream.name}" - ${stream.url ? 'HAS URL' : 'NO URL'} - notWebReady: ${!!(stream.behaviorHints && stream.behaviorHints.notWebReady)}`);
           if (actualDeviceType === 'tv') {
             log(`     📺 TV URL: ${stream.url ? stream.url.substring(0, 80) + '...' : 'NONE'}`);
           }
@@ -1832,7 +1852,7 @@ function startServer(port = PORT) {
       res.setHeader('Cache-Control', `max-age=${cacheTime}`);
       writeJson(res, { streams });
       
-      log(`✅ [${requestId}] ===== STREAM REQUEST COMPLETE =====\n`);
+      requestLog(`✅ [${requestId}] ===== STREAM REQUEST COMPLETE =====\n`);
       
         } catch (e) {
           // Defensive error handling - prevent crashes
@@ -1852,8 +1872,8 @@ function startServer(port = PORT) {
   });
 
   server.listen(port, () => {
-    console.log('AutoStream addon running at http://localhost:' + port);
-    console.log('Configure at: http://localhost:' + port + '/configure');
+    infoLog('AutoStream addon running at http://localhost:' + port);
+    infoLog('Configure at: http://localhost:' + port + '/configure');
     
     // Clear episode/metadata caches on startup to ensure fresh data after fixes
     clearEpisodeCaches();
