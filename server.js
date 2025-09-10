@@ -1429,22 +1429,22 @@ function startServer(port = PORT) {
       
       // SECURITY CHECK: Refuse to use environment variables for API keys  
       if (Object.keys(providerConfig).length === 0 && (process.env.AD_KEY || process.env.ALLDEBRID_KEY || process.env.ALLDEBRID_API_KEY || process.env.RD_KEY || process.env.PM_KEY)) {
-        log('🚨 SECURITY: Environment variable API keys detected but ignored. Users must provide their own keys.');
+        warnLog('🚨 SECURITY: Environment variable API keys detected but ignored. Users must provide their own keys.');
       }
       
       // RENDER-LEVEL SECURITY: Additional protection against environment credential usage
       if (BLOCK_ENV_CREDENTIALS && (process.env.ALLDEBRID_KEY || process.env.AD_KEY || process.env.APIKEY || process.env.RD_KEY || process.env.PM_KEY)) {
-        log('🔒 RENDER SECURITY: Dangerous environment variables detected and blocked');
+        warnLog('🔒 RENDER SECURITY: Dangerous environment variables detected and blocked');
       }
       
       // FORCE SECURE MODE: In production, never allow environment fallbacks
       if (FORCE_SECURE_MODE && Object.keys(providerConfig).length === 0) {
-        log('🔒 SECURE MODE: Only user-provided API keys allowed, no environment fallbacks');
+        debugLog('🔒 SECURE MODE: Only user-provided API keys allowed, no environment fallbacks');
       }
       
       // EMERGENCY DEBRID DISABLE: Server-wide debrid shutdown capability
       if (EMERGENCY_DISABLE_DEBRID) {
-        log('🚨 EMERGENCY: All debrid features disabled server-wide');
+        warnLog('🚨 EMERGENCY: All debrid features disabled server-wide');
         Object.keys(providerConfig).forEach(key => providerConfig[key] = ''); // Force no debrid for ALL users
       }
       
@@ -1842,11 +1842,11 @@ function startServer(port = PORT) {
         streams.forEach((stream, index) => {
           requestLog(`   [${index + 1}] "${stream.name}" - ${stream.url ? 'HAS URL' : 'NO URL'} - notWebReady: ${!!(stream.behaviorHints && stream.behaviorHints.notWebReady)}`);
           if (actualDeviceType === 'tv') {
-            log(`     📺 TV URL: ${stream.url ? stream.url.substring(0, 80) + '...' : 'NONE'}`);
+            debugLog(`     📺 TV URL: ${stream.url ? stream.url.substring(0, 80) + '...' : 'NONE'}`);
           }
         });
       } else {
-        log(`   ❌ NO STREAMS - this will cause infinite loading in Stremio!`, 'error');
+        errorLog(`   ❌ NO STREAMS - this will cause infinite loading in Stremio!`);
       }
       
       res.setHeader('Cache-Control', `max-age=${cacheTime}`);
