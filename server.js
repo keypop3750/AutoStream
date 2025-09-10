@@ -13,6 +13,9 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 
+// Import unified debrid provider system
+const { DEBRID_PROVIDERS, getEnabledProviders, getProvider, getProviderKeys, isValidProvider, getProviderDisplayName, detectConfiguredProvider, getConfiguredProviders, isValidApiKey } = require('./core/debridProviders');
+
 // ============ DEFENSIVE CODE: CRASH PREVENTION ============
 
 // 1. Unhandled Promise Rejection Handler (Prevents Node.js crashes)
@@ -228,7 +231,7 @@ const REMEMBER_KEYS = new Set([
   // SECURITY: API keys removed from remember list to prevent global caching
 ]);
 
-// Cache for AllDebrid API key validation
+// Cache for debrid API key validation
 const adKeyValidationCache = new Map(); // key -> { isValid: boolean, timestamp: number }
 
 // Periodic cache cleanup to prevent memory leaks
@@ -236,7 +239,7 @@ setInterval(() => {
   const now = Date.now();
   const maxAge = 10 * 60 * 1000; // 10 minutes
   
-  // Clean AllDebrid API key validation cache
+  // Clean debrid API key validation cache
   for (const [key, value] of adKeyValidationCache.entries()) {
     if (now - value.timestamp > maxAge) {
       adKeyValidationCache.delete(key);
@@ -290,12 +293,12 @@ function clearEpisodeCaches() {
       totalCleared += seriesCache.clearSeriesCache();
     }
     
-    // Clear AllDebrid API key validation cache (for fresh authentication)
+    // Clear debrid API key validation cache (for fresh authentication)
     const adCacheSize = adKeyValidationCache.size;
     adKeyValidationCache.clear();
     
     if (adCacheSize > 0) {
-      console.log(`🧹 Cleared AllDebrid validation cache: ${adCacheSize} entries removed`);
+      console.log(`🧹 Cleared debrid validation cache: ${adCacheSize} entries removed`);
       totalCleared += adCacheSize;
     }
     
@@ -442,7 +445,7 @@ const seriesCache = (() => {
 function isNuvio(s){ return !!(s && (s.autostreamOrigin === 'nuvio' || /\bNuvio\b/i.test(String(s?.name||'')))); }
 function isTorrent(s){ const o = s && s.autostreamOrigin; const n = String(s?.name||''); return !!(o==='torrentio'||o==='tpb'||/\b(Torrentio|TPB\+?)\b/i.test(n)); }
 function hasNuvioCookie(s){ return !!(s?.behaviorHints?.proxyHeaders?.Cookie) || !!s?._usedCookie; }
-function isDebridStream(s){ return !!(s && (s._debrid || s._isDebrid || /AllDebrid|Real-?Debrid/i.test(String(s?.name||'')))); }
+function isDebridStream(s){ return !!(s && (s._debrid || s._isDebrid || /\b(?:AllDebrid|Real-?Debrid|Premiumize|TorBox|Offcloud|Debrid)\b/i.test(String(s?.name||'')))); }
 function badgeName(s){
   let name = String(s?.name || '');
   name = name.replace(/\s*\[(?:Nuvio|Torrentio|Debrid)(?:[^\]]*)\]\s*/gi, ' ').replace(/\s{2,}/g,' ').trim();
@@ -485,57 +488,80 @@ function attachNuvioCookie(list, cookie) {
     return s;
   });
 }
-function __finalize(list, { nuvioCookie, labelOrigin }, req) {
+function __finalize(list, { nuvioCookie, labelOrigin }, req, actualDeviceType = null) {
   let out = Array.isArray(list) ? list.slice() : [];
   
   // Detect device type for platform-specific handling
-  const deviceType = scoring.detectDeviceType(req);
+  const deviceType = actualDeviceType || scoring.detectDeviceType(req);
+  const requestId = req._requestId || 'unknown';
   
-  out.forEach(s => {
+  console.log(`\n🔧 [${requestId}] ===== STREAM FINALIZATION START =====`);
+  console.log(`[${requestId}] 🖥️  Device Type: ${deviceType}`);
+  console.log(`[${requestId}] 📊 Input streams: ${out.length}`);
+  
+  out.forEach((s, index) => {
     if (!s) return;
+    
+    console.log(`\n[${requestId}] 🔍 Processing stream [${index + 1}/${out.length}]:`);
+    console.log(`[${requestId}]   Name: "${s.name || 'Unnamed'}"`);
+    console.log(`[${requestId}]   URL (before): "${(s.url || '').substring(0, 100)}${(s.url || '').length > 100 ? '...' : ''}"`);
+    console.log(`[${requestId}]   InfoHash: ${s.infoHash || 'none'}`);
+    console.log(`[${requestId}]   Is Debrid: ${!!(s._debrid || s._isDebrid)}`);
     
     // First try existing URLs
     s.url = s.url || s.externalUrl || s.link || (s.sources && s.sources[0] && s.sources[0].url) || '';
     
-    // For web Stremio compatibility: handle URLs based on stream type
+    // Torrentio-style stream handling: debrid streams get /play URLs, non-debrid get infoHash only
     if (s.infoHash && (!s.url || /^magnet:/i.test(s.url))) {
       // Check if this is a debrid stream (should have a play URL by now)
       const isDebridStream = s._debrid || s._isDebrid;
+      console.log(`[${requestId}]   InfoHash stream - isDebrid: ${isDebridStream}`);
+      
       if (isDebridStream) {
         // Debrid stream should have a play URL assigned - if not, this is an error
         if (!s.url || /^magnet:/i.test(s.url)) {
-          console.warn(`⚠️ Debrid stream missing play URL: ${s.infoHash?.substring(0, 8)}...`);
+          console.warn(`[${requestId}] ⚠️ Debrid stream missing play URL: ${s.infoHash?.substring(0, 8)}...`);
         }
         // Keep the debrid play URL, don't replace with magnet
       } else {
-        // Non-debrid: ensure we have a proper magnet URL for external clients
-        if (!s.url) {
-          s.url = `magnet:?xt=urn:btih:${s.infoHash}`;
-        }
+        // Non-debrid: Torrentio pattern - provide infoHash + sources, NO URL
+        // Let Stremio handle the torrent internally (this works on Android TV)
+        console.log(`[${requestId}]   Non-debrid: using Torrentio pattern (infoHash + sources, no URL)`);
         
-        // CRITICAL TV FIX: Only TV devices need notWebReady flag for magnet links
-        if (deviceType === 'tv') {
-          s.behaviorHints = Object.assign({}, s.behaviorHints || {}, { notWebReady: true });
+        // Remove any existing URL to force Stremio to use infoHash
+        delete s.url;
+        
+        // Ensure we have sources for the torrent
+        if (!s.sources || s.sources.length === 0) {
+          s.sources = [`dht:${s.infoHash}`];
         }
       }
     }
     
     const isHttp = /^https?:/i.test(String(s.url||''));
     const isMagnet = !isHttp && (s.infoHash || /^magnet:/i.test(String(s.url||'')));
+    const isInfoHashOnly = s.infoHash && !s.url;
     
-    // Device-aware notWebReady handling:
-    // - TV devices: Keep notWebReady for magnet links (tells TV to use internal streaming)
-    // - Web/Mobile: Remove notWebReady (they can handle magnet links directly)
-    if (s.behaviorHints && s.behaviorHints.notWebReady) {
-      if (deviceType !== 'tv' || !isMagnet) {
-        delete s.behaviorHints.notWebReady;
-      }
+    let streamType = 'OTHER';
+    if (isHttp) streamType = 'HTTP';
+    else if (isInfoHashOnly) streamType = 'INFOHASH_ONLY';
+    else if (isMagnet) streamType = 'MAGNET';
+    
+    console.log(`[${requestId}]   Stream type: ${streamType}`);
+    if (s.url) {
+      console.log(`[${requestId}]   URL (final): "${(s.url || '').substring(0, 100)}${(s.url || '').length > 100 ? '...' : ''}"`);
+    } else {
+      console.log(`[${requestId}]   No URL (infoHash-only stream for Stremio internal handling)`);
     }
+    console.log(`[${requestId}]   Sources: ${s.sources ? s.sources.length : 0} available`);
     
     if (s.autostreamOrigin === 'nuvio' && nuvioCookie) s._usedCookie = true;
   });
+  
   out = attachNuvioCookie(out, nuvioCookie);
   if (labelOrigin) out.forEach(s => s.name = badgeName(s));
+  
+  console.log(`[${requestId}] ✅ Finalization complete: ${out.length} streams ready`);
   return out;
 }
 
@@ -600,6 +626,16 @@ async function validateDebridKey(provider, apiKey) {
       case 'offcloud':
         testUrl = `https://offcloud.com/api/account/info`;
         break;
+      case 'ed':
+      case 'easy-debrid':
+      case 'easydebrid':
+        testUrl = `https://api.easy-debrid.com/v1/user/details`;
+        break;
+      case 'dl':
+      case 'debrid-link':
+      case 'debridlink':
+        testUrl = `https://debrid-link.fr/api/v2/account/infos`;
+        break;
       default:
         return false;
     }
@@ -612,6 +648,10 @@ async function validateDebridKey(provider, apiKey) {
     } else if (provider.toLowerCase() === 'tb') {
       headers['Authorization'] = `Bearer ${apiKey}`;
     } else if (provider.toLowerCase() === 'oc') {
+      headers['Authorization'] = `Bearer ${apiKey}`;
+    } else if (provider.toLowerCase() === 'ed' || provider.toLowerCase() === 'easy-debrid' || provider.toLowerCase() === 'easydebrid') {
+      headers['Authorization'] = `Bearer ${apiKey}`;
+    } else if (provider.toLowerCase() === 'dl' || provider.toLowerCase() === 'debrid-link' || provider.toLowerCase() === 'debridlink') {
       headers['Authorization'] = `Bearer ${apiKey}`;
     }
     
@@ -677,7 +717,33 @@ function startServer(port = PORT) {
       // Additional compatibility endpoints for mobile Stremio
       if (pathname === '/') {
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-        return res.end('<!DOCTYPE html><html><head><title>AutoStream</title></head><body><h1>AutoStream Addon</h1><p>Running and ready.</p></body></html>');
+        return res.end(`<!DOCTYPE html><html><head><title>AutoStream</title></head><body>
+          <h1>AutoStream Addon</h1>
+          <p>Running and ready.</p>
+          <h2>Installation URLs:</h2>
+          <ul>
+            <li><strong>Regular:</strong> <code>http://localhost:7010/manifest.json</code></li>
+            <li><strong>TV Test Mode:</strong> <code>http://localhost:7010/manifest.json?force_tv=1</code></li>
+          </ul>
+          <p><a href="/test-tv">Test TV Detection</a></p>
+        </body></html>`);
+      }
+      
+      if (pathname === '/test-tv') {
+        const testDeviceType = scoring.detectDeviceType(req);
+        const testActualDeviceType = q.get('force_tv') === '1' ? 'tv' : testDeviceType;
+        const userAgent = req.headers['user-agent'] || '';
+        
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({
+          detected_device: testDeviceType,
+          actual_device: testActualDeviceType,
+          user_agent: userAgent,
+          force_tv_active: q.get('force_tv') === '1',
+          recommendation: testActualDeviceType === 'tv' ? 
+            'TV mode active - streams will be converted to /play URLs' : 
+            'Web mode - add ?force_tv=1 to URL for TV testing'
+        }, null, 2));
       }
       
       if (pathname === '/status') return writeJson(res, { status: 'ok', addon: 'AutoStream', version: '3.4.6' }, 200);
@@ -712,7 +778,19 @@ function startServer(port = PORT) {
       }
 
       // /play — click-time debrid resolver
-      if (pathname === '/play') return handlePlay(req, res, MANIFEST_DEFAULTS);
+      if (pathname === '/play') {
+        const playRequestId = Math.random().toString(36).substr(2, 9);
+        const userAgent = req.headers['user-agent'] || '';
+  const deviceType = scoring.detectDeviceType(req);
+        
+        console.log(`\n🎬 [${playRequestId}] ===== PLAY REQUEST =====`);
+        console.log(`[${playRequestId}] 🖥️  Device: ${deviceType}`);
+        console.log(`[${playRequestId}] 🌐 User Agent: ${userAgent}`);
+        console.log(`[${playRequestId}] 🔗 URL: ${req.originalUrl}`);
+        console.log(`[${playRequestId}] 📊 Query: ${JSON.stringify(Object.fromEntries(q))}`);
+        
+        return handlePlay(req, res, MANIFEST_DEFAULTS);
+      }
 
       // Test dashboard for debugging issues
       if (pathname === '/test_issues_dashboard.html') {
@@ -782,69 +860,61 @@ function startServer(port = PORT) {
         }
         MANIFEST_DEFAULTS = Object.assign({}, MANIFEST_DEFAULTS, rememberedSafe);
         
-        // SECURITY: Only use user-provided API keys, never from global defaults
-        const adKey = paramsObj.ad || paramsObj.apikey || paramsObj.alldebrid || paramsObj.ad_apikey;
-        let adKeyWorking = false;
-        if (adKey) {
+        // UNIFIED DEBRID PROVIDER VALIDATION
+        // Support all debrid providers equally using our new provider system
+        const configuredProviders = getConfiguredProviders(paramsObj);
+        const workingProviders = [];
+        
+        // Validate each configured provider
+        for (const { key, provider, token } of configuredProviders) {
+          console.log(`🔍 Validating ${provider.name} API key...`);
+          
           try {
-            adKeyWorking = await validateAllDebridKey(adKey);
+            let isWorking = false;
+            
+            // Use provider-specific validation
+            switch (key) {
+              case 'alldebrid':
+                isWorking = await validateAllDebridKey(token);
+                break;
+              case 'realdebrid':
+                isWorking = await validateDebridKey('rd', token);
+                break;
+              case 'premiumize':
+                isWorking = await validateDebridKey('pm', token);
+                break;
+              case 'torbox':
+                isWorking = await validateDebridKey('tb', token);
+                break;
+              case 'offcloud':
+                isWorking = await validateDebridKey('oc', token);
+                break;
+              case 'easydebrid':
+                isWorking = await validateDebridKey('ed', token);
+                break;
+              case 'debridlink':
+                isWorking = await validateDebridKey('dl', token);
+                break;
+              default:
+                console.log(`⚠️ No validation method for provider: ${key}`);
+                isWorking = isValidApiKey(token, key); // Basic validation
+            }
+            
+            if (isWorking) {
+              workingProviders.push({ key, provider, token });
+              console.log(`✅ ${provider.name} API key validated successfully`);
+            } else {
+              console.log(`❌ ${provider.name} API key validation failed`);
+            }
+            
           } catch (e) {
-            console.log('AllDebrid key validation failed:', e.message);
-            adKeyWorking = false;
-          }
-        }
-        
-        // SECURITY: Only use user-provided API keys, never from global defaults
-        const rdKey = paramsObj.rd || paramsObj['real-debrid'] || paramsObj.realdebrid;
-        const pmKey = paramsObj.pm || paramsObj.premiumize;
-        const tbKey = paramsObj.tb || paramsObj.torbox;
-        const ocKey = paramsObj.oc || paramsObj.offcloud;
-        
-        let rdKeyWorking = false, pmKeyWorking = false, tbKeyWorking = false, ocKeyWorking = false;
-        
-        if (rdKey) {
-          try {
-            rdKeyWorking = await validateDebridKey('rd', rdKey);
-          } catch (e) {
-            console.log('RealDebrid key validation failed:', e.message);
-          }
-        }
-        
-        if (pmKey) {
-          try {
-            pmKeyWorking = await validateDebridKey('pm', pmKey);
-          } catch (e) {
-            console.log('Premiumize key validation failed:', e.message);
-          }
-        }
-        
-        if (tbKey) {
-          try {
-            tbKeyWorking = await validateDebridKey('tb', tbKey);
-          } catch (e) {
-            console.log('TorBox key validation failed:', e.message);
-          }
-        }
-        
-        if (ocKey) {
-          try {
-            ocKeyWorking = await validateDebridKey('oc', ocKey);
-          } catch (e) {
-            console.log('OffCloud key validation failed:', e.message);
+            console.log(`❌ ${provider.name} key validation error:`, e.message);
           }
         }
 
-        // Build the tag based on WORKING debrid services only
-        const tag = (()=>{
-          // Only show provider if API key is working and validated
-          if (adKeyWorking) return 'AD';
-          if (rdKeyWorking) return 'RD';
-          if (pmKeyWorking) return 'PM';
-          if (tbKeyWorking) return 'TB';
-          if (ocKeyWorking) return 'OC';
-          
-          return null; // No working debrid provider
-        })();
+        // Build the tag based on the FIRST working debrid provider
+        const primaryProvider = workingProviders.length > 0 ? workingProviders[0] : null;
+        const tag = primaryProvider ? primaryProvider.provider.shortName : null;
         
         // Build query string for preserved parameters
         const queryParams = new URLSearchParams();
@@ -891,6 +961,22 @@ function startServer(port = PORT) {
       const type = m[1];
       const id = decodeURIComponent(m[2]);
 
+      // ============ TV DEBUGGING: DETAILED REQUEST LOGGING ============
+      const requestId = Math.random().toString(36).substr(2, 9);
+      const userAgent = req.headers['user-agent'] || '';
+      const deviceType = scoring.detectDeviceType(req);
+      
+      console.log(`\n🎬 [${requestId}] ===== STREAM REQUEST START =====`);
+      console.log(`[${requestId}] 📺 Type: ${type}, ID: ${id}`);
+      console.log(`[${requestId}] 🖥️  Device Type: ${deviceType}`);
+      console.log(`[${requestId}] 🌐 User Agent: "${userAgent}"`);
+      console.log(`[${requestId}] 🔗 Full URL: ${req.originalUrl}`);
+      console.log(`[${requestId}] 📊 Query Params:`, Object.fromEntries(q));
+      console.log(`[${requestId}] 🌍 Client IP: ${req.headers['x-forwarded-for'] || req.connection.remoteAddress || 'unknown'}`);
+      
+      // Simple universal device type (no TV-specific handling)
+      const actualDeviceType = deviceType;
+
       // ============ DEFENSIVE CODE: REQUEST VALIDATION ============
       
       // 1. Rate limiting per IP
@@ -921,21 +1007,35 @@ function startServer(port = PORT) {
       // 4. Wrap the entire request processing in concurrency limiter
       return concurrencyLimiter.execute(async () => {
         try {
+          // Attach request ID to req object for tracking through the pipeline
+          req._requestId = requestId;
+          
           // ============ MAIN STREAM PROCESSING (WITH DEFENSIVE PROTECTIONS) ============
 
       const labelOrigin = q.get('label_origin') === '1';
       const onlySource = (q.get('only') || '').toLowerCase();
       const nuvioCookie = sanitizeCookieVal(getQ(q,'nuvio_cookie') || getQ(q,'dcookie') || getQ(q,'cookie') || MANIFEST_DEFAULTS.nuvio_cookie || MANIFEST_DEFAULTS.dcookie || MANIFEST_DEFAULTS.cookie || '');
       
-      // Generate unique request ID for log isolation
-      const reqId = Math.random().toString(36).substr(2, 9);
-      
-      // Enhanced logging with levels
+      // Enhanced logging with levels and detailed TV debugging
       const VERBOSE_LOGGING = process.env.VERBOSE_LOGGING === 'true';
       const log = (msg, level = 'info') => {
-        if (level === 'verbose' && !VERBOSE_LOGGING) return;
-        console.log(`[${reqId}] ${msg}`);
+        const timestamp = new Date().toISOString().substr(11, 8);
+        const prefix = `[${requestId}] ${timestamp}`;
+        
+        if (level === 'error') {
+          console.error(`${prefix} ❌ ${msg}`);
+        } else if (level === 'warn') {
+          console.warn(`${prefix} ⚠️ ${msg}`);
+        } else if (level === 'verbose') {
+          if (VERBOSE_LOGGING || deviceType === 'tv') console.log(`${prefix} 🔍 ${msg}`);
+        } else {
+          console.log(`${prefix} 📝 ${msg}`);
+        }
       };
+      
+      log(`🚀 Starting stream processing for ${type}/${id}`);
+      log(`🖥️  Device: ${actualDeviceType}`);
+      log(`🎛️  Config - labelOrigin: ${labelOrigin}, onlySource: ${onlySource}, nuvioCookie: ${!!nuvioCookie}`);
       
       // Apply dynamic ID validation and correction for problematic IDs
       const { validateAndCorrectIMDBID } = (() => {
@@ -992,6 +1092,8 @@ function startServer(port = PORT) {
       const nuvioEnabled = dhosts.includes('nuvio') || q.get('nuvio') === '1' || q.get('include_nuvio') === '1' || MANIFEST_DEFAULTS.nuvio === '1' || MANIFEST_DEFAULTS.include_nuvio === '1' || onlySource === 'nuvio' || 
                           (!onlySource && dhosts.length === 0); // Enable by default when no specific sources requested
 
+      log(`🎯 Source selection - dhosts: [${dhosts.join(', ')}], nuvioEnabled: ${nuvioEnabled}, onlySource: ${onlySource}`);
+
       // fetch sources (no debrid here) - parallel execution with timeout for faster response
       log('🚀 Fetching streams from sources...');
       const sourcePromises = [
@@ -1000,6 +1102,8 @@ function startServer(port = PORT) {
         nuvioEnabled ? fetchNuvioStreams(type, actualId, { query: { direct: '1' }, cookie: nuvioCookie }, (msg) => log('Nuvio: ' + msg, 'verbose')) : Promise.resolve([])
       ];
       
+      log(`📊 Executing ${sourcePromises.length} source fetch promises...`);
+      
       // Use Promise.allSettled() with timeout for sources
       const [torrentioResult, tpbResult, nuvioResult] = await Promise.allSettled(sourcePromises);
       
@@ -1007,6 +1111,11 @@ function startServer(port = PORT) {
       const fromTorr = torrentioResult.status === 'fulfilled' ? (torrentioResult.value || []) : [];
       const fromTPB = tpbResult.status === 'fulfilled' ? (tpbResult.value || []) : [];
       const fromNuvio = nuvioResult.status === 'fulfilled' ? (nuvioResult.value || []) : [];
+      
+      log(`📦 Source results - Torrentio: ${fromTorr.length}, TPB+: ${fromTPB.length}, Nuvio: ${fromNuvio.length}`);
+      if (torrentioResult.status === 'rejected') log(`❌ Torrentio failed: ${torrentioResult.reason}`, 'error');
+      if (tpbResult.status === 'rejected') log(`❌ TPB+ failed: ${tpbResult.reason}`, 'error');
+      if (nuvioResult.status === 'rejected') log(`❌ Nuvio failed: ${nuvioResult.reason}`, 'error');
       
       // Try to get meta quickly, but don't wait long
       let finalMeta;
@@ -1278,47 +1387,103 @@ function startServer(port = PORT) {
       }
 
       // CRITICAL FIX: Don't auto-convert ALL torrents to debrid
-      // Instead, let sources compete first, then convert winners to debrid URLs
-      // SECURITY: Only use API keys explicitly provided by users, never from environment
-      // SECURITY: Only use user-provided API keys, never from global defaults  
-      const adParam = (getQ(q,'ad') || getQ(q,'apikey') || getQ(q,'alldebrid') || getQ(q,'ad_apikey') || '');
+      // UNIFIED DEBRID PROVIDER SYSTEM
+      // Support all debrid providers equally - not AllDebrid-centric
       
-      // SECURITY CHECK: Refuse to use environment variables for API keys
-      if (!adParam && (process.env.AD_KEY || process.env.ALLDEBRID_KEY || process.env.ALLDEBRID_API_KEY)) {
+      // Extract provider configuration from query parameters
+      const providerConfig = {};
+      const providerKeys = getProviderKeys();
+      
+      for (const key of providerKeys) {
+        const value = getQ(q, key) || '';
+        if (value) {
+          providerConfig[key] = value;
+        }
+      }
+      
+      // Legacy AllDebrid parameter mapping for backward compatibility
+      const legacyAdParam = getQ(q,'ad') || getQ(q,'apikey') || getQ(q,'alldebrid') || getQ(q,'ad_apikey') || '';
+      if (legacyAdParam && !providerConfig.alldebrid) {
+        providerConfig.alldebrid = legacyAdParam;
+      }
+      
+      // SECURITY CHECK: Refuse to use environment variables for API keys  
+      if (Object.keys(providerConfig).length === 0 && (process.env.AD_KEY || process.env.ALLDEBRID_KEY || process.env.ALLDEBRID_API_KEY || process.env.RD_KEY || process.env.PM_KEY)) {
         log('🚨 SECURITY: Environment variable API keys detected but ignored. Users must provide their own keys.');
       }
       
       // RENDER-LEVEL SECURITY: Additional protection against environment credential usage
-      if (BLOCK_ENV_CREDENTIALS && (process.env.ALLDEBRID_KEY || process.env.AD_KEY || process.env.APIKEY)) {
+      if (BLOCK_ENV_CREDENTIALS && (process.env.ALLDEBRID_KEY || process.env.AD_KEY || process.env.APIKEY || process.env.RD_KEY || process.env.PM_KEY)) {
         log('🔒 RENDER SECURITY: Dangerous environment variables detected and blocked');
       }
       
       // FORCE SECURE MODE: In production, never allow environment fallbacks
-      if (FORCE_SECURE_MODE && !adParam) {
+      if (FORCE_SECURE_MODE && Object.keys(providerConfig).length === 0) {
         log('🔒 SECURE MODE: Only user-provided API keys allowed, no environment fallbacks');
       }
       
       // EMERGENCY DEBRID DISABLE: Server-wide debrid shutdown capability
       if (EMERGENCY_DISABLE_DEBRID) {
         log('🚨 EMERGENCY: All debrid features disabled server-wide');
-        adParam = ''; // Force no debrid for ALL users
+        Object.keys(providerConfig).forEach(key => providerConfig[key] = ''); // Force no debrid for ALL users
       }
       
-      // Validate AllDebrid key if provided - fall back to non-debrid if invalid
-      let adKeyWorking = false;
-      if (adParam) {
+      // Validate configured debrid providers
+      const workingProviders = [];
+      for (const [key, token] of Object.entries(providerConfig)) {
+        if (!token) continue;
+        
         try {
-          adKeyWorking = await validateAllDebridKey(adParam);
-          if (!adKeyWorking) {
-            log('⚠️ AllDebrid key provided but not working (blocked/invalid) - falling back to non-debrid mode');
+          let isWorking = false;
+          
+          switch (key) {
+            case 'alldebrid':
+              isWorking = await validateAllDebridKey(token);
+              break;
+            case 'realdebrid':
+              isWorking = await validateDebridKey('rd', token);
+              break;
+            case 'premiumize':
+              isWorking = await validateDebridKey('pm', token);
+              break;
+            case 'torbox':
+              isWorking = await validateDebridKey('tb', token);
+              break;
+            case 'offcloud':
+              isWorking = await validateDebridKey('oc', token);
+              break;
+            case 'easydebrid':
+              isWorking = await validateDebridKey('ed', token);
+              break;
+            case 'debridlink':
+              isWorking = await validateDebridKey('dl', token);
+              break;
+            default:
+              console.log(`⚠️ No validation method for provider: ${key}`);
+              isWorking = isValidApiKey(token, key);
           }
+          
+          if (isWorking) {
+            workingProviders.push({ key, token, provider: getProvider(key) });
+            log(`✅ ${getProvider(key)?.name || key} API key validated successfully`);
+          } else {
+            log(`❌ ${getProvider(key)?.name || key} key validation failed`);
+          }
+          
         } catch (e) {
-          log('⚠️ AllDebrid key validation failed - falling back to non-debrid mode: ' + e.message);
-          adKeyWorking = false;
+          log(`⚠️ ${getProvider(key)?.name || key} key validation failed - falling back to non-debrid mode: ` + e.message);
         }
       }
       
-      const effectiveAdParam = adKeyWorking ? adParam : ''; // Only use AD if key is validated
+      // Use the first working provider as primary
+      const primaryProvider = workingProviders.length > 0 ? workingProviders[0] : null;
+      const effectiveDebridProvider = primaryProvider ? primaryProvider.key : '';
+      const effectiveDebridToken = primaryProvider ? primaryProvider.token : '';
+      
+      // SECURITY FIX: For ANY debrid provider, enable debrid URL conversion
+      // This prevents raw magnet URLs from being served when debrid is configured
+      const effectiveAdParam = primaryProvider ? primaryProvider.token : '';
+      const hasDebridConfigured = !!primaryProvider;
       
       // Step 1: Score streams without converting to debrid yet
       combined = sortByOriginPriority(combined, { labelOrigin: false });
@@ -1339,11 +1504,24 @@ function startServer(port = PORT) {
         maxSizeBytes,
         conservativeCookie: conserveCookie,
         blacklistTerms,
-        debug: false // Set to true for detailed scoring logs
+        debug: false // Standard debug setting
       };
+      
+      log(`🎯 Starting scoring with options:`, JSON.stringify(scoringOptions, null, 2));
+      log(`📊 Input streams for scoring: ${combined.length}`);
       
       // Use new enhanced scoring system with penalty filtering
       let allScoredStreams = scoring.filterAndScoreStreams(combined, req, scoringOptions);
+      
+      log(`📈 Scoring complete: ${allScoredStreams.length} streams scored and ranked`);
+      if (allScoredStreams.length > 0) {
+        log(`🥇 Top stream: "${allScoredStreams[0].name}" (score: ${allScoredStreams[0].score})`);
+        if (allScoredStreams.length > 1) {
+          log(`🥈 Second stream: "${allScoredStreams[1].name}" (score: ${allScoredStreams[1].score})`);
+        }
+      } else {
+        log(`❌ ERROR: No streams survived scoring! This is likely the root cause.`, 'error');
+      }
       
       // For additional stream logic, we need access to more streams to find different resolutions
       // But for final output, we'll only use what's needed
@@ -1362,9 +1540,9 @@ function startServer(port = PORT) {
       // Define originBase for URL building (used in multiple places)
       const originBase = `${req.headers['x-forwarded-proto'] || 'http'}://${req.headers.host}`;
       
-      // Step 3: Convert torrents to debrid URLs if debrid is available
-      if (effectiveAdParam && selectedStreams.length > 0) {
-        log(`🔧 Converting ${selectedStreams.length} torrents to AllDebrid URLs...`);
+      // Step 3: Convert torrents to debrid URLs if ANY debrid provider is configured
+      if (hasDebridConfigured && selectedStreams.length > 0) {
+        log(`🔧 Converting ${selectedStreams.length} torrents to ${primaryProvider.provider.name} URLs...`);
         for (const s of selectedStreams) {
           if (!s) continue;
           
@@ -1380,34 +1558,36 @@ function startServer(port = PORT) {
               magnet: isMagnetish ? s.url : '',
               idx: (typeof s.fileIdx === 'number' ? s.fileIdx : 0),
               imdb: id
-            }, { origin: originBase, ad: effectiveAdParam });
+            }, { 
+              origin: originBase, 
+              ad: effectiveAdParam,
+              provider: effectiveDebridProvider,
+              token: effectiveDebridToken
+            });
             
-            // notWebReady flag is now handled device-aware in __finalize function
+            // SECURITY: Ensure no magnet URLs leak when debrid is configured
+            if (!s.url || /^magnet:/i.test(s.url)) {
+              log(`⚠️ SECURITY WARNING: Failed to convert torrent to debrid URL for ${s.infoHash?.substring(0,8)}...`);
+              // Remove the stream entirely rather than serving raw magnet
+              s._invalid = true;
+            }
           }
         }
-      } else {
-        // No debrid available - ensure magnet URLs are properly assigned for external clients
-        log('ℹ️ No debrid available - providing raw magnet URLs for external torrent clients');
         
-        for (const s of selectedStreams) {
-          if (!s) continue;
-          
-          // For torrents without URLs, create magnet URLs from infoHash
-          if (s.infoHash && !s.url) {
-            s.url = `magnet:?xt=urn:btih:${s.infoHash}`;
-            log(`🧲 Generated magnet URL for ${s.infoHash.substring(0, 8)}...`);
-          }
-          
-          // Preserve original magnet URLs if they exist
-          if (s._originalMagnet && !s.url) {
-            s.url = s._originalMagnet;
-            log(`🧲 Restored original magnet URL for ${s.infoHash?.substring(0, 8) || 'stream'}...`);
-          }
-        }
+        // SECURITY: Filter out any streams that failed debrid conversion
+        selectedStreams = selectedStreams.filter(s => !s._invalid);
+        
+      } else {
+        // No debrid available - use Torrentio pattern (infoHash + sources, no URLs)
+        log('ℹ️ No debrid available - using Torrentio pattern for universal compatibility');
+        
+        // Don't assign URLs here - let __finalize handle the Torrentio pattern
+        // For non-debrid streams, we want infoHash + sources but NO URL
+        // This allows Stremio to handle torrents internally (works on Android TV)
       }
 
       // Step 4: Apply beautified names and finalize
-      let streams = __finalize(selectedStreams, { nuvioCookie, labelOrigin }, req);
+      let streams = __finalize(selectedStreams, { nuvioCookie, labelOrigin }, req, actualDeviceType);
       
       // CRITICAL: Validate stream format for Stremio compatibility
       streams = streams.filter(s => {
@@ -1438,35 +1618,8 @@ function startServer(port = PORT) {
       });
       
       // Detect which debrid provider is being used (only if actually working)
-      const debridProvider = (() => {
-        // Return the actual working provider name
-        if (adKeyWorking) return 'ad';
-        // Add other providers when their stream processing is implemented
-        // if (rdKeyWorking) return 'rd';
-        // if (pmKeyWorking) return 'pm';
-        // if (tbKeyWorking) return 'tb';
-        // if (ocKeyWorking) return 'oc';
-        
-        return null;
-      })();
+      const debridProvider = effectiveDebridProvider || null;
       
-      // Apply beautified names and titles
-      const showOriginTags = shouldShowOriginTags(labelOrigin);
-      streams.forEach(s => {
-        if (s && (s.url || s.infoHash)) {
-          // Set addon name (e.g., "AutoStream (AD)")
-          s.name = beautifyStreamName(s, { 
-            type, 
-            id, 
-            includeOriginTag: showOriginTags,
-            debridProvider 
-          });
-          
-          // Set content title with resolution (e.g., "Gen V S1E1 - 4K")
-          s.title = buildContentTitle(finalMeta.name, s, { type, id: actualId });
-        }
-      });
-
       // Step 5: Always process additional stream logic to ensure both primary and secondary are available
       // The additionalStreamEnabled flag will only control final visibility
       if (allScoredStreams.length > 1) {
@@ -1523,33 +1676,36 @@ function startServer(port = PORT) {
           }
           
           if (additional) {
-            // Process additional stream same way as primary was processed
-            if (effectiveAdParam && (additional.autostreamOrigin === 'torrentio' || additional.autostreamOrigin === 'tpb') && additional.infoHash) {
+            // Process additional stream same way as primary was processed  
+            if (hasDebridConfigured && (additional.autostreamOrigin === 'torrentio' || additional.autostreamOrigin === 'tpb') && additional.infoHash) {
+              // CRITICAL: Mark as debrid stream (was missing - caused 1080p loading issues)
+              additional._debrid = true;
+              additional._isDebrid = true;
+              
               additional.url = buildPlayUrl({
                 ih: additional.infoHash,
                 magnet: additional.url && /^magnet:/i.test(additional.url) ? additional.url : '',
                 idx: (typeof additional.fileIdx === 'number' ? additional.fileIdx : 0),
                 imdb: id
-              }, { origin: originBase, ad: effectiveAdParam });
+              }, { 
+                origin: originBase, 
+                ad: effectiveAdParam,
+                provider: effectiveDebridProvider,
+                token: effectiveDebridToken
+              });
+              
+              // SECURITY: Ensure no magnet URLs leak in additional stream
+              if (!additional.url || /^magnet:/i.test(additional.url)) {
+                log(`⚠️ SECURITY WARNING: Failed to convert additional stream to debrid URL for ${additional.infoHash?.substring(0,8)}...`);
+                additional = null; // Remove the additional stream rather than serving raw magnet
+              }
             }
             
             // Finalize additional stream
-            const finalizedAdditional = __finalize([additional], { nuvioCookie, labelOrigin }, req)[0];
+            const finalizedAdditional = __finalize([additional], { nuvioCookie, labelOrigin }, req, actualDeviceType)[0];
             
             if (finalizedAdditional && (finalizedAdditional.url || finalizedAdditional.infoHash)) {
-              // Apply same beautification as primary
-              finalizedAdditional.name = beautifyStreamName(finalizedAdditional, { 
-                type, 
-                id, 
-                includeOriginTag: showOriginTags,
-                debridProvider 
-              });
-              
-              // Set content title with resolution (e.g., "Gen V S1E1 - 1080p")
-              finalizedAdditional.title = buildContentTitle(finalMeta.name, finalizedAdditional, { type, id: actualId });
-              
-              // buildContentTitle already adds resolution, so no need to add it again
-              // Just log what we have
+              // buildContentTitle will be applied later in the naming step
               const additionalRes = resOf(finalizedAdditional);
               const primaryRes = resOf(primary);
               const additionalLabel = getUserFriendlyResolution(additionalRes);
@@ -1629,6 +1785,24 @@ function startServer(port = PORT) {
         log(`🎛️ Additional stream enabled: showing ${streams.length} streams`);
       }
 
+      // STEP: Apply beautified names and titles (AFTER all scoring and processing)
+      // This preserves original torrent names during scoring for codec detection
+      const showOriginTags = shouldShowOriginTags(labelOrigin);
+      streams.forEach(s => {
+        if (s && (s.url || s.infoHash)) {
+          // Set addon name (e.g., "AutoStream (AD)")
+          s.name = beautifyStreamName(s, { 
+            type, 
+            id, 
+            includeOriginTag: showOriginTags,
+            debridProvider 
+          });
+          
+          // Set content title with resolution (e.g., "Gen V S1E1 - 4K")
+          s.title = buildContentTitle(finalMeta.name, s, { type, id: actualId });
+        }
+      });
+
       // Reduce cache time if we have penalties
       const hasPenalties = Object.keys(penaltyReliability.getState().penalties || {}).length > 0;
       let cacheTime = 3600; // Default: 1 hour
@@ -1639,18 +1813,35 @@ function startServer(port = PORT) {
       }
 
       // Send final response with streams
-      log(`📤 Sending ${streams.length} stream(s) to Stremio (cache: ${cacheTime}s)`);
+      log(`📤 Preparing final response for Stremio:`);
+      log(`   📊 Stream count: ${streams.length}`);
+      log(`   ⏰ Cache time: ${cacheTime}s`);
+      log(`   🖥️  Device: ${actualDeviceType}`);
+      
+      if (streams.length > 0) {
+        streams.forEach((stream, index) => {
+          log(`   [${index + 1}] "${stream.name}" - ${stream.url ? 'HAS URL' : 'NO URL'} - notWebReady: ${!!(stream.behaviorHints && stream.behaviorHints.notWebReady)}`);
+          if (actualDeviceType === 'tv') {
+            log(`     📺 TV URL: ${stream.url ? stream.url.substring(0, 80) + '...' : 'NONE'}`);
+          }
+        });
+      } else {
+        log(`   ❌ NO STREAMS - this will cause infinite loading in Stremio!`, 'error');
+      }
+      
       res.setHeader('Cache-Control', `max-age=${cacheTime}`);
       writeJson(res, { streams });
       
+      log(`✅ [${requestId}] ===== STREAM REQUEST COMPLETE =====\n`);
+      
         } catch (e) {
           // Defensive error handling - prevent crashes
-          console.error('Stream processing error:', e);
+          console.error(`[${requestId}] ❌ Stream processing error:`, e);
           if (!res.headersSent) writeJson(res, { streams: [], error: 'Internal server error' }, 500);
         }
       }).catch(e => {
         // Concurrency limiter error handler
-        console.error('Concurrency limiter error:', e);
+        console.error(`[${requestId}] ❌ Concurrency limiter error:`, e);
         if (!res.headersSent) writeJson(res, { streams: [], error: 'Service temporarily unavailable' }, 503);
       });
     } catch (e) {

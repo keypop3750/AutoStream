@@ -346,17 +346,19 @@
 
 function rerender(){
     const url = buildUrl();
-    const redacted = url.replace(/^https?:\/\//, '').replace(/(nuvio_cookie=)[^&]+/i, '$1[hidden]');
+    const redacted = url.replace(/^https?:\/\//, '');
     manifestEl.textContent = redacted;
     const q = url.split('?')[1] || '';
     
     // Back to simple working URLs with configuration parameters
     const configuredUrl = buildUrl();
     const stremioUrl = 'stremio://' + configuredUrl.replace(/^https?:\/\//, '');
-    const httpUrl = configuredUrl;
+    
+    // Fix: Build proper Stremio Web URL for web install button
+    const stremioWebUrl = `https://web.stremio.com/#/addons?addon=${encodeURIComponent(configuredUrl)}`;
     
     appBtn.href = stremioUrl;
-    webBtn.href = httpUrl;
+    webBtn.href = stremioWebUrl;
     
     appBtn.textContent = 'Install to Stremio';
     webBtn.textContent = 'Install to Web';

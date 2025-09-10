@@ -71,8 +71,10 @@
   .pill.dragging{opacity:.75;border-color:rgba(124,110,255,.5)}
   .buttons{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:32px}
   @media (max-width: 720px){ .buttons{grid-template-columns:1fr} }
-  code.inline{background:rgba(255,255,255,.06);border:1px solid var(--border);padding:2px 6px;border-radius:6px;font-size:12px;color:var(--preview)}
-  .footline{display:flex;justify-content:space-between;align-items:center;gap:var(--pill-gap);flex-wrap:wrap;margin-top:10px}
+  code.inline{background:rgba(255,255,255,.06);border:1px solid var(--border);padding:6px 12px;border-radius:8px;font-size:12px;color:var(--preview);display:block;word-break:break-all;line-height:1.4;min-height:calc(2 * 1.4em);white-space:pre-wrap;overflow-wrap:anywhere}
+  .footline{display:flex;justify-content:space-between;align-items:flex-start;gap:var(--pill-gap);flex-wrap:wrap;margin-top:16px}
+  .manifest-container{flex: 1;min-width:0}
+  .manifest-label{color:var(--muted);font-size:14px;margin-bottom:8px;font-weight:500}
   .hidden{display:none !important}
 </style>
 </head>
@@ -89,11 +91,14 @@
             <label>Debrid Provider (Optional)</label>
             <select id="provider" class="control">
               <option value="">None</option>
-              <option value="AD">All Debrid</option>
-              <option value="RD">Real Debrid</option>
-              <option value="PM">Premiumize</option>
-              <option value="TB">TorBox</option>
-              <option value="OC">Offcloud</option>
+              <option value="realdebrid">RealDebrid (RD)</option>
+              <option value="alldebrid">AllDebrid (AD)</option>
+              <option value="premiumize">Premiumize (PM)</option>
+              <option value="easydebrid">EasyDebrid (ED)</option>
+              <option value="debridlink">DebridLink (DL)</option>
+              <option value="torbox">TorBox (TB)</option>
+              <option value="offcloud">Offcloud (OC)</option>
+              <option value="putio">Put.io (Putio)</option>
             </select>
           </div>
 
@@ -163,13 +168,12 @@
         <a id="installApp" class="btn btn-primary" style="width:100%">Install to Stremio</a>
         <a id="installWeb" class="btn btn-outline" style="width:100%">Install to Web</a>
       </div>
-      
-      <div style="text-align: center; margin-top: 16px; color: var(--muted); font-size: 14px;">
-        Or paste into Stremio search bar after clicking install
-      </div>
 
       <div class="footline">
-        <div class="muted">Manifest URL: <code id="manifestUrl" class="inline"></code></div>
+        <div class="manifest-container">
+          <div class="manifest-label">Manifest URL:</div>
+          <code id="manifestUrl" class="inline"></code>
+        </div>
       </div>
     </div>
 

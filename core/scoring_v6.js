@@ -4,7 +4,17 @@
  * 
  * Features:
  * - Penalty-based reliability (no permanent exclusion, no cooldowns)
- * - Quality/resolution scoring  
+   if (/\b(x265|hevc|h\.?265)\b/.test(title)) {
+    if (deviceType === 'tv') {
+      // Android TV prefers x264 but x265 4K should still beat x264 1080p
+      score -= 15;
+      factors.push('x265_codec_tv_penalty');
+    } else {
+      // Other devices handle x265 well - small bonus for efficiency
+      score += 8;
+      factors.push('x265_codec');
+    }
+  } else if (/\b(x264|avc|h\.?264)\b/.test(title)) {/resolution scoring  
  * - Connection quality detection
  * - Cookie stream scoring
  * - Stream type bonuses
@@ -24,7 +34,7 @@ function detectDeviceType(req) {
   const userAgent = req.headers['user-agent'] || '';
   
   // TV detection patterns (comprehensive)
-  if (/\b(smart[-\s]?tv|tizen|webos|vidaa|roku|fire[-\s]?tv|android[-\s]?tv|chromecast|shield\s*android\s*tv|lg\s*browser|samsung.*tizen)\b/i.test(userAgent)) {
+  if (/\b(smart[-\s]?tv|tizen|webos|vidaa|roku|fire[-\s]?tv|android[-\s]?tv|chromecast|shield\s*android\s*tv|lg\s*browser|samsung.*tizen|aosp\s*tv|android.*tv|tv.*android)\b/i.test(userAgent)) {
     return 'tv';
   }
   
@@ -77,9 +87,8 @@ function computeStreamScore(stream, req, opts = {}) {
     penalties.push(`low_seeders(${seederScore.score})`);
   }
 
-  // QUALITY SCORING (device-aware, platform-specific)
-  const deviceType = detectDeviceType(req);
-  const qualityScore = getCompleteQualityScore(stream, deviceType);
+  // QUALITY SCORING (device-aware for codec compatibility)
+  const qualityScore = getQualityScore(stream, req);
   score += qualityScore.score;
   if (qualityScore.score > 0) {
     bonuses.push(`quality_bonus(+${qualityScore.score})`);
@@ -139,363 +148,140 @@ function computeStreamScore(stream, req, opts = {}) {
 }
 
 /**
- * TV-optimized scoring - prioritizes compatibility over efficiency
+ * Quality-based scoring with detailed differentiation (device-agnostic)
+ * Based on the working old version - same scoring for all devices
  */
-function getTVQualityScore(title, factors) {
-  let score = 0;
-
-  // TV Resolution scoring - TVs handle 4K perfectly, prioritize quality
-  if (/\b(2160p|4k|uhd)\b/.test(title)) {
-    score += 40; // HIGHEST bonus - 4K is excellent on modern TVs
-    factors.push('4k_tv_excellent');
-  } else if (/\b(1080p|fhd)\b/.test(title)) {
-    score += 30; // Good bonus - standard quality
-    factors.push('1080p_tv_standard');
-  } else if (/\b(720p|hd)\b/.test(title)) {
-    score += 20; // Decent bonus
-    factors.push('720p_tv_decent');
-  } else if (/\b(480p|sd)\b/.test(title)) {
-    score += 10; // Basic quality
-    factors.push('480p_tv_basic');
-  }
-
-  // TV HDR/DV scoring - cautious approach
-  if (/\b(hdr10\+|dolby.?vision|dv)\b/.test(title)) {
-    score += 15; // Lower bonus - DV support varies on TVs
-    factors.push('dolby_vision_tv_limited');
-  } else if (/\bhdr\b/.test(title)) {
-    score += 10; // Standard HDR is more widely supported
-    factors.push('hdr_tv_standard');
-  }
-
-  // TV 10-bit compatibility - major penalty
-  if (/\b(10bit|10.?bit|hi10p)\b/.test(title)) {
-    score -= 25; // Heavy penalty - many Smart TVs can't handle 10-bit
-    factors.push('10bit_tv_incompatible');
-  }
-
-  // TV Codec scoring - compatibility is CRITICAL
-  if (/\b(x265|hevc|h\.?265)\b/.test(title)) {
-    score -= 60; // Massive penalty - primary cause of "video not supported"
-    factors.push('x265_tv_major_risk');
-  } else if (/\b(x264|avc|h\.?264)\b/.test(title)) {
-    score += 40; // Huge bonus - universal TV compatibility
-    factors.push('x264_tv_universal');
-  }
-
-  // TV Audio scoring - simpler audio usually works better
-  if (/\b(atmos|dts.?x)\b/.test(title)) {
-    score += 8; // Lower bonus - advanced audio may not work on all TVs
-    factors.push('premium_audio_tv_limited');
-  } else if (/\b(truehd|dts.?hd|lpcm)\b/.test(title)) {
-    score += 12; // Good bonus - widely supported
-    factors.push('high_quality_audio_tv');
-  } else if (/\b(dts|dd\+|eac3)\b/.test(title)) {
-    score += 15; // Higher bonus - standard formats work everywhere
-    factors.push('standard_audio_tv_reliable');
-  }
-
-  return score;
-}
-
-/**
- * Mobile-optimized scoring - balance between quality and efficiency/battery
- */
-function getMobileQualityScore(title, factors) {
-  let score = 0;
-
-  // Mobile Resolution scoring - balance quality with bandwidth/battery
-  if (/\b(2160p|4k|uhd)\b/.test(title)) {
-    score += 20; // Lower bonus - 4K drains battery and uses lots of data
-    factors.push('4k_mobile_battery_drain');
-  } else if (/\b(1080p|fhd)\b/.test(title)) {
-    score += 35; // Highest bonus - best balance of quality and efficiency
-    factors.push('1080p_mobile_optimal');
-  } else if (/\b(720p|hd)\b/.test(title)) {
-    score += 25; // Good for mobile screens and data usage
-    factors.push('720p_mobile_efficient');
-  } else if (/\b(480p|sd)\b/.test(title)) {
-    score += 15; // Decent for small screens and low bandwidth
-    factors.push('480p_mobile_data_saver');
-  }
-
-  // Mobile HDR/DV scoring - many mobile screens support HDR well
-  if (/\b(hdr10\+|dolby.?vision|dv)\b/.test(title)) {
-    score += 20; // Good bonus - premium mobile devices support DV
-    factors.push('dolby_vision_mobile_premium');
-  } else if (/\b(hdr)\b/.test(title)) {
-    score += 15; // Standard HDR widely supported
-    factors.push('hdr_mobile_standard');
-  }
-
-  // Mobile 10-bit scoring - modern mobiles handle it well
-  if (/\b(10bit|10.?bit|hi10p)\b/.test(title)) {
-    score -= 10; // Minor penalty - some older devices struggle
-    factors.push('10bit_mobile_older_devices');
-  }
-
-  // Mobile Codec scoring - efficiency matters for battery
-  if (/\b(x265|hevc|h\.?265)\b/.test(title)) {
-    score += 10; // Bonus - efficient codec saves battery
-    factors.push('x265_mobile_efficient');
-  } else if (/\b(x264|avc|h\.?264)\b/.test(title)) {
-    score += 20; // Higher bonus - universal compatibility
-    factors.push('x264_mobile_universal');
-  }
-
-  // Mobile Audio scoring - mobile speakers are limited anyway
-  if (/\b(atmos|dts.?x)\b/.test(title)) {
-    score += 15; // Good bonus - premium devices have good speakers
-    factors.push('premium_audio_mobile');
-  } else if (/\b(truehd|dts.?hd|lpcm)\b/.test(title)) {
-    score += 12; // Standard bonus
-    factors.push('high_quality_audio_mobile');
-  } else if (/\b(dts|dd\+|eac3)\b/.test(title)) {
-    score += 8; // Basic bonus
-    factors.push('standard_audio_mobile');
-  }
-
-  return score;
-}
-
-/**
- * Web-optimized scoring - balance between quality and compatibility
- */
-function getWebQualityScore(title, factors) {
-  let score = 0;
-
-  // Web Resolution scoring - web browsers handle high resolution excellently
-  if (/\b(2160p|4k|uhd)\b/.test(title)) {
-    score += 40; // HIGHEST bonus - web browsers excel at 4K
-    factors.push('4k_web_excellent');
-  } else if (/\b(1080p|fhd)\b/.test(title)) {
-    score += 30; // Good bonus - standard quality
-    factors.push('1080p_web_standard');
-  } else if (/\b(720p|hd)\b/.test(title)) {
-    score += 20; // Decent bonus
-    factors.push('720p_web_decent');
-  } else if (/\b(480p|sd)\b/.test(title)) {
-    score += 10; // Low bonus - web users expect higher quality
-    factors.push('480p_web_low_quality');
-  }
-
-  // Web HDR/DV scoring - modern browsers support HDR
-  if (/\b(hdr10\+|dolby.?vision|dv)\b/.test(title)) {
-    score += 25; // High bonus - modern browsers support advanced HDR
-    factors.push('dolby_vision_web_modern');
-  } else if (/\b(hdr)\b/.test(title)) {
-    score += 20; // Good bonus
-    factors.push('hdr_web_supported');
-  }
-
-  // Web 10-bit scoring - modern browsers handle it
-  if (/\b(10bit|10.?bit|hi10p)\b/.test(title)) {
-    score -= 5; // Minor penalty - some compatibility issues
-    factors.push('10bit_web_minor_issues');
-  }
-
-  // Web Codec scoring - web browsers are flexible
-  if (/\b(x265|hevc|h\.?265)\b/.test(title)) {
-    score += 5; // Small bonus - efficiency is nice but not critical
-    factors.push('x265_web_efficient');
-  } else if (/\b(x264|avc|h\.?264)\b/.test(title)) {
-    score += 20; // Higher bonus - universal compatibility
-    factors.push('x264_web_compatible');
-  }
-
-  // Web Audio scoring - web users often have good audio setups
-  if (/\b(atmos|dts.?x)\b/.test(title)) {
-    score += 20; // High bonus - web users may have premium audio
-    factors.push('premium_audio_web');
-  } else if (/\b(truehd|dts.?hd|lpcm)\b/.test(title)) {
-    score += 15; // Good bonus
-    factors.push('high_quality_audio_web');
-  } else if (/\b(dts|dd\+|eac3)\b/.test(title)) {
-    score += 10; // Standard bonus
-    factors.push('standard_audio_web');
-  }
-
-  return score;
-}
-
-/**
- * Platform-specific source quality scoring
- */
-function getSourceQualityScore(title, deviceType, factors) {
-  let score = 0;
-
-  // Release source quality - same across all platforms but different weights
-  if (/\b(bluray|bd|bdrip|brrip)\b/.test(title)) {
-    if (deviceType === 'tv') {
-      score += 15; // Higher bonus for TV - BluRay usually has better TV compatibility
-      factors.push('bluray_source_tv');
-    } else {
-      score += 10; // Standard bonus
-      factors.push('bluray_source');
-    }
-  } else if (/\b(webrip|web.?dl)\b/.test(title)) {
-    score += 7; // Same across platforms
-    factors.push('web_source');
-  } else if (/\b(dvdrip|dvd)\b/.test(title)) {
-    score += 3; // Same across platforms  
-    factors.push('dvd_source');
-  } else if (/\b(hdtv|tv|tvrip)\b/.test(title)) {
-    score += 1; // Same across platforms
-    factors.push('tv_source');
-  }
-
-  return score;
-}
-
-/**
- * Platform-specific container format scoring
- */
-function getContainerScore(title, deviceType, factors) {
-  let score = 0;
-
-  if (/\.mp4\b/.test(title)) {
-    if (deviceType === 'tv') {
-      score += 25; // Maximum bonus for TV - MP4 is universally supported
-      factors.push('mp4_tv_perfect_compat');
-    } else if (deviceType === 'mobile') {
-      score += 20; // Good for mobile - efficient streaming
-      factors.push('mp4_mobile_efficient');
-    } else {
-      score += 15; // Standard bonus for web
-      factors.push('mp4_web_standard');
-    }
-  } else if (/\.mkv\b/.test(title)) {
-    if (deviceType === 'tv') {
-      score -= 20; // Strong penalty for TV - MKV support varies significantly
-      factors.push('mkv_tv_major_risk');
-    } else if (deviceType === 'mobile') {
-      score -= 10; // Moderate penalty for mobile - can be problematic
-      factors.push('mkv_mobile_issues');
-    } else {
-      score -= 5; // Light penalty for web - usually works but not optimal
-      factors.push('mkv_web_minor_issues');
-    }
-  } else if (/\.avi\b/.test(title)) {
-    if (deviceType === 'tv') {
-      score += 15; // Good for TV - older but very compatible format
-      factors.push('avi_tv_legacy_compat');
-    } else {
-      score += 8; // Standard compatibility for other platforms
-      factors.push('avi_standard_compat');
-    }
-  }
-
-  return score;
-}
-
-/**
- * Integrate all platform-specific quality scoring components
- */
-function getCompleteQualityScore(stream, deviceType) {
+function getQualityScore(stream, req) {
   const title = ((stream.title || '') + ' ' + (stream.name || '')).toLowerCase();
-  const factors = [];
-  
-  // Get core quality score for the platform
   let score = 0;
-  if (deviceType === 'tv') {
-    score = getTVQualityScore(title, factors);
-  } else if (deviceType === 'mobile') {
-    score = getMobileQualityScore(title, factors);
-  } else {
-    score = getWebQualityScore(title, factors);
+  const factors = [];
+
+  // Base resolution scoring (from working old version)
+  if (/\b(2160p|4k|uhd)\b/.test(title)) {
+    score += 30;
+    factors.push('4k_base');
+  } else if (/\b(1080p|fhd)\b/.test(title)) {
+    score += 20;
+    factors.push('1080p_base');
+  } else if (/\b(720p|hd)\b/.test(title)) {
+    score += 10;
+    factors.push('720p_base');
+  } else if (/\b(480p|sd)\b/.test(title)) {
+    score += 5;
+    factors.push('480p_base');
+  }
+
+  // HDR/DV bonuses (significant quality improvement)
+  if (/\b(hdr10\+|dolby.?vision|dv)\b/.test(title)) {
+    score += 15;
+    factors.push('dolby_vision');
+  } else if (/\bhdr\b/.test(title)) {
+    score += 10;
+    factors.push('hdr');
+  }
+
+  // Device-aware codec preferences - critical for Android TV compatibility
+  const deviceType = detectDeviceType(req);
+  
+  if (/\b(x265|hevc|h\.?265)\b/.test(title)) {
+    if (deviceType === 'tv') {
+      // Android TV prefers x264 but x265 4K should still beat x264 1080p
+      score -= 2;
+      factors.push('x265_codec_tv_penalty');
+    } else {
+      // Other devices handle x265 well - small bonus for efficiency
+      score += 8;
+      factors.push('x265_codec');
+    }
+  } else if (/\b(x264|avc|h\.?264)\b/.test(title)) {
+    if (deviceType === 'tv') {
+      // Android TV handles x264 excellently - good bonus
+      score += 8;
+      factors.push('x264_codec_tv_bonus');
+    } else {
+      // Standard x264 bonus for other devices
+      score += 3;
+      factors.push('x264_codec');
+    }
   }
   
-  // Add platform-specific source quality scoring
-  score += getSourceQualityScore(title, deviceType, factors);
+  // Container format preferences - device-aware
+  if (deviceType === 'tv') {
+    // Android TV prefers MP4 containers over MKV for compatibility
+    if (/\.mp4\b/i.test(title) || /\bmp4\b/i.test(title)) {
+      score += 10;
+      factors.push('mp4_container_tv_bonus');
+    } else if (/\.mkv\b/i.test(title) || /\bmkv\b/i.test(title)) {
+      score -= 5;
+      factors.push('mkv_container_tv_penalty');
+    }
+  }
+
+  // Audio quality bonuses
+  if (/\b(atmos|dts.?x)\b/.test(title)) {
+    score += 12;
+    factors.push('premium_audio');
+  } else if (/\b(truehd|dts.?hd|lpcm)\b/.test(title)) {
+    score += 8;
+    factors.push('high_quality_audio');
+  } else if (/\b(dd\+|eac3|ac3)\b/.test(title)) {
+    score += 4;
+    factors.push('standard_audio');
+  }
+
+  // Release source quality (in order of preference)
+  if (/\b(bluray|bd|bdrip|brrip)\b/.test(title)) {
+    score += 10;
+    factors.push('bluray_source');
+  } else if (/\b(webrip|web.?dl)\b/.test(title)) {
+    score += 8;
+    factors.push('web_source');
+  } else if (/\b(hdtv|hdtvrip)\b/.test(title)) {
+    score += 6;
+    factors.push('hdtv_source');
+  }
+
+  // Reputable release groups (known for quality)
+  const premiumGroups = [
+    'yts', 'rarbg', 'ettv', 'eztv', 'torrentgalaxy', 'tgx',
+    'framestor', 'tigole', 'qxr', 'joy', 'ntg', 'flux'
+  ];
   
-  // Add platform-specific container scoring
-  score += getContainerScore(title, deviceType, factors);
-  
-  // Add release group scoring (platform-specific)
-  score += getReleaseGroupScore(title, deviceType, factors);
-  
-  // Add file size estimation (platform-specific)
-  score += getFileSizeScore(title, deviceType, factors);
-  
+  if (premiumGroups.some(group => title.includes(`[${group}]`) || title.includes(`-${group}`))) {
+    score += 5;
+    factors.push('premium_group');
+  }
+
+  // File size indicators (detailed quality estimation based on resolution)
+  const sizeMatch = title.match(/(\d+(?:\.\d+)?)\s*gb?\b/);
+  if (sizeMatch) {
+    const sizeGB = parseFloat(sizeMatch[1]);
+    
+    // For 4K content (30+ score)
+    if (score >= 30) {
+      if (sizeGB >= 15) { score += 8; factors.push('optimal_4k_size'); }
+      else if (sizeGB >= 8) { score += 4; factors.push('good_4k_size'); }
+      else if (sizeGB < 3) { score -= 5; factors.push('small_4k_size'); }
+    }
+    // For 1080p content (20+ score)  
+    else if (score >= 20) {
+      if (sizeGB >= 8) { score += 6; factors.push('optimal_1080p_size'); }
+      else if (sizeGB >= 3) { score += 3; factors.push('good_1080p_size'); }
+      else if (sizeGB < 1.5) { score -= 3; factors.push('small_1080p_size'); }
+    }
+    // For 720p content (10+ score)
+    else if (score >= 10) {
+      if (sizeGB >= 4) { score += 4; factors.push('optimal_720p_size'); }
+      else if (sizeGB >= 1.5) { score += 2; factors.push('good_720p_size'); }
+      else if (sizeGB < 0.8) { score -= 2; factors.push('small_720p_size'); }
+    }
+  }
+
   return { 
     score, 
     reason: factors.length > 0 ? factors.join(',') : 'no_quality_detected',
     factors 
   };
-}
-
-/**
- * Platform-specific release group scoring
- */
-function getReleaseGroupScore(title, deviceType, factors) {
-  let score = 0;
-  
-  const premiumGroups = ['yts', 'ettv', 'eztv', 'torrentgalaxy', 'tgx', 'framestor', 'tigole', 'qxr', 'joy', 'ntg', 'flux'];
-  const problematicGroups = ['rarbg']; // Known for encoding issues
-  
-  if (premiumGroups.some(group => title.includes(`[${group}]`) || title.includes(`-${group}`))) {
-    if (deviceType === 'tv') {
-      score += 12; // Higher bonus for TV - these groups usually have good TV compatibility
-      factors.push('premium_group_tv');
-    } else {
-      score += 8; // Standard bonus
-      factors.push('premium_group');
-    }
-  } else if (problematicGroups.some(group => title.includes(`[${group}]`) || title.includes(`-${group}`))) {
-    if (deviceType === 'tv') {
-      score -= 15; // Stronger penalty for TV - compatibility issues more critical
-      factors.push('problematic_group_tv');
-    } else {
-      score -= 10; // Standard penalty
-      factors.push('problematic_group');
-    }
-  }
-  
-  return score;
-}
-
-/**
- * Platform-specific file size scoring
- */
-function getFileSizeScore(title, deviceType, factors) {
-  let score = 0;
-  
-  const sizeMatch = title.match(/(\d+(?:\.\d+)?)\s*gb?\b/);
-  if (sizeMatch) {
-    const sizeGB = parseFloat(sizeMatch[1]);
-    
-    // Size scoring depends on resolution and platform
-    const is4K = /\b(2160p|4k|uhd)\b/.test(title);
-    const is1080p = /\b(1080p|fhd)\b/.test(title);
-    
-    if (is4K) {
-      if (deviceType === 'mobile') {
-        // Mobile users may prefer smaller 4K files to save data/battery
-        if (sizeGB >= 20) { score -= 5; factors.push('large_4k_mobile_data'); }
-        else if (sizeGB >= 10) { score += 5; factors.push('optimal_4k_mobile'); }
-        else if (sizeGB < 5) { score -= 3; factors.push('small_4k_mobile'); }
-      } else {
-        // TV/Web users generally want higher quality 4K
-        if (sizeGB >= 15) { score += 8; factors.push('large_4k_quality'); }
-        else if (sizeGB >= 8) { score += 4; factors.push('medium_4k'); }
-        else if (sizeGB < 3) { score -= 5; factors.push('small_4k_poor'); }
-      }
-    } else if (is1080p) {
-      if (deviceType === 'mobile') {
-        // Mobile 1080p size preferences
-        if (sizeGB >= 6) { score += 3; factors.push('good_1080p_mobile'); }
-        else if (sizeGB >= 2) { score += 6; factors.push('optimal_1080p_mobile'); }
-        else if (sizeGB < 1) { score -= 3; factors.push('small_1080p_mobile'); }
-      } else {
-        // TV/Web 1080p size preferences  
-        if (sizeGB >= 8) { score += 6; factors.push('large_1080p_quality'); }
-        else if (sizeGB >= 3) { score += 3; factors.push('medium_1080p'); }
-        else if (sizeGB < 1.5) { score -= 3; factors.push('small_1080p_poor'); }
-      }
-    }
-  }
-  
-  return score;
 }
 
 /**
@@ -805,7 +591,7 @@ module.exports = {
   detectDeviceType,
   
   // Individual scoring functions for testing
-  getCompleteQualityScore,
+  getQualityScore,
   getCookieScore,
   getConnectionScore,
   getStreamTypeScore

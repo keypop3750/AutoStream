@@ -3,7 +3,16 @@
 
 // SECURITY: Check for dangerous environment variables and refuse to use them
 (function securityCheck() {
-  const dangerousEnvVars = ['AD_KEY', 'ALLDEBRID_KEY', 'ALLDEBRID_API_KEY', 'AUTOSTREAM_AD_KEY'];
+  const dangerousEnvVars = [
+    'AD_KEY', 'ALLDEBRID_KEY', 'ALLDEBRID_API_KEY', 'AUTOSTREAM_AD_KEY',
+    'RD_KEY', 'REALDEBRID_KEY', 'REALDEBRID_API_KEY', 
+    'PM_KEY', 'PREMIUMIZE_KEY', 'PREMIUMIZE_API_KEY',
+    'TB_KEY', 'TORBOX_KEY', 'TORBOX_API_KEY',
+    'OC_KEY', 'OFFCLOUD_KEY', 'OFFCLOUD_API_KEY',
+    'ED_KEY', 'EASYDEBRID_KEY', 'EASYDEBRID_API_KEY',
+    'DL_KEY', 'DEBRIDLINK_KEY', 'DEBRIDLINK_API_KEY',
+    'PIO_KEY', 'PUTIO_KEY', 'PUTIO_API_KEY'
+  ];
   const foundVars = dangerousEnvVars.filter(varName => process.env[varName]);
   
   if (foundVars.length > 0) {
@@ -19,11 +28,11 @@
   }
 })();
 
-// API Rate Limiter for AllDebrid to prevent throttling
-class AllDebridRateLimiter {
+// API Rate Limiter for debrid providers to prevent throttling
+class DebridRateLimiter {
   constructor() {
     this.requests = new Map(); // API key -> request timestamps array
-    this.maxRequestsPerMinute = 30; // Conservative limit for AllDebrid API
+    this.maxRequestsPerMinute = 30; // Conservative limit for debrid APIs
     this.maxRequestsPerHour = 1000; // Conservative hourly limit
     this.maxCacheSize = 200; // Limit cache size to prevent memory leaks
     this.cleanupInterval = setInterval(() => this.cleanup(), 60000); // Cleanup every minute
@@ -102,10 +111,10 @@ class AllDebridRateLimiter {
 }
 
 // Global rate limiter instance
-const allDebridRateLimiter = new AllDebridRateLimiter();
+const debridRateLimiter = new DebridRateLimiter();
 
 // Circuit breaker for API failures
-class AllDebridCircuitBreaker {
+class DebridCircuitBreaker {
   constructor() {
     this.failures = new Map(); // API key -> failure count and timestamps
     this.maxFailures = 5; // Max failures before circuit opens
@@ -132,7 +141,7 @@ class AllDebridCircuitBreaker {
     
     // Check if circuit is open
     if (failures.count >= this.maxFailures) {
-      throw new Error('AllDebrid API circuit breaker is open. Service temporarily unavailable.');
+      throw new Error('Debrid API circuit breaker is open. Service temporarily unavailable.');
     }
     
     return true;
@@ -186,7 +195,7 @@ class AllDebridCircuitBreaker {
 }
 
 // Global circuit breaker instance
-const allDebridCircuitBreaker = new AllDebridCircuitBreaker();
+const debridCircuitBreaker = new DebridCircuitBreaker();
 
 // Security functions to prevent API key leakage in logs
 function sanitizeUrlForLogging(url) {
@@ -219,17 +228,8 @@ function sanitizeResponseForLogging(responseData) {
 }
 
 /**
- * Click-time AllDebrid resolver.
- * - buildPlayUrl(meta, { origin, ad }) ->    // 1) upload magnet
-    log('Step 1: Uploading magnet to AllDebrid...');
-    try {
-      const uploadUrl = 'https://api.alldebrid.com/v4/magnet/upload?apikey=' + encodeURIComponent(adKey) + '&magnets[]=' + encodeURIComponent(magnet);
-      const up = await safeAllDebridApiCall(uploadUrl, { method: 'GET' }, 10000, adKey);
-      const uploadResult = await jsonSafe(up);
-      log('Upload result: ' + (uploadResult?.status || 'unknown'));
-    } catch (e) {
-      log('Upload error (non-fatal): ' + e.message);
-    }play URL
+ * Click-time debrid resolver for any provider.
+ * - buildPlayUrl(meta, { origin, provider, token }) -> creates play URL
  * - handlePlay(req, res, MANIFEST_DEFAULTS) -> resolves magnet on click, redirects to unlocked file.
  */
 
@@ -244,8 +244,8 @@ catch {
   };
 }
 
-// Defensive wrapper for AllDebrid API calls
-async function safeAllDebridApiCall(url, init, timeout, apiKey, retries = 2) {
+// Defensive wrapper for debrid API calls
+async function safeDebridApiCall(url, init, timeout, apiKey, retries = 2) {
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
       // Add jitter to reduce thundering herd
@@ -258,21 +258,21 @@ async function safeAllDebridApiCall(url, init, timeout, apiKey, retries = 2) {
       
       // Check for rate limiting
       if (response.status === 429) {
-        allDebridCircuitBreaker.recordFailure(apiKey);
+        debridCircuitBreaker.recordFailure(apiKey);
         const retryAfter = response.headers.get('retry-after') || '60';
-        throw new Error(`Rate limited by AllDebrid API. Retry after ${retryAfter} seconds.`);
+        throw new Error(`Rate limited by debrid API. Retry after ${retryAfter} seconds.`);
       }
       
       // Check for other errors
       if (!response.ok && response.status >= 500) {
-        throw new Error(`AllDebrid API server error: ${response.status} ${response.statusText}`);
+        throw new Error(`Debrid API server error: ${response.status} ${response.statusText}`);
       }
       
-      allDebridCircuitBreaker.recordSuccess(apiKey);
+      debridCircuitBreaker.recordSuccess(apiKey);
       return response;
       
     } catch (error) {
-      allDebridCircuitBreaker.recordFailure(apiKey);
+      debridCircuitBreaker.recordFailure(apiKey);
       
       // Don't retry on certain errors
       if (error.message.includes('Rate limited') || 
@@ -283,7 +283,7 @@ async function safeAllDebridApiCall(url, init, timeout, apiKey, retries = 2) {
       
       // Retry on network errors and 5xx errors
       if (attempt === retries) {
-        throw new Error(`AllDebrid API call failed after ${retries + 1} attempts: ${error.message}`);
+        throw new Error(`Debrid API call failed after ${retries + 1} attempts: ${error.message}`);
       }
     }
   }
@@ -315,15 +315,27 @@ const sleep = (ms)=> new Promise(r=>setTimeout(r, ms));
 const resolveCache = new Map();
 const MAX_RESOLVE_CACHE_SIZE = 500; // Limit cache size to prevent memory leaks
 
-// Periodic cache cleanup for resolve cache
+// Request deduplication to prevent multiple identical requests
+const pendingRequests = new Map();
+const MAX_PENDING_REQUESTS = 100; // Limit pending requests to prevent memory leaks
+
+// Periodic cache cleanup for resolve cache and pending requests
 setInterval(() => {
   const now = Date.now();
   let cleanedCount = 0;
   
-  // Clean expired entries (older than 5 minutes)
+  // Clean expired entries (older than 15 minutes)
   for (const [key, value] of resolveCache.entries()) {
-    if (now - value.timestamp > 300000) { // 5 minutes
+    if (now - value.timestamp > 900000) { // 15 minutes
       resolveCache.delete(key);
+      cleanedCount++;
+    }
+  }
+  
+  // Clean expired pending requests (older than 2 minutes)
+  for (const [key, value] of pendingRequests.entries()) {
+    if (now - value.timestamp > 120000) { // 2 minutes
+      pendingRequests.delete(key);
       cleanedCount++;
     }
   }
@@ -340,8 +352,19 @@ setInterval(() => {
     cleanedCount += toRemove.length;
   }
   
+  if (pendingRequests.size > MAX_PENDING_REQUESTS) {
+    const entries = Array.from(pendingRequests.entries());
+    const toRemove = entries
+      .sort((a, b) => a[1].timestamp - b[1].timestamp)
+      .slice(0, pendingRequests.size - MAX_PENDING_REQUESTS)
+      .map(entry => entry[0]);
+    
+    toRemove.forEach(key => pendingRequests.delete(key));
+    cleanedCount += toRemove.length;
+  }
+  
   if (cleanedCount > 0) {
-    console.log(`[MEMORY] Cleaned ${cleanedCount} entries from resolve cache, size now: ${resolveCache.size}`);
+    console.log(`[MEMORY] Cleaned ${cleanedCount} entries from resolve/pending caches, sizes now: resolve=${resolveCache.size}, pending=${pendingRequests.size}`);
   }
 }, 15 * 60 * 1000); // Clean every 15 minutes
 
@@ -384,16 +407,40 @@ async function handlePlay(req, res, defaults = {}) {
     
     const adKey = discoverADKey(usp, defaults, req.headers);
     if (!adKey) {
-      if (isFirstRequest) log('ERROR: No AllDebrid API key found');
+      if (isFirstRequest) log('No debrid API key found - checking for non-debrid fallback');
+      
+      // NON-DEBRID TV FALLBACK: Return helpful error for TV devices
+      const ih = usp.get('ih') || '';
+      if (ih) {
+        const magnetUrl = `magnet:?xt=urn:btih:${ih}`;
+        const userAgent = req.headers['user-agent'] || '';
+        
+        if (isFirstRequest) {
+          log(`🧲 Non-debrid fallback: redirecting to magnet link`);
+          log(`   🔗 Magnet URL: ${magnetUrl}`);
+        }
+        
+        clearTimeout(handlePlayTimeout);
+        
+        // Universal fallback: redirect to magnet for all devices
+        res.writeHead(302, { 
+          'Location': magnetUrl,
+          'Cache-Control': 'no-cache'
+        });
+        return res.end();
+      }
+      
+      // If no infoHash, return error
+      if (isFirstRequest) log('ERROR: No debrid API key and no infoHash for fallback');
       clearTimeout(handlePlayTimeout);
       res.writeHead(401, {'Content-Type':'application/json'});
-      return res.end(JSON.stringify({ ok:false, err:'AllDebrid API key required' }));
+      return res.end(JSON.stringify({ ok:false, err:'Debrid API key required or invalid infoHash' }));
     }
     
     // Check rate limits and circuit breaker
     try {
-      await allDebridRateLimiter.checkRateLimit(adKey);
-      await allDebridCircuitBreaker.checkCircuit(adKey);
+      await debridRateLimiter.checkRateLimit(adKey);
+      await debridCircuitBreaker.checkCircuit(adKey);
     } catch (rateLimitError) {
       if (isFirstRequest) log('⚠️ Rate limit or circuit breaker triggered: ' + rateLimitError.message);
       clearTimeout(handlePlayTimeout);
@@ -415,19 +462,76 @@ async function handlePlay(req, res, defaults = {}) {
     // Create cache key
     const cacheKey = `${ih}_${idx}`;
     
-    // Check cache first
+    // Check cache first (extended cache for better deduplication)
     if (resolveCache.has(cacheKey)) {
       const cached = resolveCache.get(cacheKey);
       const age = Date.now() - cached.timestamp;
-      if (age < 300000) { // 5 minutes cache
+      if (age < 900000) { // Extended to 15 minutes cache to reduce API calls
         if (isFirstRequest) log(`🚀 Using cached URL (${Math.round(age/1000)}s old)`);
-        res.writeHead(302, { 'Location': cached.url });
+        
+        // Enhanced headers for better player compatibility
+        const headers = {
+          'Location': cached.url,
+          'Cache-Control': 'public, max-age=900', // 15 minutes
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Headers': 'Range',
+          'Accept-Ranges': 'bytes'
+        };
+        
+        res.writeHead(302, headers);
+        clearTimeout(handlePlayTimeout);
         return res.end();
       } else {
         resolveCache.delete(cacheKey); // Expired
       }
     }
     
+    // Request deduplication: if same request is already in progress, wait for it
+    if (pendingRequests.has(cacheKey)) {
+      const pending = pendingRequests.get(cacheKey);
+      if (isFirstRequest) log(`⏳ Waiting for identical request already in progress...`);
+      
+      try {
+        const result = await pending.promise;
+        if (isFirstRequest) log(`✅ Got result from deduplication: ${result.url ? 'success' : 'failed'}`);
+        
+        if (result.url) {
+          // Enhanced headers for better player compatibility
+          const headers = {
+            'Location': result.url,
+            'Cache-Control': 'public, max-age=900',
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Headers': 'Range, Content-Range, Accept-Ranges',
+            'Accept-Ranges': 'bytes',
+            'Content-Type': 'video/mp4'
+          };
+          
+          res.writeHead(302, headers);
+          clearTimeout(handlePlayTimeout);
+          return res.end();
+        } else {
+          throw new Error(result.error || 'Request failed');
+        }
+      } catch (error) {
+        if (isFirstRequest) log(`❌ Deduplication failed: ${error.message}`);
+        clearTimeout(handlePlayTimeout);
+        res.writeHead(500, {'Content-Type': 'application/json'});
+        return res.end(JSON.stringify({ ok: false, error: error.message }));
+      }
+    }
+    
+    // Create promise for this request to allow deduplication
+    let resolveDedup, rejectDedup;
+    const dedupPromise = new Promise((resolve, reject) => {
+      resolveDedup = resolve;
+      rejectDedup = reject;
+    });
+    
+    pendingRequests.set(cacheKey, {
+      promise: dedupPromise,
+      timestamp: Date.now()
+    });
+
     if (isFirstRequest) {
       log('Extracted data:', 'verbose');
       log('  InfoHash: ' + ih, 'verbose');
@@ -441,7 +545,7 @@ async function handlePlay(req, res, defaults = {}) {
     let uploadSuccess = false;
     try {
       const uploadUrl = 'https://api.alldebrid.com/v4/magnet/upload?apikey=' + encodeURIComponent(adKey) + '&magnets[]=' + encodeURIComponent(magnet);
-      const up = await safeAllDebridApiCall(uploadUrl, { method: 'GET' }, 10000, adKey);
+      const up = await safeDebridApiCall(uploadUrl, { method: 'GET' }, 10000, adKey);
       
       if (isFirstRequest) {
         log('Upload response status: ' + up.status, 'verbose');
@@ -507,7 +611,7 @@ async function handlePlay(req, res, defaults = {}) {
       if (isFirstRequest && i === 0) log(`Polling for files...`);
       try {
         const statusUrl = 'https://api.alldebrid.com/v4/magnet/status?apikey=' + encodeURIComponent(adKey) + '&id=' + encodeURIComponent(ih || magnet);
-        const st = await safeAllDebridApiCall(statusUrl, { method: 'GET' }, 10000, adKey);
+        const st = await safeDebridApiCall(statusUrl, { method: 'GET' }, 10000, adKey);
         const sj = await jsonSafe(st);
         
         log('Status response: status=' + st.status + ', ok=' + st.ok, 'verbose');
@@ -625,7 +729,7 @@ async function handlePlay(req, res, defaults = {}) {
         // Additional check: only call Files API for Ready torrents to prevent errors
         try {
           const statusUrl = 'https://api.alldebrid.com/v4/magnet/status?apikey=' + encodeURIComponent(adKey) + '&id=' + encodeURIComponent(ih || magnet);
-          const st = await safeAllDebridApiCall(statusUrl, { method: 'GET' }, 5000, adKey);
+          const st = await safeDebridApiCall(statusUrl, { method: 'GET' }, 5000, adKey);
           const sj = await jsonSafe(st);
           
           if (sj && sj.status === 'success' && sj.data && Array.isArray(sj.data.magnets)) {
@@ -637,7 +741,7 @@ async function handlePlay(req, res, defaults = {}) {
             // Only call Files API if torrent is actually Ready
             if (matchingMagnet && matchingMagnet.status === 'Ready') {
               const filesUrl = 'https://api.alldebrid.com/v4/magnet/files?apikey=' + encodeURIComponent(adKey) + '&id=' + encodeURIComponent(magnetId);
-              const f = await safeAllDebridApiCall(filesUrl, { method: 'GET' }, 10000, adKey);
+              const f = await safeDebridApiCall(filesUrl, { method: 'GET' }, 10000, adKey);
               const fj = await jsonSafe(f);
               
               log('Files API response (with ID): status=' + f.status + ', ok=' + f.ok + ', body=' + JSON.stringify(sanitizeResponseForLogging(fj)));
@@ -782,7 +886,7 @@ async function handlePlay(req, res, defaults = {}) {
     let finalUrl = chosen.link;
     try {
       const unlockUrl = 'https://api.alldebrid.com/v4/link/unlock?apikey=' + encodeURIComponent(adKey) + '&link=' + encodeURIComponent(chosen.link);
-      const unl = await safeAllDebridApiCall(unlockUrl, { method: 'GET' }, 10000, adKey);
+      const unl = await safeDebridApiCall(unlockUrl, { method: 'GET' }, 10000, adKey);
       const uj = await jsonSafe(unl);
       
       log('Unlock response: status=' + unl.status + ', ok=' + unl.ok + ', body=' + JSON.stringify(sanitizeResponseForLogging(uj)));
@@ -800,21 +904,52 @@ async function handlePlay(req, res, defaults = {}) {
     });
 
     log('Step 5: Redirecting to final URL...');
+    
+    // Cache the successful result for longer to reduce API calls
+    resolveCache.set(cacheKey, {
+      url: finalUrl,
+      timestamp: Date.now()
+    });
+    
+    // Resolve deduplication promise for other waiting requests
+    const pending = pendingRequests.get(cacheKey);
+    if (pending) {
+      pendingRequests.delete(cacheKey);
+      resolveDedup({ url: finalUrl });
+    }
+    
     // Record success for circuit breaker
-    allDebridCircuitBreaker.recordSuccess(adKey);
+    debridCircuitBreaker.recordSuccess(adKey);
     clearTimeout(handlePlayTimeout);
     
+    // Enhanced headers for better player compatibility and range request support
+    const headers = {
+      'Location': finalUrl,
+      'Cache-Control': 'public, max-age=900', // 15 minutes
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Headers': 'Range, Content-Range, Accept-Ranges',
+      'Accept-Ranges': 'bytes',
+      'Content-Type': 'video/mp4' // Hint about content type
+    };
+    
     // redirect to file
-    res.writeHead(302, { 'Location': finalUrl });
+    res.writeHead(302, headers);
     return res.end();
   } catch (e) {
     log('FATAL ERROR in handlePlay: ' + e.message);
     log('Stack trace: ' + e.stack);
     
+    // Reject deduplication promise for other waiting requests
+    const pending = pendingRequests.get(cacheKey);
+    if (pending) {
+      pendingRequests.delete(cacheKey);
+      rejectDedup(e);
+    }
+    
     // Record failure for circuit breaker if it's an API-related error
     const adKey = discoverADKey(new URL(req.url, 'http://localhost:7010').searchParams, defaults, req.headers);
-    if (adKey && (e.message.includes('AllDebrid') || e.message.includes('API') || e.message.includes('fetch'))) {
-      allDebridCircuitBreaker.recordFailure(adKey);
+    if (adKey && (e.message.includes('debrid') || e.message.includes('API') || e.message.includes('fetch'))) {
+      debridCircuitBreaker.recordFailure(adKey);
     }
     
     clearTimeout(handlePlayTimeout);
@@ -839,7 +974,7 @@ async function handlePlay(req, res, defaults = {}) {
 
 // Cleanup on module unload
 process.on('exit', () => {
-  allDebridRateLimiter.destroy();
+  debridRateLimiter.destroy();
 });
 
 module.exports = { buildPlayUrl, handlePlay };
