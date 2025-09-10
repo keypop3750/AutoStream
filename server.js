@@ -746,7 +746,7 @@ function startServer(port = PORT) {
         }, null, 2));
       }
       
-      if (pathname === '/status') return writeJson(res, { status: 'ok', addon: 'AutoStream', version: '3.4.6' }, 200);
+      if (pathname === '/status') return writeJson(res, { status: 'ok', addon: 'AutoStream', version: '3.5.1' }, 200);
 
       // Penalty reliability API endpoints
       if (pathname === '/reliability/stats') {
@@ -926,7 +926,7 @@ function startServer(port = PORT) {
         
         const manifest = {
           id: 'com.stremio.autostream.addon',
-          version: '3.4.6',
+          version: '3.5.1',
           name: tag ? `AutoStream (${tag})` : 'AutoStream',
           description: 'Curated best-pick streams with optional debrid; Nuvio direct-host supported.',
           logo: 'https://github.com/keypop3750/AutoStream/blob/main/logo.png?raw=true',
