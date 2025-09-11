@@ -298,13 +298,27 @@ function discoverADKey(params, defaults, headers) {
   return get('ad') || get('apikey') || get('alldebrid') || get('ad_apikey') || defaults.ad || headerKey || '';
 }
 
-function buildPlayUrl(meta, { origin, ad }) {
+function buildPlayUrl(meta, { origin, ad, provider = 'alldebrid', token }) {
   const u = new URL('/play', origin.replace(/\/+$/,''));
   if (meta && meta.ih) u.searchParams.set('ih', meta.ih);
   if (meta && meta.magnet) u.searchParams.set('magnet', meta.magnet);
   if (typeof meta?.idx === 'number') u.searchParams.set('idx', String(meta.idx));
   if (meta && meta.imdb) u.searchParams.set('imdb', meta.imdb);
-  if (ad) u.searchParams.set('ad', ad);
+  
+  // Use the actual provider key for the parameter (Torrentio pattern)
+  const debridToken = token || ad;
+  if (debridToken) {
+    if (provider && provider !== 'alldebrid') {
+      // Use provider-specific parameter name
+      u.searchParams.set(provider, debridToken);
+    } else {
+      // Default to alldebrid for backward compatibility
+      u.searchParams.set('alldebrid', debridToken);
+    }
+    // Also set 'ad' for legacy compatibility with existing debrid resolution
+    u.searchParams.set('ad', debridToken);
+  }
+  
   return u.toString();
 }
 

@@ -3,14 +3,6 @@
   const BYTES_IN_GB = 1024 ** 3;
   const originHost = window.location.origin;
   const hostNoScheme = window.location.host;
-  
-  // Debug: Log host information
-  console.log('AutoStream Config Debug:', {
-    origin: window.location.origin,
-    host: window.location.host,
-    protocol: window.location.protocol,
-    href: window.location.href
-  });
 
   const LANG_OPTIONS = [
     ['EN','English'], ['ES','Spanish'], ['LT','Lithuanian'], ['RU','Russian'],
@@ -106,12 +98,11 @@
   
   // Load URL parameters on page load
   loadFromURL();
+  
+  // Load URL parameters on page load
+  loadFromURL();
 
-  const $ = sel => {
-    const el = document.querySelector(sel);
-    if (!el) console.warn('AutoStream Config: Element not found:', sel);
-    return el;
-  };
+  const $ = sel => document.querySelector(sel);
   const providerEl = $('#provider');
   const apikeyEl = $('#apikey');
   const fallbackEl = $('#fallback1080');
@@ -362,17 +353,7 @@
 function rerender(){
     const url = buildUrl();
     const redacted = url.replace(/^https?:\/\//, '');
-    
-    // Debug logging
-    console.log('AutoStream Rerender:', {
-      fullUrl: url,
-      redacted: redacted,
-      manifestEl: !!manifestEl,
-      appBtn: !!appBtn,
-      webBtn: !!webBtn
-    });
-    
-    if (manifestEl) manifestEl.textContent = redacted;
+    manifestEl.textContent = redacted;
     
     // Use FULL URL with protocol for install buttons
     const configuredUrl = buildUrl(); // This includes https://
@@ -381,14 +362,11 @@ function rerender(){
     // Fix: Build proper Stremio Web URL for web install button
     const stremioWebUrl = `https://web.stremio.com/#/addons?addon=${encodeURIComponent(configuredUrl)}`;
     
-    if (appBtn) {
-      appBtn.href = stremioUrl;
-      appBtn.textContent = 'Install to Stremio';
-    }
-    if (webBtn) {
-      webBtn.href = stremioWebUrl;
-      webBtn.textContent = 'Install to Web';
-    }
+    appBtn.href = stremioUrl;
+    webBtn.href = stremioWebUrl;
+    
+    appBtn.textContent = 'Install to Stremio';
+    webBtn.textContent = 'Install to Web';
   }
 
   renderLangPills();
