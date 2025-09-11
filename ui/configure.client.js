@@ -354,10 +354,9 @@ function rerender(){
     const url = buildUrl();
     const redacted = url.replace(/^https?:\/\//, '');
     manifestEl.textContent = redacted;
-    const q = url.split('?')[1] || '';
     
-    // Back to simple working URLs with configuration parameters
-    const configuredUrl = buildUrl();
+    // Use FULL URL with protocol for install buttons
+    const configuredUrl = buildUrl(); // This includes https://
     const stremioUrl = 'stremio://' + configuredUrl.replace(/^https?:\/\//, '');
     
     // Fix: Build proper Stremio Web URL for web install button
