@@ -1012,19 +1012,23 @@ function startServer(port = PORT) {
       })();
       
       // Validate and potentially correct the IMDB ID before fetching streams
-      log(`🔍 Validating IMDB ID: ${id}`);
+      console.log(`[${requestId}] 🔍 Validating IMDB ID: ${id}`);
       const idValidationResult = await validateAndCorrectIMDBID(id);
       const actualId = idValidationResult.correctedId;
       
+      // Only log meaningful information - reduce noise
       if (idValidationResult.needsCorrection) {
-        log(`� ID corrected: ${id} → ${actualId} (${idValidationResult.reason})`);
-      } else if (!idValidationResult.metadata) {
-        log(`⚠️ ID validation warning: ${idValidationResult.reason}`);
-      } else {
-        log(`✅ ID validated: "${idValidationResult.metadata.name}" (${idValidationResult.metadata.year})`);
+        console.log(`[${requestId}] 🔄 ID corrected: ${id} → ${actualId} (${idValidationResult.reason})`);
+      } else if (idValidationResult.reason && idValidationResult.reason.includes("Invalid")) {
+        // Only warn for actual format issues, not API failures
+        console.log(`[${requestId}] ⚠️ ID validation warning: ${idValidationResult.reason}`);
+      } else if (idValidationResult.metadata && idValidationResult.metadata.name) {
+        // Only log successful external validation if we have actual metadata
+        console.log(`[${requestId}] ✅ ID validated: "${idValidationResult.metadata.name}" (${idValidationResult.metadata.year})`);
       }
+      // Note: Format validation success doesn't need logging - it's expected behavior
       
-      log(`📍 Stream request: ${type}/${actualId}`);
+      console.log(`[${requestId}] 📍 Stream request: ${type}/${actualId}`);
       
       // Parse enhanced configuration parameters
       const langPrioStr = getQ(q, 'lang_prio') || MANIFEST_DEFAULTS.lang_prio || '';
