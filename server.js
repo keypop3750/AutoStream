@@ -1024,7 +1024,6 @@ function startServer(port = PORT) {
       console.log(`[${requestId}] 🌐 User Agent: "${userAgent}"`);
       console.log(`[${requestId}] 🔗 Full URL: ${sanitizeUrl(req.originalUrl)}`);
       console.log(`[${requestId}] 📊 Query Params:`, sanitizeQueryParams(q));
-      console.log(`[${requestId}] 🌍 Client IP: ${req.headers['x-forwarded-for'] || req.connection.remoteAddress || 'unknown'}`);
       
       // Simple universal device type (no TV-specific handling)
       const actualDeviceType = deviceType;
