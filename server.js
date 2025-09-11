@@ -646,9 +646,31 @@ async function validateDebridKey(provider, apiKey) {
   }
 }
 
+// SECURITY: Check if a parameter contains sensitive data (API keys)
+function isSensitiveParam(key) {
+  return ['ad', 'apikey', 'alldebrid', 'ad_apikey', 'rd', 'real-debrid', 'realdebrid', 'pm', 'premiumize', 'tb', 'torbox', 'oc', 'offcloud'].includes(key);
+}
+
+// SECURITY: Sanitize URLs to hide API keys in query parameters
+function sanitizeUrl(url) {
+  if (!url) return url;
+  try {
+    const urlObj = new URL(url, 'http://localhost');
+    for (const [key, value] of urlObj.searchParams.entries()) {
+      if (isSensitiveParam(key) && value) {
+        urlObj.searchParams.set(key, `${'*'.repeat(4)}${value.slice(-4)}`);
+      }
+    }
+    return urlObj.pathname + urlObj.search;
+  } catch (e) {
+    // If URL parsing fails, just return the original
+    return url;
+  }
+}
+
 function getQ(q, k){ 
   // SECURITY: Never return API keys from global defaults
-  if (['ad', 'apikey', 'alldebrid', 'ad_apikey', 'rd', 'real-debrid', 'realdebrid', 'pm', 'premiumize', 'tb', 'torbox', 'oc', 'offcloud'].includes(k)) {
+  if (isSensitiveParam(k)) {
     return (q && typeof q.get==='function' && q.get(k)) || '';
   }
   return (q && typeof q.get==='function' && q.get(k)) || MANIFEST_DEFAULTS[k] || ''; 
@@ -759,8 +781,8 @@ function startServer(port = PORT) {
         console.log(`\n🎬 [${playRequestId}] ===== PLAY REQUEST =====`);
         console.log(`[${playRequestId}] 🖥️  Device: ${deviceType}`);
         console.log(`[${playRequestId}] 🌐 User Agent: ${userAgent}`);
-        console.log(`[${playRequestId}] 🔗 URL: ${req.originalUrl}`);
-        console.log(`[${playRequestId}] 📊 Query: ${JSON.stringify(Object.fromEntries(q))}`);
+        console.log(`[${playRequestId}] 🔗 URL: ${sanitizeUrl(req.originalUrl)}`);
+        console.log(`[${playRequestId}] 📊 Query:`, sanitizeQueryParams(q));
         
         return handlePlay(req, res, MANIFEST_DEFAULTS);
       }
@@ -939,12 +961,25 @@ function startServer(port = PORT) {
       const userAgent = req.headers['user-agent'] || '';
       const deviceType = scoring.detectDeviceType(req);
       
+      // Helper function to sanitize query params for logging (hide API keys)
+      function sanitizeQueryParams(params) {
+        const sanitized = {};
+        for (const [key, value] of params.entries()) {
+          if (isSensitiveParam(key)) {
+            sanitized[key] = value ? `${'*'.repeat(4)}${value.slice(-4)}` : 'undefined';
+          } else {
+            sanitized[key] = value;
+          }
+        }
+        return sanitized;
+      }
+      
       console.log(`\n🎬 [${requestId}] ===== STREAM REQUEST START =====`);
       console.log(`[${requestId}] 📺 Type: ${type}, ID: ${id}`);
       console.log(`[${requestId}] 🖥️  Device Type: ${deviceType}`);
       console.log(`[${requestId}] 🌐 User Agent: "${userAgent}"`);
-      console.log(`[${requestId}] 🔗 Full URL: ${req.originalUrl}`);
-      console.log(`[${requestId}] 📊 Query Params:`, Object.fromEntries(q));
+      console.log(`[${requestId}] 🔗 Full URL: ${sanitizeUrl(req.originalUrl)}`);
+      console.log(`[${requestId}] 📊 Query Params:`, sanitizeQueryParams(q));
       console.log(`[${requestId}] 🌍 Client IP: ${req.headers['x-forwarded-for'] || req.connection.remoteAddress || 'unknown'}`);
       
       // Simple universal device type (no TV-specific handling)
