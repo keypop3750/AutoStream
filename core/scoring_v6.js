@@ -7,7 +7,8 @@
    if (/\b(x265|hevc|h\.?265)\b/.test(title)) {
     if (deviceType === 'tv') {
       // Android TV prefers x264 but x265 4K should still beat x264 1080p
-      score -= 15;
+      // Reduced penalty from -15 to -5 to allow x265 4K streams
+      score -= 5;
       factors.push('x265_codec_tv_penalty');
     } else {
       // Other devices handle x265 well - small bonus for efficiency
@@ -156,15 +157,15 @@ function getQualityScore(stream, req) {
   let score = 0;
   const factors = [];
 
-  // Base resolution scoring (from working old version)
+  // Base resolution scoring - increased 4K bonus to compete with seeder penalties
   if (/\b(2160p|4k|uhd)\b/.test(title)) {
-    score += 30;
+    score += 60; // Increased from 30 to better compete with seeder penalties
     factors.push('4k_base');
   } else if (/\b(1080p|fhd)\b/.test(title)) {
-    score += 20;
+    score += 30; // Increased from 20
     factors.push('1080p_base');
   } else if (/\b(720p|hd)\b/.test(title)) {
-    score += 10;
+    score += 15; // Increased from 10
     factors.push('720p_base');
   } else if (/\b(480p|sd)\b/.test(title)) {
     score += 5;
@@ -186,7 +187,7 @@ function getQualityScore(stream, req) {
   if (/\b(x265|hevc|h\.?265)\b/.test(title)) {
     if (deviceType === 'tv') {
       // Android TV prefers x264 but x265 4K should still beat x264 1080p
-      score -= 2;
+      score -= 5;
       factors.push('x265_codec_tv_penalty');
     } else {
       // Other devices handle x265 well - small bonus for efficiency
@@ -491,18 +492,26 @@ function getSeederScore(stream) {
 
   const seeders = parseInt(match[1], 10);
   
-  // Heavy penalties for low seeders to prevent showing bad torrents
+  // More lenient penalties for low seeders - prefer quality over seeder count
   if (seeders === 0) {
-    return { score: -1000, reason: 'zero_seeders' }; // Effectively exclude
+    return { score: -500, reason: 'zero_seeders' }; // Reduced from -1000
+  } else if (seeders === 1) {
+    return { score: -100, reason: 'one_seeder' }; // Reduced penalty for single seeder
   } else if (seeders < 3) {
-    return { score: -300, reason: 'very_low_seeders' }; // Heavy penalty
+    return { score: -50, reason: 'very_low_seeders' }; // Much reduced from -300
   } else if (seeders < 5) {
-    return { score: -100, reason: 'low_seeders' }; // Moderate penalty
+    return { score: -20, reason: 'low_seeders' }; // Reduced from -100
   } else if (seeders < 10) {
-    return { score: -20, reason: 'few_seeders' }; // Light penalty
+    return { score: -5, reason: 'few_seeders' }; // Much reduced from -20
   }
   
-  // Good seeder counts get no bonus (base score is already good)
+  // Good seeder counts get small bonus
+  if (seeders >= 50) {
+    return { score: 10, reason: 'many_seeders' };
+  } else if (seeders >= 20) {
+    return { score: 5, reason: 'good_seeders' };
+  }
+  
   return { score: 0, reason: 'adequate_seeders' };
 }
 
