@@ -28,6 +28,11 @@
   }
 })();
 
+// CRITICAL FIX: Headers required for hosting providers (Render, etc.) to avoid NO_SERVER error
+const ALLDEBRID_HEADERS = {
+  'User-Agent': 'AutoStream/3.5.1 (https://github.com/keypop3750/AutoStream)'
+};
+
 // API Rate Limiter for debrid providers to prevent throttling
 class DebridRateLimiter {
   constructor() {
@@ -254,7 +259,16 @@ async function safeDebridApiCall(url, init, timeout, apiKey, retries = 2) {
         await new Promise(resolve => setTimeout(resolve, jitter));
       }
       
-      const response = await fetchWithTimeout(url, init, timeout);
+      // CRITICAL FIX: Add User-Agent headers for AllDebrid API calls to prevent NO_SERVER error
+      const finalInit = { ...init };
+      if (url.includes('api.alldebrid.com')) {
+        finalInit.headers = { 
+          ...ALLDEBRID_HEADERS,
+          ...(finalInit.headers || {})
+        };
+      }
+      
+      const response = await fetchWithTimeout(url, finalInit, timeout);
       
       // Check for rate limiting
       if (response.status === 429) {
@@ -289,13 +303,6 @@ async function safeDebridApiCall(url, init, timeout, apiKey, retries = 2) {
   }
 }
 
-// Standard headers that work with hosting providers (fixes NO_SERVER error)
-const ALLDEBRID_HEADERS = {
-  'User-Agent': 'AutoStream/3.0',
-  'Accept': 'application/json',
-  'Content-Type': 'application/x-www-form-urlencoded'
-};
-
 function discoverADKey(params, defaults, headers) {
   const usp = params instanceof URLSearchParams ? params : new URLSearchParams(params || {});
   const get = (k)=> (usp.get(k) || '').trim();
@@ -305,27 +312,13 @@ function discoverADKey(params, defaults, headers) {
   return get('ad') || get('apikey') || get('alldebrid') || get('ad_apikey') || defaults.ad || headerKey || '';
 }
 
-function buildPlayUrl(meta, { origin, ad, provider = 'alldebrid', token }) {
+function buildPlayUrl(meta, { origin, ad }) {
   const u = new URL('/play', origin.replace(/\/+$/,''));
   if (meta && meta.ih) u.searchParams.set('ih', meta.ih);
   if (meta && meta.magnet) u.searchParams.set('magnet', meta.magnet);
   if (typeof meta?.idx === 'number') u.searchParams.set('idx', String(meta.idx));
   if (meta && meta.imdb) u.searchParams.set('imdb', meta.imdb);
-  
-  // Use the actual provider key for the parameter (Torrentio pattern)
-  const debridToken = token || ad;
-  if (debridToken) {
-    if (provider && provider !== 'alldebrid') {
-      // Use provider-specific parameter name
-      u.searchParams.set(provider, debridToken);
-    } else {
-      // Default to alldebrid for backward compatibility
-      u.searchParams.set('alldebrid', debridToken);
-    }
-    // Also set 'ad' for legacy compatibility with existing debrid resolution
-    u.searchParams.set('ad', debridToken);
-  }
-  
+  if (ad) u.searchParams.set('ad', ad);
   return u.toString();
 }
 
@@ -566,8 +559,7 @@ async function handlePlay(req, res, defaults = {}) {
     let uploadSuccess = false;
     try {
       const uploadUrl = 'https://api.alldebrid.com/v4/magnet/upload?apikey=' + encodeURIComponent(adKey) + '&magnets[]=' + encodeURIComponent(magnet);
-      // Fix NO_SERVER error: Use standard headers that work with hosting providers
-      const up = await safeDebridApiCall(uploadUrl, { method: 'GET', headers: ALLDEBRID_HEADERS }, 10000, adKey);
+      const up = await safeDebridApiCall(uploadUrl, { method: 'GET' }, 10000, adKey);
       
       if (isFirstRequest) {
         log('Upload response status: ' + up.status, 'verbose');
@@ -633,7 +625,7 @@ async function handlePlay(req, res, defaults = {}) {
       if (isFirstRequest && i === 0) log(`Polling for files...`);
       try {
         const statusUrl = 'https://api.alldebrid.com/v4/magnet/status?apikey=' + encodeURIComponent(adKey) + '&id=' + encodeURIComponent(ih || magnet);
-        const st = await safeDebridApiCall(statusUrl, { method: 'GET', headers: ALLDEBRID_HEADERS }, 10000, adKey);
+        const st = await safeDebridApiCall(statusUrl, { method: 'GET' }, 10000, adKey);
         const sj = await jsonSafe(st);
         
         log('Status response: status=' + st.status + ', ok=' + st.ok, 'verbose');
@@ -751,7 +743,7 @@ async function handlePlay(req, res, defaults = {}) {
         // Additional check: only call Files API for Ready torrents to prevent errors
         try {
           const statusUrl = 'https://api.alldebrid.com/v4/magnet/status?apikey=' + encodeURIComponent(adKey) + '&id=' + encodeURIComponent(ih || magnet);
-          const st = await safeDebridApiCall(statusUrl, { method: 'GET', headers: ALLDEBRID_HEADERS }, 5000, adKey);
+          const st = await safeDebridApiCall(statusUrl, { method: 'GET' }, 5000, adKey);
           const sj = await jsonSafe(st);
           
           if (sj && sj.status === 'success' && sj.data && Array.isArray(sj.data.magnets)) {
@@ -763,7 +755,7 @@ async function handlePlay(req, res, defaults = {}) {
             // Only call Files API if torrent is actually Ready
             if (matchingMagnet && matchingMagnet.status === 'Ready') {
               const filesUrl = 'https://api.alldebrid.com/v4/magnet/files?apikey=' + encodeURIComponent(adKey) + '&id=' + encodeURIComponent(magnetId);
-              const f = await safeDebridApiCall(filesUrl, { method: 'GET', headers: ALLDEBRID_HEADERS }, 10000, adKey);
+              const f = await safeDebridApiCall(filesUrl, { method: 'GET' }, 10000, adKey);
               const fj = await jsonSafe(f);
               
               log('Files API response (with ID): status=' + f.status + ', ok=' + f.ok + ', body=' + JSON.stringify(sanitizeResponseForLogging(fj)));
@@ -908,7 +900,7 @@ async function handlePlay(req, res, defaults = {}) {
     let finalUrl = chosen.link;
     try {
       const unlockUrl = 'https://api.alldebrid.com/v4/link/unlock?apikey=' + encodeURIComponent(adKey) + '&link=' + encodeURIComponent(chosen.link);
-      const unl = await safeDebridApiCall(unlockUrl, { method: 'GET', headers: ALLDEBRID_HEADERS }, 10000, adKey);
+      const unl = await safeDebridApiCall(unlockUrl, { method: 'GET' }, 10000, adKey);
       const uj = await jsonSafe(unl);
       
       log('Unlock response: status=' + unl.status + ', ok=' + unl.ok + ', body=' + JSON.stringify(sanitizeResponseForLogging(uj)));

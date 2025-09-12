@@ -46,9 +46,9 @@
   function loadFromURL() {
     const params = new URLSearchParams(window.location.search);
     
-    // Load debrid provider and API key (following Torrentio pattern - provider key as parameter name)
-    if (params.get('realdebrid')) { state.provider = 'realdebrid'; state.apiKey = params.get('realdebrid'); }
-    else if (params.get('alldebrid')) { state.provider = 'alldebrid'; state.apiKey = params.get('alldebrid'); }
+    // Load debrid provider and API key - updated to match new provider system
+    if (params.get('alldebrid')) { state.provider = 'alldebrid'; state.apiKey = params.get('alldebrid'); }
+    else if (params.get('realdebrid')) { state.provider = 'realdebrid'; state.apiKey = params.get('realdebrid'); }
     else if (params.get('premiumize')) { state.provider = 'premiumize'; state.apiKey = params.get('premiumize'); }
     else if (params.get('torbox')) { state.provider = 'torbox'; state.apiKey = params.get('torbox'); }
     else if (params.get('offcloud')) { state.provider = 'offcloud'; state.apiKey = params.get('offcloud'); }
@@ -58,6 +58,9 @@
     // Legacy support for old parameter names
     else if (params.get('ad')) { state.provider = 'alldebrid'; state.apiKey = params.get('ad'); }
     else if (params.get('rd')) { state.provider = 'realdebrid'; state.apiKey = params.get('rd'); }
+    else if (params.get('pm')) { state.provider = 'premiumize'; state.apiKey = params.get('pm'); }
+    else if (params.get('tb')) { state.provider = 'torbox'; state.apiKey = params.get('tb'); }
+    else if (params.get('oc')) { state.provider = 'offcloud'; state.apiKey = params.get('oc'); }
     
     // Load size limit (convert from GB to bytes)
     if (params.get('max_size')) {
@@ -309,12 +312,24 @@
     if (state.fallback) params.set('fallback', '1');
 
     // Debrid: include exactly one provider param ONLY when provider + key are provided
-    // Following Torrentio pattern - use provider key directly as parameter name
     const key = (state.apiKey || '').trim();
-    const prov = (state.provider || '').trim(); // realdebrid, alldebrid, premiumize, etc.
+    const prov = (state.provider || '').trim(); // alldebrid, realdebrid, etc.
     if (prov && key) {
-      // Use provider name directly as parameter (like Torrentio)
-      params.set(prov, key);
+      // Map provider names to parameter keys - this was the missing piece!
+      const map = { 
+        'alldebrid': 'alldebrid',
+        'realdebrid': 'realdebrid', 
+        'premiumize': 'premiumize',
+        'torbox': 'torbox',
+        'offcloud': 'offcloud',
+        'easydebrid': 'easydebrid',
+        'debridlink': 'debridlink',
+        'putio': 'putio',
+        // Legacy support for old short codes
+        'AD': 'alldebrid', 'RD': 'realdebrid', 'PM': 'premiumize', 'TB': 'torbox', 'OC': 'offcloud'
+      };
+      const pk = map[prov];
+      if (pk) params.set(pk, key);
     }
 
     // Size only if > 0 (send as GB, not bytes)
@@ -354,9 +369,10 @@ function rerender(){
     const url = buildUrl();
     const redacted = url.replace(/^https?:\/\//, '');
     manifestEl.textContent = redacted;
+    const q = url.split('?')[1] || '';
     
-    // Use FULL URL with protocol for install buttons
-    const configuredUrl = buildUrl(); // This includes https://
+    // Back to simple working URLs with configuration parameters
+    const configuredUrl = buildUrl();
     const stremioUrl = 'stremio://' + configuredUrl.replace(/^https?:\/\//, '');
     
     // Fix: Build proper Stremio Web URL for web install button
