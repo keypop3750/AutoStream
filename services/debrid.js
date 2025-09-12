@@ -37,8 +37,13 @@ const ALLDEBRID_COMPATIBILITY_MODE = true; // Enable compatibility mode to preve
 
 // Simple headers that work with AllDebrid (matches OldAutoStream exactly)
 const ALLDEBRID_SIMPLE_HEADERS = {
-  'User-Agent': 'AutoStream/3.0'  // Exact same as OldAutoStream that worked
+  'User-Agent': 'AutoStream/1.0'  // Exact same as OldAutoStream that worked
 };
+
+// DEBUG: Log compatibility mode status on module load
+console.log(`🚨 [DEBRID-DEBUG] AllDebrid Compatibility Mode: ${ALLDEBRID_COMPATIBILITY_MODE ? 'ENABLED' : 'DISABLED'}`);
+console.log(`🚨 [DEBRID-DEBUG] Using headers: ${JSON.stringify(ALLDEBRID_SIMPLE_HEADERS)}`);
+console.log(`🚨 [DEBRID-DEBUG] This should prevent NO_SERVER errors by mimicking OldAutoStream pattern`);
 
 // CRITICAL FIX: AllDebrid Compatibility API Call
 // This function mimics the exact working pattern from OldAutoStream
@@ -52,6 +57,14 @@ async function allDebridCompatibilityCall(endpoint, apiKey, options = {}, timeou
   const separator = url.includes('?') ? '&' : '?';
   url += `${separator}apikey=${encodeURIComponent(apiKey)}`;
   
+  // EXTENSIVE DEBUG LOGGING
+  console.log(`🚨 [COMPAT-DEBUG] AllDebrid Compatibility Call:`);
+  console.log(`🚨 [COMPAT-DEBUG] Endpoint: ${endpoint}`);
+  console.log(`🚨 [COMPAT-DEBUG] Final URL: ${url.replace(/apikey=[^&]+/, 'apikey=***HIDDEN***')}`);
+  console.log(`🚨 [COMPAT-DEBUG] Method: ${options.method || 'GET'}`);
+  console.log(`🚨 [COMPAT-DEBUG] Headers: ${JSON.stringify({...ALLDEBRID_SIMPLE_HEADERS, ...(options.headers || {})})}`);
+  console.log(`🚨 [COMPAT-DEBUG] Compatibility mode: ENABLED`);
+  
   // Use ONLY the simple headers that worked in OldAutoStream
   const finalInit = {
     method: 'GET',
@@ -62,8 +75,15 @@ async function allDebridCompatibilityCall(endpoint, apiKey, options = {}, timeou
     }
   };
   
+  console.log(`🚨 [COMPAT-DEBUG] Making direct fetch call...`);
+  
   // Make direct fetch call without complex wrapper layers
-  return await fetchWithTimeout(url, finalInit, timeout);
+  const response = await fetchWithTimeout(url, finalInit, timeout);
+  
+  console.log(`🚨 [COMPAT-DEBUG] Response status: ${response.status}`);
+  console.log(`🚨 [COMPAT-DEBUG] Response ok: ${response.ok}`);
+  
+  return response;
 }
 
 // API Rate Limiter for debrid providers to prevent throttling
@@ -650,11 +670,21 @@ async function handlePlay(req, res, defaults = {}) {
       // CRITICAL FIX: Use AllDebrid compatibility mode to prevent NO_SERVER errors
       // This mimics the exact working pattern from OldAutoStream
       let up;
+      
+      console.log(`🚨 [UPLOAD-DEBUG] Starting AllDebrid upload...`);
+      console.log(`🚨 [UPLOAD-DEBUG] Compatibility mode enabled: ${ALLDEBRID_COMPATIBILITY_MODE}`);
+      
       if (ALLDEBRID_COMPATIBILITY_MODE) {
+        console.log(`🚨 [UPLOAD-DEBUG] Using COMPATIBILITY mode (OldAutoStream style)`);
         // Use OldAutoStream-style API call with URL parameters and simple headers
+        // CRITICAL: OldAutoStream uses 'magnets[]' parameter format
         const endpoint = `magnet/upload?magnets[]=${encodeURIComponent(magnet)}`;
+        console.log(`🚨 [UPLOAD-DEBUG] Endpoint: ${endpoint.substring(0, 80)}...`);
+        console.log(`🚨 [UPLOAD-DEBUG] Magnet length: ${magnet.length}`);
+        console.log(`🚨 [UPLOAD-DEBUG] Full magnet: ${magnet.substring(0, 100)}...`);
         up = await allDebridCompatibilityCall(endpoint, adKey, { method: 'GET' }, 15000);
       } else {
+        console.log(`🚨 [UPLOAD-DEBUG] Using PROVIDER-AWARE mode (new system)`);
         // Fallback to provider-aware system if compatibility mode disabled
         up = await providerAwareAllDebridApiCall(`magnet/upload?magnet=${encodeURIComponent(magnet)}`, { method: 'GET' }, 15000, adKey);
       }
