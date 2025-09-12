@@ -12,15 +12,12 @@ const DEBRID_PROVIDERS = {
     authHeader: 'Bearer',
     enabled: true
   },
-    alldebrid: {
+  alldebrid: {
     key: 'alldebrid', 
     name: 'AllDebrid',
     shortName: 'AD',
-    apiBaseUrl: 'https://api.alldebrid.com/v4',  // Confirmed v4 works
-    authHeader: 'Bearer',  // AllDebrid DOES use Authorization Bearer headers
-    headers: {
-      'User-Agent': 'AutoStream/3.0'  // Required for hosting providers
-    },
+    apiBaseUrl: 'https://api.alldebrid.com/v4',
+    authHeader: 'Bearer',
     enabled: true
   },
   premiumize: {

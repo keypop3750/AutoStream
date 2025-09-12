@@ -27,113 +27,6 @@
     });
   }
 })();
-// CRITICAL FIX: Import universal provider system
-const debridProviders = require('../core/debridProviders');
-
-// CRITICAL FIX: AllDebrid Compatibility Mode
-// DISCOVERY: NO_SERVER is caused by Render.com IP detection, NOT request pattern
-// AllDebrid blocks hosting provider IPs (Render, AWS, etc.) regardless of request format
-// Solution: Need proxy routing for hosting environments
-const ALLDEBRID_COMPATIBILITY_MODE = true; // Enable compatibility mode to prevent NO_SERVER
-const DETECTED_HOSTING_ENVIRONMENT = process.env.RENDER || process.env.PORT === '10000'; // Detect hosting
-
-// PROXY SOLUTION: Route AllDebrid calls through proxy when in hosting environment
-const ALLDEBRID_PROXY_URL = process.env.ALLDEBRID_PROXY_URL; // Optional proxy URL
-const USE_PROXY_FOR_ALLDEBRID = DETECTED_HOSTING_ENVIRONMENT && ALLDEBRID_PROXY_URL;
-
-// Simple headers that work with AllDebrid (matches OldAutoStream exactly)
-const ALLDEBRID_SIMPLE_HEADERS = {
-  'User-Agent': 'AutoStream/1.0'  // Exact same as OldAutoStream that worked
-};
-
-// DEBUG: Log compatibility mode status on module load
-console.log(`🚨 [DEBRID-DEBUG] AllDebrid Compatibility Mode: ${ALLDEBRID_COMPATIBILITY_MODE ? 'ENABLED' : 'DISABLED'}`);
-console.log(`🚨 [DEBRID-DEBUG] Using headers: ${JSON.stringify(ALLDEBRID_SIMPLE_HEADERS)}`);
-console.log(`🚨 [DEBRID-DEBUG] Detected hosting environment: ${DETECTED_HOSTING_ENVIRONMENT ? 'YES' : 'NO'}`);
-console.log(`🚨 [DEBRID-DEBUG] Proxy URL configured: ${ALLDEBRID_PROXY_URL ? 'YES' : 'NO'}`);
-console.log(`🚨 [DEBRID-DEBUG] Using proxy for AllDebrid: ${USE_PROXY_FOR_ALLDEBRID ? 'YES' : 'NO'}`);
-console.log(`🚨 [DEBRID-DEBUG] CRITICAL DISCOVERY: NO_SERVER is IP-based blocking, not request pattern`);
-console.log(`🚨 [DEBRID-DEBUG] AllDebrid blocks hosting providers (Render, AWS, etc.) by IP range`);
-
-// CRITICAL FIX: AllDebrid Compatibility API Call
-// This function mimics the exact working pattern from OldAutoStream
-// Uses URL parameter authentication and simple headers to avoid NO_SERVER detection
-async function allDebridCompatibilityCall(endpoint, apiKey, options = {}, timeout = 15000) {
-  // Build URL with API key in parameters (exactly like OldAutoStream)
-  const baseUrl = 'https://api.alldebrid.com/v4';
-  let url = `${baseUrl}/${endpoint.replace(/^\//, '')}`;
-  
-  // Add API key as URL parameter (not in headers)
-  const separator = url.includes('?') ? '&' : '?';
-  url += `${separator}apikey=${encodeURIComponent(apiKey)}`;
-  
-  // EXTENSIVE DEBUG LOGGING
-  console.log(`🚨 [COMPAT-DEBUG] AllDebrid Compatibility Call:`);
-  console.log(`🚨 [COMPAT-DEBUG] Endpoint: ${endpoint}`);
-  console.log(`🚨 [COMPAT-DEBUG] Final URL: ${url.replace(/apikey=[^&]+/, 'apikey=***HIDDEN***')}`);
-  console.log(`🚨 [COMPAT-DEBUG] Method: ${options.method || 'GET'}`);
-  console.log(`🚨 [COMPAT-DEBUG] Headers: ${JSON.stringify({...ALLDEBRID_SIMPLE_HEADERS, ...(options.headers || {})})}`);
-  console.log(`🚨 [COMPAT-DEBUG] Compatibility mode: ENABLED`);
-  
-  // Use ONLY the simple headers that worked in OldAutoStream
-  const finalInit = {
-    method: 'GET',
-    ...options,
-    headers: {
-      ...ALLDEBRID_SIMPLE_HEADERS,
-      ...(options.headers || {})
-    }
-  };
-  
-  console.log(`🚨 [COMPAT-DEBUG] Making direct fetch call...`);
-  
-  // Make direct fetch call without complex wrapper layers
-  const response = await fetchWithTimeout(url, finalInit, timeout);
-  
-  console.log(`🚨 [COMPAT-DEBUG] Response status: ${response.status}`);
-  console.log(`🚨 [COMPAT-DEBUG] Response ok: ${response.ok}`);
-  
-  return response;
-}
-
-// PROXY SOLUTION: AllDebrid proxy call function for hosting environments
-// Routes AllDebrid API calls through proxy server to bypass IP blocking
-async function allDebridProxyCall(endpoint, apiKey, options = {}, timeout = 15000) {
-  const method = options.method || 'GET';
-  
-  console.log(`🚨 [PROXY-DEBUG] Making AllDebrid proxy call...`);
-  console.log(`🚨 [PROXY-DEBUG] Endpoint: ${endpoint}`);
-  console.log(`🚨 [PROXY-DEBUG] Method: ${method}`);
-  console.log(`🚨 [PROXY-DEBUG] Proxy URL: ${ALLDEBRID_PROXY_URL}`);
-  
-  // Build original AllDebrid URL
-  const baseUrl = 'https://api.alldebrid.com/v4';
-  let targetUrl = `${baseUrl}/${endpoint.replace(/^\//, '')}`;
-  const separator = targetUrl.includes('?') ? '&' : '?';
-  targetUrl += `${separator}apikey=${encodeURIComponent(apiKey)}`;
-  
-  // Route through proxy
-  const proxyUrl = `${ALLDEBRID_PROXY_URL}?target=${encodeURIComponent(targetUrl)}`;
-  
-  console.log(`🚨 [PROXY-DEBUG] Target URL: ${targetUrl.replace(/apikey=[^&]+/, 'apikey=***HIDDEN***')}`);
-  console.log(`🚨 [PROXY-DEBUG] Proxy URL: ${proxyUrl.substring(0, 100)}...`);
-  
-  const finalInit = {
-    method: method,
-    headers: {
-      ...ALLDEBRID_SIMPLE_HEADERS,
-      'X-Proxy-Target': targetUrl, // Additional header for proxy server
-      ...(options.headers || {})
-    }
-  };
-  
-  const response = await fetchWithTimeout(proxyUrl, finalInit, timeout);
-  
-  console.log(`🚨 [PROXY-DEBUG] Response status: ${response.status}`);
-  console.log(`🚨 [PROXY-DEBUG] Response ok: ${response.ok}`);
-  
-  return response;
-}
 
 // API Rate Limiter for debrid providers to prevent throttling
 class DebridRateLimiter {
@@ -361,16 +254,7 @@ async function safeDebridApiCall(url, init, timeout, apiKey, retries = 2) {
         await new Promise(resolve => setTimeout(resolve, jitter));
       }
       
-      // CRITICAL FIX: Add User-Agent headers for AllDebrid API calls to prevent NO_SERVER error
-      const finalInit = { ...init };
-      if (url.includes('api.alldebrid.com')) {
-        finalInit.headers = { 
-          ...ALLDEBRID_HEADERS,
-          ...(finalInit.headers || {})
-        };
-      }
-      
-      const response = await fetchWithTimeout(url, finalInit, timeout);
+      const response = await fetchWithTimeout(url, init, timeout);
       
       // Check for rate limiting
       if (response.status === 429) {
@@ -402,62 +286,6 @@ async function safeDebridApiCall(url, init, timeout, apiKey, retries = 2) {
         throw new Error(`Debrid API call failed after ${retries + 1} attempts: ${error.message}`);
       }
     }
-  }
-}
-
-// FIXED: Provider-aware AllDebrid API calls using universal system
-async function providerAwareAllDebridApiCall(endpoint, options = {}, timeout = 15000, apiKey) {
-  try {
-    // Get AllDebrid provider configuration
-    const provider = debridProviders.getProvider('alldebrid');
-    if (!provider) {
-      throw new Error('AllDebrid provider not found in configuration');
-    }
-    
-    // Construct URL using provider base URL (no API key in URL)
-    const url = endpoint.startsWith('http') 
-      ? endpoint 
-      : `${provider.apiBaseUrl}/${endpoint.replace(/^\//, '')}`;
-    
-    console.log(`[PROVIDER-AWARE] AllDebrid API call: ${url}`);
-    
-    // Basic rate limiting check
-    await debridRateLimiter.checkRateLimit(apiKey);
-    
-    // Use provider-specific headers with proper Authorization
-    const finalInit = { 
-      method: 'GET',
-      ...options,
-      headers: {
-        ...provider.headers,  // Use provider headers from config
-        'Authorization': `${provider.authHeader} ${apiKey}`,  // FIXED: Add Authorization header
-        ...(options.headers || {})
-      }
-    };
-    
-    // Single attempt with provider configuration  
-    const response = await fetchWithTimeout(url, finalInit, timeout);
-    
-    // Handle rate limiting
-    if (response.status === 429) {
-      const retryAfter = response.headers.get('retry-after') || '60';
-      throw new Error(`Rate limited by AllDebrid API. Retry after ${retryAfter} seconds.`);
-    }
-    
-    // Record success for non-error responses
-    if (response.status >= 200 && response.status < 500) {
-      debridCircuitBreaker.recordSuccess(apiKey);
-    }
-    
-    return response;
-    
-  } catch (error) {
-    // Only record network/server failures, not API error responses
-    if (error.message.includes('fetch') || error.message.includes('timeout') || error.message.includes('network')) {
-      debridCircuitBreaker.recordFailure(apiKey);
-    }
-    console.error(`[PROVIDER-AWARE] AllDebrid API error: ${error.message}`);
-    throw error;
   }
 }
 
@@ -716,34 +544,8 @@ async function handlePlay(req, res, defaults = {}) {
     if (isFirstRequest) log('Step 1: Uploading magnet to AllDebrid...');
     let uploadSuccess = false;
     try {
-      // CRITICAL FIX: Use AllDebrid compatibility mode to prevent NO_SERVER errors
-      // This mimics the exact working pattern from OldAutoStream
-      let up;
-      
-      console.log(`🚨 [UPLOAD-DEBUG] Starting AllDebrid upload...`);
-      console.log(`🚨 [UPLOAD-DEBUG] Compatibility mode enabled: ${ALLDEBRID_COMPATIBILITY_MODE}`);
-      
-      if (ALLDEBRID_COMPATIBILITY_MODE) {
-        console.log(`🚨 [UPLOAD-DEBUG] Using COMPATIBILITY mode (OldAutoStream style)`);
-        // Use OldAutoStream-style API call with URL parameters and simple headers
-        // CRITICAL: OldAutoStream uses 'magnets[]' parameter format
-        const endpoint = `magnet/upload?magnets[]=${encodeURIComponent(magnet)}`;
-        console.log(`🚨 [UPLOAD-DEBUG] Endpoint: ${endpoint.substring(0, 80)}...`);
-        console.log(`🚨 [UPLOAD-DEBUG] Magnet length: ${magnet.length}`);
-        console.log(`🚨 [UPLOAD-DEBUG] Full magnet: ${magnet.substring(0, 100)}...`);
-        console.log(`🚨 [UPLOAD-DEBUG] Using proxy: ${USE_PROXY_FOR_ALLDEBRID ? 'YES' : 'NO'}`);
-        
-        if (USE_PROXY_FOR_ALLDEBRID && ALLDEBRID_PROXY_URL) {
-          console.log(`🚨 [PROXY-DEBUG] Routing through proxy: ${ALLDEBRID_PROXY_URL}`);
-          up = await allDebridProxyCall(endpoint, adKey, { method: 'GET' }, 15000);
-        } else {
-          up = await allDebridCompatibilityCall(endpoint, adKey, { method: 'GET' }, 15000);
-        }
-      } else {
-        console.log(`🚨 [UPLOAD-DEBUG] Using PROVIDER-AWARE mode (new system)`);
-        // Fallback to provider-aware system if compatibility mode disabled
-        up = await providerAwareAllDebridApiCall(`magnet/upload?magnet=${encodeURIComponent(magnet)}`, { method: 'GET' }, 15000, adKey);
-      }
+      const uploadUrl = 'https://api.alldebrid.com/v4/magnet/upload?apikey=' + encodeURIComponent(adKey) + '&magnets[]=' + encodeURIComponent(magnet);
+      const up = await safeDebridApiCall(uploadUrl, { method: 'GET' }, 10000, adKey);
       
       if (isFirstRequest) {
         log('Upload response status: ' + up.status, 'verbose');
@@ -773,21 +575,12 @@ async function handlePlay(req, res, defaults = {}) {
             
             if (permanentUploadErrors.includes(errorCode)) {
               log('❌ Permanent upload error: ' + errorCode + ' - stopping immediately');
-              
-              // CRITICAL: Provide helpful error message for NO_SERVER
-              let userMessage = uploadResult.error.message || 'AllDebrid service error';
-              if (errorCode === 'NO_SERVER' && DETECTED_HOSTING_ENVIRONMENT) {
-                userMessage = 'AllDebrid blocks hosting service IPs (Render, AWS, etc.). This addon needs to run on a residential connection or use a proxy service to work with AllDebrid. The issue is environmental, not a code bug.';
-              }
-              
               res.writeHead(400, {'Content-Type':'application/json'});
               return res.end(JSON.stringify({ 
                 ok: false, 
                 error: errorCode,
-                message: userMessage,
-                permanent: true,
-                hosting_detected: DETECTED_HOSTING_ENVIRONMENT,
-                solution: errorCode === 'NO_SERVER' ? 'Deploy on residential IP or use proxy service' : null
+                message: uploadResult.error.message || 'AllDebrid service error',
+                permanent: true 
               }));
             }
           }
@@ -814,21 +607,11 @@ async function handlePlay(req, res, defaults = {}) {
     let magnetId = null; // Store the actual magnet ID from status response
     let inQueueCount = 0; // Track how many times we see "In queue"
     
-    for (let i=0;i<15;i++){ // Increased to 15 iterations to handle downloading torrents (up to ~30 seconds)
+    for (let i=0;i<6;i++){ // Increased back to 6 iterations for better handling
       if (isFirstRequest && i === 0) log(`Polling for files...`);
       try {
-        // CRITICAL FIX: Use AllDebrid compatibility mode for status calls
-        let st;
-        if (ALLDEBRID_COMPATIBILITY_MODE) {
-          const endpoint = `magnet/status?id=${encodeURIComponent(magnetId)}`;
-          if (USE_PROXY_FOR_ALLDEBRID && ALLDEBRID_PROXY_URL) {
-            st = await allDebridProxyCall(endpoint, adKey, { method: 'GET' }, 15000);
-          } else {
-            st = await allDebridCompatibilityCall(endpoint, adKey, { method: 'GET' }, 15000);
-          }
-        } else {
-          st = await providerAwareAllDebridApiCall(`magnet/status?id=${magnetId}`, { method: 'GET' }, 15000, adKey);
-        }
+        const statusUrl = 'https://api.alldebrid.com/v4/magnet/status?apikey=' + encodeURIComponent(adKey) + '&id=' + encodeURIComponent(ih || magnet);
+        const st = await safeDebridApiCall(statusUrl, { method: 'GET' }, 10000, adKey);
         const sj = await jsonSafe(st);
         
         log('Status response: status=' + st.status + ', ok=' + st.ok, 'verbose');
@@ -863,19 +646,10 @@ async function handlePlay(req, res, defaults = {}) {
           }
         }
         
-        if (sj && sj.status === 'success' && sj.data) {
-          // Handle both single magnet object and array of magnets
-          let magnets = [];
-          if (Array.isArray(sj.data.magnets)) {
-            magnets = sj.data.magnets;
-          } else if (sj.data.magnets && typeof sj.data.magnets === 'object') {
-            // Single magnet object - convert to array
-            magnets = [sj.data.magnets];
-          }
-          
+        if (sj && sj.status === 'success' && sj.data && Array.isArray(sj.data.magnets)) {
           // Find the magnet that matches our hash
           const targetHash = (ih || '').toLowerCase();
-          const matchingMagnet = magnets.find(m => 
+          const matchingMagnet = sj.data.magnets.find(m => 
             m && m.hash && m.hash.toLowerCase() === targetHash
           );
           
@@ -901,37 +675,19 @@ async function handlePlay(req, res, defaults = {}) {
                 }));
               }
             } else if (matchingMagnet.status === 'Downloading') {
-              const downloaded = matchingMagnet.downloaded || 0;
-              const total = matchingMagnet.size || 0;
-              const progress = total > 0 ? Math.round((downloaded / total) * 100) : 0;
+              log('⏳ Torrent downloading (' + (matchingMagnet.downloaded || 0) + '/' + (matchingMagnet.size || 0) + ' bytes)');
               
-              log('⏳ Torrent downloading (' + downloaded + '/' + total + ' bytes, ' + progress + '%)');
-              
-              // For downloading torrents, be much more patient
-              // Only consider "stuck" after many attempts (30+ seconds) AND no progress
-              if (i >= 10) { // Increased from 4 to 10 attempts (15-20 seconds)
-                log('ℹ️ Torrent still downloading after extended polling (' + progress + '% complete)');
-                
-                // If torrent is making good progress (>50%), let it continue
-                if (progress >= 50) {
-                  log('✅ Torrent is making good progress (' + progress + '%), continuing to wait...');
-                  // Don't return error, let it continue polling
-                } else if (progress === 0) {
-                  // Only mark as stuck if there's literally zero progress
-                  log('⚠️ Torrent shows no download progress - may be stuck');
-                  res.writeHead(202, {'Content-Type':'application/json'});
-                  return res.end(JSON.stringify({ 
-                    ok: false, 
-                    caching: true,
-                    stuckDownloading: true,
-                    msg: 'This torrent appears to have no seeders or may be corrupted. Try a different quality.',
-                    magnetId: magnetId,
-                    progress: progress
-                  }));
-                } else {
-                  // Some progress but slow - inform user but continue
-                  log('⏳ Torrent downloading slowly (' + progress + '%), continuing to monitor...');
-                }
+              // Check if torrent has been downloading too long without progress
+              if (i >= 4) { // After 4 polling attempts (about 2-3 seconds)
+                log('⚠️ Torrent stuck downloading - this may indicate a problem with the torrent');
+                res.writeHead(202, {'Content-Type':'application/json'});
+                return res.end(JSON.stringify({ 
+                  ok: false, 
+                  caching: true,
+                  stuckDownloading: true,
+                  msg: 'This torrent appears to be stuck downloading. It may have no seeders or be corrupted. Try a different quality.',
+                  magnetId: magnetId
+                }));
               }
             }
             
@@ -959,10 +715,10 @@ async function handlePlay(req, res, defaults = {}) {
               }));
             }
           } else {
-            log('No matching magnet found for hash: ' + targetHash + ', available magnets: ' + magnets.map(m => m.hash).join(','));
+            log('No matching magnet found for hash: ' + targetHash + ', available magnets: ' + sj.data.magnets.map(m => m.hash).join(','));
           }
         } else {
-          log('No magnet data in status response: ' + JSON.stringify(sanitizeResponseForLogging(sj)));
+          log('Invalid status response structure: ' + JSON.stringify(sj));
         }
       } catch (e) {
         log('Status API error: ' + e.message + ', stack: ' + e.stack);
@@ -972,49 +728,20 @@ async function handlePlay(req, res, defaults = {}) {
       if (magnetId && inQueueCount === 0) {
         // Additional check: only call Files API for Ready torrents to prevent errors
         try {
-          // CRITICAL FIX: Use AllDebrid compatibility mode for status calls
-          let st;
-          if (ALLDEBRID_COMPATIBILITY_MODE) {
-            const endpoint = `magnet/status?id=${encodeURIComponent(ih || magnet)}`;
-            if (USE_PROXY_FOR_ALLDEBRID && ALLDEBRID_PROXY_URL) {
-              st = await allDebridProxyCall(endpoint, adKey, { method: 'GET' }, 5000);
-            } else {
-              st = await allDebridCompatibilityCall(endpoint, adKey, { method: 'GET' }, 5000);
-            }
-          } else {
-            st = await providerAwareAllDebridApiCall(`magnet/status?id=${encodeURIComponent(ih || magnet)}`, { method: 'GET' }, 5000, adKey);
-          }
+          const statusUrl = 'https://api.alldebrid.com/v4/magnet/status?apikey=' + encodeURIComponent(adKey) + '&id=' + encodeURIComponent(ih || magnet);
+          const st = await safeDebridApiCall(statusUrl, { method: 'GET' }, 5000, adKey);
           const sj = await jsonSafe(st);
           
-          if (sj && sj.status === 'success' && sj.data) {
-            // Handle both single magnet object and array of magnets
-            let magnets = [];
-            if (Array.isArray(sj.data.magnets)) {
-              magnets = sj.data.magnets;
-            } else if (sj.data.magnets && typeof sj.data.magnets === 'object') {
-              // Single magnet object - convert to array
-              magnets = [sj.data.magnets];
-            }
-            
+          if (sj && sj.status === 'success' && sj.data && Array.isArray(sj.data.magnets)) {
             const targetHash = (ih || '').toLowerCase();
-            const matchingMagnet = magnets.find(m => 
+            const matchingMagnet = sj.data.magnets.find(m => 
               m && m.hash && m.hash.toLowerCase() === targetHash
             );
             
             // Only call Files API if torrent is actually Ready
             if (matchingMagnet && matchingMagnet.status === 'Ready') {
-              // CRITICAL FIX: Use AllDebrid compatibility mode for files calls
-              let f;
-              if (ALLDEBRID_COMPATIBILITY_MODE) {
-                const endpoint = `magnet/files?id=${encodeURIComponent(magnetId)}`;
-                if (USE_PROXY_FOR_ALLDEBRID && ALLDEBRID_PROXY_URL) {
-                  f = await allDebridProxyCall(endpoint, adKey, { method: 'GET' }, 15000);
-                } else {
-                  f = await allDebridCompatibilityCall(endpoint, adKey, { method: 'GET' }, 15000);
-                }
-              } else {
-                f = await providerAwareAllDebridApiCall(`magnet/files?id=${magnetId}`, { method: 'GET' }, 15000, adKey);
-              }
+              const filesUrl = 'https://api.alldebrid.com/v4/magnet/files?apikey=' + encodeURIComponent(adKey) + '&id=' + encodeURIComponent(magnetId);
+              const f = await safeDebridApiCall(filesUrl, { method: 'GET' }, 10000, adKey);
               const fj = await jsonSafe(f);
               
               log('Files API response (with ID): status=' + f.status + ', ok=' + f.ok + ', body=' + JSON.stringify(sanitizeResponseForLogging(fj)));
@@ -1033,14 +760,8 @@ async function handlePlay(req, res, defaults = {}) {
         }
       }
       
-      // Adaptive sleep - different timing based on torrent status
-      let sleepTime = 500; // Default
-      if (inQueueCount > 0) {
-        sleepTime = 1000; // Longer wait for queue processing
-      } else if (i >= 5) {
-        sleepTime = 2000; // Even longer wait for extended polling (downloads)
-      }
-      
+      // Adaptive sleep - longer waits if in queue
+      const sleepTime = inQueueCount > 0 ? 1000 : 500;
       log('No files found, sleeping ' + sleepTime + 'ms...');
       await sleep(sleepTime);
     }
@@ -1164,18 +885,8 @@ async function handlePlay(req, res, defaults = {}) {
     // 3) unlock direct link
     let finalUrl = chosen.link;
     try {
-      // CRITICAL FIX: Use AllDebrid compatibility mode for unlock calls
-      let unl;
-      if (ALLDEBRID_COMPATIBILITY_MODE) {
-        const endpoint = `link/unlock?link=${encodeURIComponent(chosen.link)}`;
-        if (USE_PROXY_FOR_ALLDEBRID && ALLDEBRID_PROXY_URL) {
-          unl = await allDebridProxyCall(endpoint, adKey, { method: 'GET' }, 15000);
-        } else {
-          unl = await allDebridCompatibilityCall(endpoint, adKey, { method: 'GET' }, 15000);
-        }
-      } else {
-        unl = await providerAwareAllDebridApiCall(`link/unlock?link=${encodeURIComponent(chosen.link)}`, { method: 'GET' }, 15000, adKey);
-      }
+      const unlockUrl = 'https://api.alldebrid.com/v4/link/unlock?apikey=' + encodeURIComponent(adKey) + '&link=' + encodeURIComponent(chosen.link);
+      const unl = await safeDebridApiCall(unlockUrl, { method: 'GET' }, 10000, adKey);
       const uj = await jsonSafe(unl);
       
       log('Unlock response: status=' + unl.status + ', ok=' + unl.ok + ', body=' + JSON.stringify(sanitizeResponseForLogging(uj)));

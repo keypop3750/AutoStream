@@ -46,21 +46,12 @@
   function loadFromURL() {
     const params = new URLSearchParams(window.location.search);
     
-    // Load debrid provider and API key - updated to match new provider system
-    if (params.get('alldebrid')) { state.provider = 'alldebrid'; state.apiKey = params.get('alldebrid'); }
-    else if (params.get('realdebrid')) { state.provider = 'realdebrid'; state.apiKey = params.get('realdebrid'); }
-    else if (params.get('premiumize')) { state.provider = 'premiumize'; state.apiKey = params.get('premiumize'); }
-    else if (params.get('torbox')) { state.provider = 'torbox'; state.apiKey = params.get('torbox'); }
-    else if (params.get('offcloud')) { state.provider = 'offcloud'; state.apiKey = params.get('offcloud'); }
-    else if (params.get('easydebrid')) { state.provider = 'easydebrid'; state.apiKey = params.get('easydebrid'); }
-    else if (params.get('debridlink')) { state.provider = 'debridlink'; state.apiKey = params.get('debridlink'); }
-    else if (params.get('putio')) { state.provider = 'putio'; state.apiKey = params.get('putio'); }
-    // Legacy support for old parameter names
-    else if (params.get('ad')) { state.provider = 'alldebrid'; state.apiKey = params.get('ad'); }
-    else if (params.get('rd')) { state.provider = 'realdebrid'; state.apiKey = params.get('rd'); }
-    else if (params.get('pm')) { state.provider = 'premiumize'; state.apiKey = params.get('pm'); }
-    else if (params.get('tb')) { state.provider = 'torbox'; state.apiKey = params.get('tb'); }
-    else if (params.get('oc')) { state.provider = 'offcloud'; state.apiKey = params.get('oc'); }
+    // Load debrid provider and API key
+    if (params.get('ad')) { state.provider = 'AD'; state.apiKey = params.get('ad'); }
+    else if (params.get('rd')) { state.provider = 'RD'; state.apiKey = params.get('rd'); }
+    else if (params.get('pm')) { state.provider = 'PM'; state.apiKey = params.get('pm'); }
+    else if (params.get('tb')) { state.provider = 'TB'; state.apiKey = params.get('tb'); }
+    else if (params.get('oc')) { state.provider = 'OC'; state.apiKey = params.get('oc'); }
     
     // Load size limit (convert from GB to bytes)
     if (params.get('max_size')) {
@@ -313,21 +304,9 @@
 
     // Debrid: include exactly one provider param ONLY when provider + key are provided
     const key = (state.apiKey || '').trim();
-    const prov = (state.provider || '').trim(); // alldebrid, realdebrid, etc.
+    const prov = (state.provider || '').trim(); // AD, RD, PM, TB, OC
     if (prov && key) {
-      // Map provider names to parameter keys - this was the missing piece!
-      const map = { 
-        'alldebrid': 'alldebrid',
-        'realdebrid': 'realdebrid', 
-        'premiumize': 'premiumize',
-        'torbox': 'torbox',
-        'offcloud': 'offcloud',
-        'easydebrid': 'easydebrid',
-        'debridlink': 'debridlink',
-        'putio': 'putio',
-        // Legacy support for old short codes
-        'AD': 'alldebrid', 'RD': 'realdebrid', 'PM': 'premiumize', 'TB': 'torbox', 'OC': 'offcloud'
-      };
+      const map = { AD: 'ad', RD: 'rd', PM: 'pm', TB: 'tb', OC: 'oc' };
       const pk = map[prov];
       if (pk) params.set(pk, key);
     }
