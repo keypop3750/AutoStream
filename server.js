@@ -227,11 +227,8 @@ let MANIFEST_DEFAULTS = Object.create(null);
 const REMEMBER_KEYS = new Set([
   'cookie','nuvio_cookie','dcookie',
   'include_nuvio','nuvio','dhosts','nuvio_base',
-  'label_origin','lang_prio','max_size','additionalstream','fallback','blacklist',
-  // Debrid provider keys (like Torrentio) - included for proper manifest functionality
-  'realdebrid','alldebrid','premiumize','torbox','offcloud','easydebrid','debridlink','putio',
-  // Legacy support for old parameter names
-  'ad','rd','pm','tb','oc','ed','dl'
+  'label_origin','lang_prio','max_size','additionalstream','fallback','blacklist'
+  // SECURITY: API keys removed from remember list to prevent global caching
 ]);
 
 // Cache for debrid API key validation
@@ -651,16 +648,7 @@ async function validateDebridKey(provider, apiKey) {
 
 // SECURITY: Check if a parameter contains sensitive data (API keys)
 function isSensitiveParam(key) {
-  return [
-    'ad', 'apikey', 'alldebrid', 'ad_apikey',
-    'rd', 'real-debrid', 'realdebrid', 'rd_key',
-    'pm', 'premiumize', 'pm_key',
-    'tb', 'torbox', 'tb_key',
-    'oc', 'offcloud', 'od_key',
-    'ed', 'easydebrid', 'ed_key',
-    'dl', 'debridlink', 'dl_key',
-    'putio', 'putio_key'
-  ].includes(key);
+  return ['ad', 'apikey', 'alldebrid', 'ad_apikey', 'rd', 'real-debrid', 'realdebrid', 'pm', 'premiumize', 'tb', 'torbox', 'oc', 'offcloud'].includes(key);
 }
 
 // SECURITY: Sanitize URLs to hide API keys in query parameters
@@ -753,7 +741,7 @@ function startServer(port = PORT) {
         }, null, 2));
       }
       
-      if (pathname === '/status') return writeJson(res, { status: 'ok', addon: 'AutoStream', version: '3.5.2' }, 200);
+      if (pathname === '/status') return writeJson(res, { status: 'ok', addon: 'AutoStream', version: '3.5.1' }, 200);
 
       // Penalty reliability API endpoints
       if (pathname === '/reliability/stats') {
@@ -857,10 +845,10 @@ function startServer(port = PORT) {
           delete MANIFEST_DEFAULTS.offcloud;
         }
         
-        // Store non-API key configuration in defaults (for caching behavior)
+        // SECURITY: Never store API keys in global defaults
         const rememberedSafe = {};
         for (const [k, v] of Object.entries(remembered)) {
-          // Only remember non-sensitive configuration for global defaults
+          // Only remember non-sensitive configuration
           if (!['ad', 'apikey', 'alldebrid', 'ad_apikey', 'rd', 'real-debrid', 'realdebrid', 'pm', 'premiumize', 'tb', 'torbox', 'oc', 'offcloud'].includes(k)) {
             rememberedSafe[k] = v;
           }
@@ -923,36 +911,11 @@ function startServer(port = PORT) {
         const primaryProvider = workingProviders.length > 0 ? workingProviders[0] : null;
         const tag = primaryProvider ? primaryProvider.provider.shortName : null;
         
-        // Build query string for preserved parameters INCLUDING debrid API keys
-        // This is standard practice for Stremio addons - other addons include API keys in manifest URLs
+        // Build query string for preserved parameters
         const queryParams = new URLSearchParams();
         for (const [k, v] of Object.entries(remembered)) {
           if (v && REMEMBER_KEYS.has(k)) queryParams.set(k, v);
         }
-        
-        // Include debrid parameters regardless of validation status (like other addons)
-        // This allows users to configure their addon even with invalid keys initially
-        const debridParamMap = {
-          'alldebrid': ['ad', 'apikey', 'alldebrid', 'ad_apikey'],
-          'realdebrid': ['rd', 'real-debrid', 'realdebrid', 'rd_key'],
-          'premiumize': ['pm', 'premiumize', 'pm_key'], 
-          'torbox': ['tb', 'torbox', 'tb_key'],
-          'offcloud': ['oc', 'offcloud', 'od_key'],
-          'easydebrid': ['ed', 'easydebrid', 'ed_key'],
-          'debridlink': ['dl', 'debridlink', 'dl_key'],
-          'putio': ['putio_key', 'putio']
-        };
-        
-        // Include any debrid parameters found in the original request
-        for (const [providerKey, paramNames] of Object.entries(debridParamMap)) {
-          for (const paramName of paramNames) {
-            if (paramsObj[paramName] && paramsObj[paramName].trim()) {
-              queryParams.set(paramName, paramsObj[paramName]);
-              break; // Only include the first matching parameter for this provider
-            }
-          }
-        }
-        
         const queryString = queryParams.toString();
         const baseUrl = `${req.protocol || 'http'}://${req.headers.host || 'localhost:7010'}`;
         
@@ -963,7 +926,7 @@ function startServer(port = PORT) {
 
         const manifest = {
           id: 'com.stremio.autostream.addon',
-          version: '3.5.2',
+          version: '3.5.1',
           name: tag ? `AutoStream (${tag})` : 'AutoStream',
           description: 'Curated best-pick streams with optional debrid; Nuvio direct-host supported.',
           logo: 'https://github.com/keypop3750/AutoStream/blob/main/logo.png?raw=true',
@@ -1024,6 +987,7 @@ function startServer(port = PORT) {
       console.log(`[${requestId}] 🌐 User Agent: "${userAgent}"`);
       console.log(`[${requestId}] 🔗 Full URL: ${sanitizeUrl(req.originalUrl)}`);
       console.log(`[${requestId}] 📊 Query Params:`, sanitizeQueryParams(q));
+      console.log(`[${requestId}] 🌍 Client IP: ${req.headers['x-forwarded-for'] || req.connection.remoteAddress || 'unknown'}`);
       
       // Simple universal device type (no TV-specific handling)
       const actualDeviceType = deviceType;
