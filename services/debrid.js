@@ -37,6 +37,10 @@ const debridProviders = require('../core/debridProviders');
 const ALLDEBRID_COMPATIBILITY_MODE = true; // Enable compatibility mode to prevent NO_SERVER
 const DETECTED_HOSTING_ENVIRONMENT = process.env.RENDER || process.env.PORT === '10000'; // Detect hosting
 
+// PROXY SOLUTION: Route AllDebrid calls through proxy when in hosting environment
+const ALLDEBRID_PROXY_URL = process.env.ALLDEBRID_PROXY_URL; // Optional proxy URL
+const USE_PROXY_FOR_ALLDEBRID = DETECTED_HOSTING_ENVIRONMENT && ALLDEBRID_PROXY_URL;
+
 // Simple headers that work with AllDebrid (matches OldAutoStream exactly)
 const ALLDEBRID_SIMPLE_HEADERS = {
   'User-Agent': 'AutoStream/1.0'  // Exact same as OldAutoStream that worked
@@ -46,6 +50,8 @@ const ALLDEBRID_SIMPLE_HEADERS = {
 console.log(`🚨 [DEBRID-DEBUG] AllDebrid Compatibility Mode: ${ALLDEBRID_COMPATIBILITY_MODE ? 'ENABLED' : 'DISABLED'}`);
 console.log(`🚨 [DEBRID-DEBUG] Using headers: ${JSON.stringify(ALLDEBRID_SIMPLE_HEADERS)}`);
 console.log(`🚨 [DEBRID-DEBUG] Detected hosting environment: ${DETECTED_HOSTING_ENVIRONMENT ? 'YES' : 'NO'}`);
+console.log(`🚨 [DEBRID-DEBUG] Proxy URL configured: ${ALLDEBRID_PROXY_URL ? 'YES' : 'NO'}`);
+console.log(`🚨 [DEBRID-DEBUG] Using proxy for AllDebrid: ${USE_PROXY_FOR_ALLDEBRID ? 'YES' : 'NO'}`);
 console.log(`🚨 [DEBRID-DEBUG] CRITICAL DISCOVERY: NO_SERVER is IP-based blocking, not request pattern`);
 console.log(`🚨 [DEBRID-DEBUG] AllDebrid blocks hosting providers (Render, AWS, etc.) by IP range`);
 
@@ -86,6 +92,45 @@ async function allDebridCompatibilityCall(endpoint, apiKey, options = {}, timeou
   
   console.log(`🚨 [COMPAT-DEBUG] Response status: ${response.status}`);
   console.log(`🚨 [COMPAT-DEBUG] Response ok: ${response.ok}`);
+  
+  return response;
+}
+
+// PROXY SOLUTION: AllDebrid proxy call function for hosting environments
+// Routes AllDebrid API calls through proxy server to bypass IP blocking
+async function allDebridProxyCall(endpoint, apiKey, options = {}, timeout = 15000) {
+  const method = options.method || 'GET';
+  
+  console.log(`🚨 [PROXY-DEBUG] Making AllDebrid proxy call...`);
+  console.log(`🚨 [PROXY-DEBUG] Endpoint: ${endpoint}`);
+  console.log(`🚨 [PROXY-DEBUG] Method: ${method}`);
+  console.log(`🚨 [PROXY-DEBUG] Proxy URL: ${ALLDEBRID_PROXY_URL}`);
+  
+  // Build original AllDebrid URL
+  const baseUrl = 'https://api.alldebrid.com/v4';
+  let targetUrl = `${baseUrl}/${endpoint.replace(/^\//, '')}`;
+  const separator = targetUrl.includes('?') ? '&' : '?';
+  targetUrl += `${separator}apikey=${encodeURIComponent(apiKey)}`;
+  
+  // Route through proxy
+  const proxyUrl = `${ALLDEBRID_PROXY_URL}?target=${encodeURIComponent(targetUrl)}`;
+  
+  console.log(`🚨 [PROXY-DEBUG] Target URL: ${targetUrl.replace(/apikey=[^&]+/, 'apikey=***HIDDEN***')}`);
+  console.log(`🚨 [PROXY-DEBUG] Proxy URL: ${proxyUrl.substring(0, 100)}...`);
+  
+  const finalInit = {
+    method: method,
+    headers: {
+      ...ALLDEBRID_SIMPLE_HEADERS,
+      'X-Proxy-Target': targetUrl, // Additional header for proxy server
+      ...(options.headers || {})
+    }
+  };
+  
+  const response = await fetchWithTimeout(proxyUrl, finalInit, timeout);
+  
+  console.log(`🚨 [PROXY-DEBUG] Response status: ${response.status}`);
+  console.log(`🚨 [PROXY-DEBUG] Response ok: ${response.ok}`);
   
   return response;
 }
@@ -686,7 +731,14 @@ async function handlePlay(req, res, defaults = {}) {
         console.log(`🚨 [UPLOAD-DEBUG] Endpoint: ${endpoint.substring(0, 80)}...`);
         console.log(`🚨 [UPLOAD-DEBUG] Magnet length: ${magnet.length}`);
         console.log(`🚨 [UPLOAD-DEBUG] Full magnet: ${magnet.substring(0, 100)}...`);
-        up = await allDebridCompatibilityCall(endpoint, adKey, { method: 'GET' }, 15000);
+        console.log(`🚨 [UPLOAD-DEBUG] Using proxy: ${USE_PROXY_FOR_ALLDEBRID ? 'YES' : 'NO'}`);
+        
+        if (USE_PROXY_FOR_ALLDEBRID && ALLDEBRID_PROXY_URL) {
+          console.log(`🚨 [PROXY-DEBUG] Routing through proxy: ${ALLDEBRID_PROXY_URL}`);
+          up = await allDebridProxyCall(endpoint, adKey, { method: 'GET' }, 15000);
+        } else {
+          up = await allDebridCompatibilityCall(endpoint, adKey, { method: 'GET' }, 15000);
+        }
       } else {
         console.log(`🚨 [UPLOAD-DEBUG] Using PROVIDER-AWARE mode (new system)`);
         // Fallback to provider-aware system if compatibility mode disabled
@@ -769,7 +821,11 @@ async function handlePlay(req, res, defaults = {}) {
         let st;
         if (ALLDEBRID_COMPATIBILITY_MODE) {
           const endpoint = `magnet/status?id=${encodeURIComponent(magnetId)}`;
-          st = await allDebridCompatibilityCall(endpoint, adKey, { method: 'GET' }, 15000);
+          if (USE_PROXY_FOR_ALLDEBRID && ALLDEBRID_PROXY_URL) {
+            st = await allDebridProxyCall(endpoint, adKey, { method: 'GET' }, 15000);
+          } else {
+            st = await allDebridCompatibilityCall(endpoint, adKey, { method: 'GET' }, 15000);
+          }
         } else {
           st = await providerAwareAllDebridApiCall(`magnet/status?id=${magnetId}`, { method: 'GET' }, 15000, adKey);
         }
@@ -920,7 +976,11 @@ async function handlePlay(req, res, defaults = {}) {
           let st;
           if (ALLDEBRID_COMPATIBILITY_MODE) {
             const endpoint = `magnet/status?id=${encodeURIComponent(ih || magnet)}`;
-            st = await allDebridCompatibilityCall(endpoint, adKey, { method: 'GET' }, 5000);
+            if (USE_PROXY_FOR_ALLDEBRID && ALLDEBRID_PROXY_URL) {
+              st = await allDebridProxyCall(endpoint, adKey, { method: 'GET' }, 5000);
+            } else {
+              st = await allDebridCompatibilityCall(endpoint, adKey, { method: 'GET' }, 5000);
+            }
           } else {
             st = await providerAwareAllDebridApiCall(`magnet/status?id=${encodeURIComponent(ih || magnet)}`, { method: 'GET' }, 5000, adKey);
           }
@@ -947,7 +1007,11 @@ async function handlePlay(req, res, defaults = {}) {
               let f;
               if (ALLDEBRID_COMPATIBILITY_MODE) {
                 const endpoint = `magnet/files?id=${encodeURIComponent(magnetId)}`;
-                f = await allDebridCompatibilityCall(endpoint, adKey, { method: 'GET' }, 15000);
+                if (USE_PROXY_FOR_ALLDEBRID && ALLDEBRID_PROXY_URL) {
+                  f = await allDebridProxyCall(endpoint, adKey, { method: 'GET' }, 15000);
+                } else {
+                  f = await allDebridCompatibilityCall(endpoint, adKey, { method: 'GET' }, 15000);
+                }
               } else {
                 f = await providerAwareAllDebridApiCall(`magnet/files?id=${magnetId}`, { method: 'GET' }, 15000, adKey);
               }
@@ -1104,7 +1168,11 @@ async function handlePlay(req, res, defaults = {}) {
       let unl;
       if (ALLDEBRID_COMPATIBILITY_MODE) {
         const endpoint = `link/unlock?link=${encodeURIComponent(chosen.link)}`;
-        unl = await allDebridCompatibilityCall(endpoint, adKey, { method: 'GET' }, 15000);
+        if (USE_PROXY_FOR_ALLDEBRID && ALLDEBRID_PROXY_URL) {
+          unl = await allDebridProxyCall(endpoint, adKey, { method: 'GET' }, 15000);
+        } else {
+          unl = await allDebridCompatibilityCall(endpoint, adKey, { method: 'GET' }, 15000);
+        }
       } else {
         unl = await providerAwareAllDebridApiCall(`link/unlock?link=${encodeURIComponent(chosen.link)}`, { method: 'GET' }, 15000, adKey);
       }
