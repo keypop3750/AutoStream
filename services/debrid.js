@@ -2,7 +2,8 @@
 'use strict';
 
 // Import AllDebrid API client (same as Torrentio)
-const AllDebridClient = require('all-debrid-api'); 
+const AllDebridClient = require('all-debrid-api');
+const requestIp = require('request-ip'); 
 
 // SECURITY: Check for dangerous environment variables and refuse to use them
 (function securityCheck() {
@@ -247,13 +248,19 @@ catch {
   };
 }
 
+// Get client IP exactly like Torrentio does
+function getClientIp(req) {
+  return requestIp.getClientIp(req);
+}
+
 // Get default options for AllDebrid client (exactly like Torrentio)
 async function getDefaultOptions(ip) {
-  return { ip, base_agent: 'autostream', timeout: 10000 };
+  return { ip, base_agent: 'torrentio', timeout: 10000 };
 }
 
 // Create AllDebrid client (exactly like Torrentio)
-async function createAllDebridClient(apiKey, ip) {
+async function createAllDebridClient(apiKey, req) {
+  const ip = getClientIp(req);
   const options = await getDefaultOptions(ip);
   return new AllDebridClient(apiKey, options);
 }
@@ -530,7 +537,7 @@ async function handlePlay(req, res, defaults = {}) {
     if (isFirstRequest) log('Step 1: Checking instant availability...');
     let instantFiles = [];
     try {
-      const AD = await createAllDebridClient(adKey, req.ip || req.connection.remoteAddress);
+      const AD = await createAllDebridClient(adKey, req);
       const instantResult = await AD.magnet.instant([magnet]);
       
       if (instantResult && instantResult.data && instantResult.data.magnets) {
@@ -592,7 +599,7 @@ async function handlePlay(req, res, defaults = {}) {
     if (isFirstRequest) log('Step 2: Uploading magnet to AllDebrid...');
     let uploadSuccess = false;
     try {
-      const AD = await createAllDebridClient(adKey, req.ip || req.connection.remoteAddress);
+      const AD = await createAllDebridClient(adKey, req);
       const uploadResult = await AD.magnet.upload([magnet]);
       
       if (isFirstRequest) {
@@ -640,7 +647,7 @@ async function handlePlay(req, res, defaults = {}) {
     for (let i=0;i<6;i++){ // Increased back to 6 iterations for better handling
       if (isFirstRequest && i === 0) log(`Polling for files...`);
       try {
-        const AD = await createAllDebridClient(adKey, req.ip || req.connection.remoteAddress);
+        const AD = await createAllDebridClient(adKey, req);
         const sj = await AD.magnet.status(ih || magnet);
         
         log('Status response: ' + JSON.stringify(sj), 'verbose');
@@ -757,7 +764,7 @@ async function handlePlay(req, res, defaults = {}) {
       if (magnetId && inQueueCount === 0) {
         // Additional check: only call Files API for Ready torrents to prevent errors - using AllDebrid API client
         try {
-          const AD2 = await createAllDebridClient(adKey, req.ip || req.connection.remoteAddress);
+          const AD2 = await createAllDebridClient(adKey, req);
           const sj = await AD2.magnet.status(ih || magnet);
           
           if (sj && sj.status === 'success' && sj.data && Array.isArray(sj.data.magnets)) {
@@ -911,7 +918,7 @@ async function handlePlay(req, res, defaults = {}) {
     // 3) unlock direct link - using AllDebrid API client
     let finalUrl = chosen.link;
     try {
-      const AD3 = await createAllDebridClient(adKey, req.ip || req.connection.remoteAddress);
+      const AD3 = await createAllDebridClient(adKey, req);
       const uj = await AD3.link.unlock(chosen.link);
       
       log('Unlock response: ' + JSON.stringify(sanitizeResponseForLogging(uj)));
