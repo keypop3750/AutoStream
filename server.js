@@ -512,9 +512,16 @@ function __finalize(list, { nuvioCookie, labelOrigin }, req, actualDeviceType = 
     s.url = s.url || s.externalUrl || s.link || (s.sources && s.sources[0] && s.sources[0].url) || '';
     
     // CRITICAL FIX: Preserve debrid flags for ALL streams (not just InfoHash streams)
-    if (s._debrid || s._isDebrid) {
+    // Also detect Torrentio debrid URLs that might not be flagged yet
+    const isTorrentioDebridUrl = /torrentio\.strem\.fun\/resolve\/(?:alldebrid|realdebrid|premiumize|offcloud|torbox|debridlink|easydebrid)/i.test(String(s.url||''));
+    
+    if (s._debrid || s._isDebrid || isTorrentioDebridUrl) {
       s._isDebrid = true;
       s._debrid = true;
+      // Log when we detect a Torrentio debrid URL that wasn't flagged yet
+      if (isTorrentioDebridUrl && !(s._debrid || s._isDebrid)) {
+        console.log(`[${requestId}]   🔄 Detected Torrentio debrid URL - setting _isDebrid flag`);
+      }
     }
     
     // Torrentio-style stream handling: debrid streams get /play URLs, non-debrid get infoHash only
