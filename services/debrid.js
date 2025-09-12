@@ -219,18 +219,9 @@ function sanitizeResponseForLogging(responseData) {
 }
 
 /**
- * Click-time AllDebrid resolver.
- * - buildPlayUrl(meta, { origin, ad }) ->    // 1) upload magnet
-    log('Step 1: Uploading magnet to AllDebrid...');
-    try {
-      const uploadUrl = 'https://api.alldebrid.com/v4/magnet/upload?apikey=' + encodeURIComponent(adKey) + '&magnets[]=' + encodeURIComponent(magnet);
-      const up = await safeAllDebridApiCall(uploadUrl, { method: 'GET' }, 10000, adKey);
-      const uploadResult = await jsonSafe(deup);
-      log('Upload result: ' + (uploadResult?.status || 'unknown'));
-    } catch (e) {
-      log('Upload error (non-fatal): ' + e.message);
-    }play URL
- * - handlePlay(req, res, MANIFEST_DEFAULTS) -> resolves magnet on click, redirects to unlocked file.
+ * Click-time AllDebrid resolver (Cache-Only Approach).
+ * - buildPlayUrl(meta, { origin, ad }) -> generates /play URL
+ * - handlePlay(req, res, MANIFEST_DEFAULTS) -> checks cache availability, redirects to unlocked file or magnet fallback.
  */
 
 let fetchWithTimeout;
@@ -540,69 +531,69 @@ async function handlePlay(req, res, defaults = {}) {
       if (imdb) log('  IMDB: ' + imdb, 'verbose');
     }
 
-    // 1) upload
-    if (isFirstRequest) log('Step 1: Uploading magnet to AllDebrid...');
-    let uploadSuccess = false;
+    // 1) Check instant availability (cache-only approach - no server-side uploads)
+    if (isFirstRequest) log('Step 1: Checking AllDebrid instant availability...');
+    let instantAvailable = false;
     try {
-      const uploadUrl = 'https://api.alldebrid.com/v4/magnet/upload?apikey=' + encodeURIComponent(adKey) + '&magnets[]=' + encodeURIComponent(magnet);
-      const up = await safeAllDebridApiCall(uploadUrl, { method: 'GET' }, 10000, adKey);
+      const instantUrl = 'https://api.alldebrid.com/v4/magnet/instant?apikey=' + encodeURIComponent(adKey) + '&magnets[]=' + encodeURIComponent(ih);
+      const up = await safeAllDebridApiCall(instantUrl, { method: 'GET' }, 10000, adKey);
       
       if (isFirstRequest) {
-        log('Upload response status: ' + up.status, 'verbose');
-        log('Upload response ok: ' + up.ok, 'verbose');
+        log('Instant check response status: ' + up.status, 'verbose');
+        log('Instant check response ok: ' + up.ok, 'verbose');
       }
       
-      const uploadResult = await jsonSafe(up);
+      const instantResult = await jsonSafe(up);
       
       if (isFirstRequest) {
-        if (uploadResult && uploadResult.status === 'success') {
-          log('Upload result: success');
-          uploadSuccess = true;
+        if (instantResult && instantResult.status === 'success') {
+          const magnetData = instantResult.data?.magnets?.[0];
+          if (magnetData && magnetData.instant === true) {
+            log('✅ Magnet is instantly available in AllDebrid cache');
+            instantAvailable = true;
+          } else {
+            log('❌ Magnet not found in AllDebrid cache - falling back to non-debrid stream');
+            // For cache-only approach, we don't upload - just fall back to infoHash stream
+            clearTimeout(handlePlayTimeout);
+            const magnetUrl = `magnet:?xt=urn:btih:${ih}`;
+            log(`🧲 Cache-only fallback: redirecting to magnet link`);
+            res.writeHead(302, { 'Location': magnetUrl });
+            return res.end();
+          }
         } else {
-          log('Upload result: ' + (uploadResult?.status || 'failed'));
-          if (uploadResult?.error) {
-            log('Upload error details: ' + JSON.stringify(uploadResult.error));
-            
-            // Check for permanent upload errors
-            const errorCode = uploadResult.error.code;
-            const permanentUploadErrors = [
-              'MAGNET_MUST_BE_PREMIUM',
-              'AUTH_BLOCKED',
-              'AUTH_BAD_APIKEY', 
-              'AUTH_USER_BANNED',
-              'NO_SERVER'  // AllDebrid blocks server/VPN IPs - user needs to check their network
-            ];
-            
-            if (permanentUploadErrors.includes(errorCode)) {
-              log('❌ Permanent upload error: ' + errorCode + ' - stopping immediately');
-              res.writeHead(400, {'Content-Type':'application/json'});
-              return res.end(JSON.stringify({ 
-                ok: false, 
-                error: errorCode,
-                message: uploadResult.error.message || 'AllDebrid service error',
-                permanent: true 
-              }));
-            }
+          log('Instant check result: ' + (instantResult?.status || 'failed'));
+          if (instantResult?.error) {
+            log('Instant check error: ' + JSON.stringify(instantResult.error));
+            // For instant availability errors, we fall back to magnet instead of failing
+            clearTimeout(handlePlayTimeout);
+            const magnetUrl = `magnet:?xt=urn:btih:${ih}`;
+            log(`🧲 Instant check failed - fallback to magnet: ${magnetUrl}`);
+            res.writeHead(302, { 'Location': magnetUrl });
+            return res.end();
           }
-          if (uploadResult?.message) {
-            log('Upload message: ' + uploadResult.message);
-          }
-          if (!uploadResult) {
-            log('Upload result was null/undefined - possible network issue');
-          }
-          // Log the full response for debugging on Render (SANITIZED FOR SECURITY)
-          log('Full upload response: ' + JSON.stringify(sanitizeResponseForLogging(uploadResult)));
         }
       }
-    } catch (e) {
+    } catch (instantError) {
       if (isFirstRequest) {
-        log('Upload error (exception): ' + e.message);
-        log('Upload error stack: ' + e.stack);
+        log('Instant availability check error (falling back to magnet): ' + instantError.message);
+        clearTimeout(handlePlayTimeout);
+        const magnetUrl = `magnet:?xt=urn:btih:${ih}`;
+        res.writeHead(302, { 'Location': magnetUrl });
+        return res.end();
       }
     }
 
-    // 2) poll a few times for files
-    if (isFirstRequest) log('Step 2: Polling for files...');
+    // 2) poll for cached files (only proceed if magnet was instantly available)
+    if (!instantAvailable) {
+      // This should not happen due to earlier checks, but safety net
+      clearTimeout(handlePlayTimeout);
+      const magnetUrl = `magnet:?xt=urn:btih:${ih}`;
+      log(`🧲 Safety fallback: magnet not instantly available`);
+      res.writeHead(302, { 'Location': magnetUrl });
+      return res.end();
+    }
+    
+    if (isFirstRequest) log('Step 2: Polling for cached files...');
     let files = [];
     let magnetId = null; // Store the actual magnet ID from status response
     let inQueueCount = 0; // Track how many times we see "In queue"
