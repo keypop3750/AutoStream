@@ -8,29 +8,8 @@ const tpbCache       = new TTLCache({ max: 300, ttlMs: 60 * 60 * 1000 });
 const nuvioCache     = new TTLCache({ max: 500, ttlMs: 12 * 60 * 1000 });
 
 function buildUrl(base, type, id, query) {
-  // Handle Torrentio's special debrid provider path format
-  let urlBase = base.replace(/\/+$/, '');
-  
-  // Check for debrid providers that need to be in the path (Torrentio format)
-  if (query && (query.realdebrid || query.alldebrid || query.premiumize)) {
-    const debridParam = query.realdebrid || query.alldebrid || query.premiumize;
-    if (debridParam) {
-      const provider = query.realdebrid ? 'realdebrid' : 
-                      query.alldebrid ? 'alldebrid' : 
-                      'premiumize';
-      urlBase += `/${provider}=${debridParam}`;
-      
-      // Remove debrid params from query since they're now in the path
-      const remainingQuery = { ...query };
-      delete remainingQuery.realdebrid;
-      delete remainingQuery.alldebrid;
-      delete remainingQuery.premiumize;
-      query = remainingQuery;
-    }
-  }
-  
   const qs = new URLSearchParams(query || {}).toString();
-  return `${urlBase}/stream/${type}/${encodeURIComponent(id)}.json${qs ? ('?' + qs) : ''}`;
+  return `${base.replace(/\/+$/, '')}/stream/${type}/${encodeURIComponent(id)}.json${qs ? ('?' + qs) : ''}`;
 }
 async function fetchJson(url, timeoutMs, log = ()=>{}) {
   try {

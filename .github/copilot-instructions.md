@@ -1,72 +1,17 @@
+@ -1,180 +0,0 @@
 # AutoStream V3 - AI Coding Instructions
 
-AutoStream is a **high-performance Stremio addon** that intelligently aggregates and selects the best streaming sources with **universal debrid provider support** and **click-time resolution**. The system follows a **layered service architecture** with **comprehensive security protections** and **platform-specific optimization**.
+AutoStream is a **Stremio addon** that aggregates and intelligently selects the best streaming sources with click-time debrid resolution. The system follows a **layered service architecture** with **comprehensive memory management** and **platform-specific optimization**.
 
 ## 🏗️ Architecture Overview
 
-- **Server Layer** (`server.js`): Main HTTP server with defensive coding, memory monitoring, universal debrid resolution, and device-aware request handling
-- **Services Layer** (`services/`): Stream aggregation (`sources.js`), universal debrid integration (`debrid.js`), reliability tracking (`penaltyReliability.js`), enhanced metadata with ID validation (`enhanced_meta.js`)
-- **Core Layer** (`core/`): Universal debrid providers (`debridProviders.js`), platform-specific scoring (`scoring_v6.js`), content formatting (`format.js`), series caching (`series-cache.js`)
-- **UI Layer** (`ui/`): Configuration interface with client-side state management for all 8 debrid providers
+- **Server Layer** (`server.js`): Main HTTP server with defensive coding, memory monitoring, click-time debrid resolution, and platform-aware request handling
+- **Services Layer** (`services/`): Stream aggregation (`sources.js`), debrid integration (`debrid.js`), reliability tracking (`penaltyReliability.js`), enhanced metadata with ID validation (`enhanced_meta.js`)
+- **Core Layer** (`core/`): Platform-specific scoring (`scoring_v6.js`), content formatting (`format.js`), series caching (`series-cache.js`), stream prefiltering (`prefilter.js`)
+- **UI Layer** (`ui/`): Configuration interface with client-side state management
 - **Utils Layer** (`utils/`): TTL caches (`cache.js`), HTTP utilities (`http.js`), ID correction systems (`id-correction.js`)
 
-## 🔑 Critical Security Architecture
-
-### 1. Universal Debrid Provider System
-**NEW CRITICAL PATTERN**: Support 8 debrid providers equally, not AllDebrid-centric:
-```js
-// core/debridProviders.js - Universal provider configuration
-const DEBRID_PROVIDERS = {
-  realdebrid: { key: 'realdebrid', name: 'RealDebrid', shortName: 'RD' },
-  alldebrid: { key: 'alldebrid', name: 'AllDebrid', shortName: 'AD' },
-  premiumize: { key: 'premiumize', name: 'Premiumize', shortName: 'PM' },
-  torbox: { key: 'torbox', name: 'TorBox', shortName: 'TB' },
-  // ... 8 total providers
-};
-
-// Server detects and validates ANY provider
-const workingProviders = [];
-for (const [key, token] of Object.entries(providerConfig)) {
-  const isWorking = await validateDebridKey(key, token);
-  if (isWorking) workingProviders.push({ key, token, provider: getProvider(key) });
-}
-```
-
-### 2. Security-First Torrent Handling
-**CRITICAL SECURITY**: No magnet URLs served when debrid is configured:
-```js
-// Step 3: Convert ALL torrents to debrid URLs when ANY provider configured
-if (hasDebridConfigured && selectedStreams.length > 0) {
-  for (const s of selectedStreams) {
-    if ((s.autostreamOrigin === 'torrentio' || s.autostreamOrigin === 'tpb') && s.infoHash) {
-      s.url = buildPlayUrl({...}, { provider: effectiveDebridProvider, token: effectiveDebridToken });
-      
-      // SECURITY: Remove streams that fail conversion rather than serve raw magnets
-      if (!s.url || /^magnet:/i.test(s.url)) {
-        s._invalid = true; // Filtered out entirely
-      }
-    }
-  }
-}
-```
-**Result**: Zero P2P activity when debrid configured - ISPs only see HTTPS requests to debrid services.
-
-### 3. Environment Variable Security Protection
-**CRITICAL**: Prevent credential leakage across all providers:
-```js
-// services/debrid.js - Security check on startup
-const dangerousEnvVars = [
-  'AD_KEY', 'ALLDEBRID_KEY', 'RD_KEY', 'REALDEBRID_KEY', 
-  'PM_KEY', 'PREMIUMIZE_KEY', 'TB_KEY', 'TORBOX_KEY',
-  // ... all 8 providers protected
-];
-foundVars.forEach(varName => {
-  delete process.env[varName];
-  console.error(`🚨 Removed dangerous environment variable: ${varName}`);
-});
-```
-
-## 🔧 Essential Development Patterns
+## 🔑 Critical Architectural Patterns
 
 ### 1. Graceful Module Loading with Fallbacks
 **Always provide fallback functions** to prevent crashes when optional modules are missing:
@@ -77,32 +22,111 @@ const scoringMod = (() => {
 })();
 ```
 
-### 2. Universal Debrid Rate Limiting
-**ALL debrid providers use unified rate limiting**:
+### 2. Memory Management with Size Limits
+All Map/Cache structures MUST have size limits to prevent memory leaks:
 ```js
-// services/debrid.js - Universal rate limiter for all providers
-class DebridRateLimiter {
-  constructor() {
-    this.maxRequestsPerMinute = 30; // Conservative limit for debrid APIs
-    this.maxCacheSize = 200; // Memory leak prevention
-  }
-  async checkRateLimit(apiKey) { /* Universal rate limiting logic */ }
-}
+// TTL Cache with size limit
+const cache = new TTLCache({ max: 1000, ttlMs: 60 * 60 * 1000 });
 
-// services/debrid.js - Universal circuit breaker
-class DebridCircuitBreaker {
-  async checkCircuit(apiKey) {
-    if (failures.count >= this.maxFailures) {
-      throw new Error('Debrid API circuit breaker is open. Service temporarily unavailable.');
+// Map with manual cleanup
+class RateLimiter {
+  constructor(maxRequests = 50, maxCacheSize = 200) {
+    this.requests = new Map();
+    this.maxCacheSize = maxCacheSize;
+    setInterval(() => this.cleanup(), 60000); // Periodic cleanup
+  }
+  cleanup() {
+    if (this.requests.size > this.maxCacheSize) {
+      // LRU cleanup logic
     }
   }
 }
 ```
 
-### 3. Platform-Specific Scoring System (V6)
-**CRITICAL PATTERN**: Device-aware scoring for optimal compatibility:
+### 3. Episode Metadata with Base ID Resolution
+**Critical**: Series metadata must use base IMDB ID, not episode-specific ID:
 ```js
-// core/scoring_v6.js - Device detection and optimization
+// WRONG: Fetch metadata for tt14452776:2:1
+// RIGHT: Extract base ID first
+const baseId = id.split(':')[0]; // tt14452776:2:1 → tt14452776
+const metaUrl = `https://v3-cinemeta.strem.io/meta/series/${baseId}.json`;
+```
+
+### 4. Enhanced Metadata Service with ID Validation
+**NEW PATTERN**: Automatic ID correction and validation before metadata fetching:
+```js
+// services/enhanced_meta.js - ID correction system
+const IMDB_ID_CORRECTIONS = {
+  'tt13623136': 'tt13159924', // Gen V correction
+};
+
+async function validateAndCorrectIMDBID(id, expectedTitle = null) {
+  // Step 1: Auto-correct known mismatches
+  if (IMDB_ID_CORRECTIONS[id]) {
+    const correctedId = IMDB_ID_CORRECTIONS[id];
+    console.log(`🔧 Auto-correcting ${id} → ${correctedId}`);
+    return correctedId;
+  }
+  
+  // Step 2: Extract base ID for series validation
+  let metaId = id.includes(':') ? id.split(':')[0] : id;
+  const metaUrl = `https://v3-cinemeta.strem.io/meta/series/${metaId}.json`;
+  
+  // Validate metadata exists before proceeding
+  const result = await fetchJson(metaUrl, 10000);
+  if (result.error) return { id }; // Fallback to original
+  
+  return { id: correctedId || id, meta: result.meta };
+}
+```
+**Key Features**: Prevents 404 errors, corrects known ID mismatches, validates metadata availability.
+
+### 5. Multi-Source Stream Aggregation
+The system fetches from multiple providers **in parallel**:
+```js
+const [fromTorrentio, fromTPB, fromNuvio] = await Promise.all([
+  fetchTorrentioStreams(type, id, options, log),
+  fetchTPBStreams(type, id, options, log), 
+  fetchNuvioStreams(type, id, options, log)
+]);
+```
+Each source is **tagged** with origin (`torrentio`, `tpb`, `nuvio`) for scoring and filtering.
+
+### 6. Click-Time Debrid Resolution
+**Critical**: Torrents are NOT pre-resolved during `/stream` requests. Instead, they're wrapped with `/play?ih=...` URLs that resolve to debrid services only when clicked:
+```js
+// Step 3: Convert selected torrents to debrid URLs ONLY
+if (adParam && selectedStreams.length > 0) {
+  for (const s of selectedStreams) {
+    if (isMagnet && !isHttp) {
+      s.url = `${originBase}/play?ih=${infoHash}&...`;
+    }
+  }
+}
+```
+
+### 7. Episode Processing with Smart Filtering
+Episodes require season/episode extraction and validation:
+```js
+// Extract season/episode from ID: tt14452776:2:1 → S2E1
+const [season, episode] = id.split(':').slice(1).map(n => parseInt(n));
+
+// Pre-filter streams for correct episode before scoring
+const episodeStreams = allStreams.filter(stream => {
+  const name = (stream.title || stream.name || '').toLowerCase();
+  // Match S02E01, s2e1, 2x01, etc.
+  const patterns = [
+    new RegExp(`s0?${season}e0?${episode}\\b`, 'i'),
+    new RegExp(`season\\s*0?${season}.*episode\\s*0?${episode}\\b`, 'i')
+  ];
+  return patterns.some(p => p.test(name));
+});
+```
+
+### 8. Platform-Specific Scoring System (V6)
+**NEW CRITICAL PATTERN**: Scoring varies by device type (TV/Mobile/Web) for optimal compatibility:
+```js
+// Device detection from User-Agent
 function detectDeviceType(req) {
   const userAgent = req.headers['user-agent'] || '';
   if (/\b(smart[-\s]?tv|tizen|webos|roku)\b/i.test(userAgent)) return 'tv';
@@ -112,131 +136,68 @@ function detectDeviceType(req) {
 
 // TV scoring prioritizes compatibility over quality
 function getTVQualityScore(title, factors) {
-  if (/\b(x265|hevc)\b/.test(title)) score -= 60; // Heavy codec penalty for TV
-  if (/\b(x264|h\.?264)\b/.test(title)) score += 40; // Compatibility bonus
+  let score = 0;
+  if (/\b(4k|2160p)\b/.test(title)) score += 40; // Highest bonus for 4K
+  if (/\b(x265|hevc)\b/.test(title)) score -= 60; // Heavy penalty for codec issues
+  if (/\b(x264|h\.?264)\b/.test(title)) score += 40; // Big bonus for compatibility
+  return score;
 }
 ```
+**Key Behavior**: Same content shows different quality on different platforms (TV gets 720p x264, Web gets 1080p x265).
 
-### 4. Memory Management with Size Limits
-**ALL Map/Cache structures MUST have size limits**:
+### 9. URL Assignment & Non-Debrid Support
+**CRITICAL FIX**: Prevent undefined URLs that cause infinite loading in Stremio:
 ```js
-class DebridRateLimiter {
-  cleanup() {
-    if (this.requests.size > this.maxCacheSize) {
-      const toRemove = /* LRU cleanup logic */;
-      console.log(`[MEMORY] Cleaned ${toRemove.length} entries from rate limiter cache`);
+// In __finalize function - ensure URLs are assigned for all scenarios
+if (s.infoHash && (!s.url || /^magnet:/i.test(s.url))) {
+  if (s._isDebrid) {
+    // Keep the debrid play URL, don't replace with magnet
+  } else {
+    // Non-debrid: ensure we have a proper magnet URL for external clients
+    if (!s.url || /^magnet:/i.test(s.url)) {
+      s.url = `magnet:?xt=urn:btih:${s.infoHash}`;
     }
   }
 }
 ```
-
-## 📋 Essential Development Workflows
-
-### Local Development
-```powershell
-node server.js  # Runs on http://localhost:7010
-# Configure at: http://localhost:7010/configure
-# Manifest at: http://localhost:7010/manifest.json
-```
-
-### Multi-Provider Testing
-```powershell
-# Test universal debrid provider system
-node test_multi_debrid_system.js  # Tests all 8 providers
-
-# Test security fix (no magnet leaks)
-node test_security_fix.js         # Validates security across providers
-
-# Test platform-specific scoring
-curl "localhost:7010/stream/series/tt13159924:1:3.json" -H "User-Agent: SmartTV"
-curl "localhost:7010/stream/series/tt13159924:1:3.json" -H "User-Agent: Android"
-```
-
-### Debugging Patterns
+**Result**: Non-debrid users get magnet URLs, debrid users get `/play?ih=...` URLs, no undefined URLs ever.
+### 10. Resolution Detection from Multiple Fields
+**UPDATED PATTERN**: Resolution is extracted from multiple stream fields, including both filename locations:
 ```js
-// Enable detailed scoring breakdown
-const scoringOptions = { debug: true };
-
-// Request isolation with unique IDs
-const requestId = Math.random().toString(36).substr(2, 9);
-req._requestId = requestId;
-console.log(`[${requestId}] Processing request...`);
-```
-
-## ⚡ Performance & Reliability Patterns
-
-### 1. Penalty-Based Reliability System
-```js
-// services/penaltyReliability.js - Permanent learning system
-class PenaltyReliability {
-  markFail(url) {
-    const newPenalty = Math.min(currentPenalty + 50, 500); // Max 500 points
-    hostPenalties.set(host, newPenalty);
-  }
-  markOk(url) {
-    const newPenalty = Math.max(0, currentPenalty - 50); // Recovery
-  }
+function extractResolution(stream) {
+  // Check multiple places for resolution info
+  const title = stream.title || '';
+  const name = stream.name || '';
+  const description = stream.description || '';
+  const filename = stream.behaviorHints?.filename || stream.filename || '';
+  const tag = stream.tag || '';
+  
+  const text = `${title} ${name} ${description} ${filename} ${tag}`.toLowerCase();
+  if (/\b(2160p|2160|4k|uhd)\b/i.test(text)) return '4K';
+  // ... other resolutions
 }
 ```
-**Key Features**: 
-- Persistent penalties (-50 per failure, +50 per success)
-- No time-based expiry, no permanent bans
-- API endpoints: `/reliability/stats`, `/reliability/clear`
 
-### 2. Episode Processing with Smart Filtering
+## Advanced Features
+
+### Episode Detection System
+The system implements sophisticated episode filtering with multiple regex patterns:
 ```js
-// Pre-filter streams for correct episode BEFORE scoring
-const episodeStreams = combined.filter(stream => {
-  const patterns = [
-    new RegExp(`s0?${seasonNum}\\s*e0?${episodeNum}\\b`, 'i'), // S01E04, s1e4
-    new RegExp(`season\\s*0?${seasonNum}\\s*episode\\s*0?${episodeNum}`, 'i'), // Season 1 Episode 4
-    new RegExp(`${seasonNum}x0*${episodeNum}(?:\\s|\\.|$)`, 'i') // 1x04
-  ];
-  return patterns.some(p => p.test(streamText));
-});
+// Episode patterns (server.js)
+const patterns = [
+  new RegExp(`s0*${seasonNum}\\s*e0*${episodeNum}(?:\\s|\\.|$)`, 'i'), // S01E04, s1e4
+  new RegExp(`season\\s*0*${seasonNum}\\s*episode\\s*0*${episodeNum}`, 'i'), // Season 1 Episode 4
+  new RegExp(`${seasonNum}x0*${episodeNum}(?:\\s|\\.|$)`, 'i'), // 1x04
+  new RegExp(`s0*${seasonNum}\\s.*(complete|pack|collection)`, 'i'), // Season packs
+  new RegExp(`s0*${seasonNum}.*e0*${episodeNum}`, 'i') // Flexible S##E## matching
+];
 ```
+**Testing**: Use `node test_episode_fix.js` to validate episode filtering across multiple series.
 
-### 3. Multi-Source Stream Aggregation
+### IMDB ID Validation & Correction
+Critical system for fixing common ID mapping issues:
 ```js
-// Parallel execution with timeout for faster response
-const [fromTorrentio, fromTPB, fromNuvio] = await Promise.allSettled([
-  fetchTorrentioStreams(type, id, options, log),
-  fetchTPBStreams(type, id, options, log), 
-  fetchNuvioStreams(type, id, options, log)
-]);
-```
-
-## 🚨 Critical Security Requirements
-
-1. **Never serve magnet URLs when ANY debrid provider is configured**
-2. **Always validate debrid conversion success** - filter out failed conversions
-3. **Use universal provider system** - no AllDebrid-centric code
-4. **Protect environment variables** for all 8 providers
-5. **Apply rate limiting and circuit breakers** universally
-
-## 🧪 Testing Strategy
-
-### Comprehensive System Tests
-```powershell
-# Test all user scenarios
-node test_comprehensive_final.js  # All user flows
-node test_security_fix.js         # Security validation
-node test_multi_debrid_system.js  # Provider compatibility
-```
-
-### Platform-Specific Validation
-```powershell
-# Validate different device scoring
-curl "localhost:7010/stream/series/tt13159924:1:3.json" -H "User-Agent: SmartTV"    # TV optimization
-curl "localhost:7010/stream/series/tt13159924:1:3.json" -H "User-Agent: Android"   # Mobile optimization
-```
-
-When editing this codebase:
-- **Always check for existing fallback patterns** and maintain defensive coding
-- **Use universal debrid provider functions** instead of AllDebrid-specific ones
-- **Test security across all 8 debrid providers** - never just AllDebrid
-- **Apply memory limits to all Map/Cache structures**
-- **Validate platform-specific behavior** with different User-Agent headers
+// utils/id-correction.js
 const ID_CORRECTIONS = {
   'tt13623136': 'tt13159924', // Gen V fix: Marvel Guardians -> Gen V
 };

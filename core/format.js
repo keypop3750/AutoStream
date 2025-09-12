@@ -106,18 +106,6 @@ function beautifyStreamName(stream, { type, id, includeOriginTag = false, debrid
       case 'offcloud':
       case 'oc':
         return 'AutoStream (OC)';
-      case 'easy-debrid':
-      case 'easydebrid':
-      case 'ed':
-        return 'AutoStream (ED)';
-      case 'debridlink':
-      case 'debrid-link':
-      case 'dl':
-        return 'AutoStream (DL)';
-      case 'putio':
-      case 'put.io':
-      case 'pi':
-        return 'AutoStream (PI)';
       default:
         return 'AutoStream'; // Don't default to AD if provider is unknown
     }

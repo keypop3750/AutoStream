@@ -13,9 +13,6 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 
-// Import unified debrid provider system
-const { DEBRID_PROVIDERS, getEnabledProviders, getProvider, getProviderKeys, isValidProvider, getProviderDisplayName, detectConfiguredProvider, getConfiguredProviders, isValidApiKey } = require('./core/debridProviders');
-
 // ============ DEFENSIVE CODE: CRASH PREVENTION ============
 
 // 1. Unhandled Promise Rejection Handler (Prevents Node.js crashes)
@@ -231,7 +228,7 @@ const REMEMBER_KEYS = new Set([
   // SECURITY: API keys removed from remember list to prevent global caching
 ]);
 
-// Cache for debrid API key validation
+// Cache for AllDebrid API key validation
 const adKeyValidationCache = new Map(); // key -> { isValid: boolean, timestamp: number }
 
 // Periodic cache cleanup to prevent memory leaks
@@ -239,7 +236,7 @@ setInterval(() => {
   const now = Date.now();
   const maxAge = 10 * 60 * 1000; // 10 minutes
   
-  // Clean debrid API key validation cache
+  // Clean AllDebrid API key validation cache
   for (const [key, value] of adKeyValidationCache.entries()) {
     if (now - value.timestamp > maxAge) {
       adKeyValidationCache.delete(key);
@@ -293,12 +290,12 @@ function clearEpisodeCaches() {
       totalCleared += seriesCache.clearSeriesCache();
     }
     
-    // Clear debrid API key validation cache (for fresh authentication)
+    // Clear AllDebrid API key validation cache (for fresh authentication)
     const adCacheSize = adKeyValidationCache.size;
     adKeyValidationCache.clear();
     
     if (adCacheSize > 0) {
-      console.log(`🧹 Cleared debrid validation cache: ${adCacheSize} entries removed`);
+      console.log(`🧹 Cleared AllDebrid validation cache: ${adCacheSize} entries removed`);
       totalCleared += adCacheSize;
     }
     
@@ -445,7 +442,7 @@ const seriesCache = (() => {
 function isNuvio(s){ return !!(s && (s.autostreamOrigin === 'nuvio' || /\bNuvio\b/i.test(String(s?.name||'')))); }
 function isTorrent(s){ const o = s && s.autostreamOrigin; const n = String(s?.name||''); return !!(o==='torrentio'||o==='tpb'||/\b(Torrentio|TPB\+?)\b/i.test(n)); }
 function hasNuvioCookie(s){ return !!(s?.behaviorHints?.proxyHeaders?.Cookie) || !!s?._usedCookie; }
-function isDebridStream(s){ return !!(s && (s._debrid || s._isDebrid || /\b(?:AllDebrid|Real-?Debrid|Premiumize|TorBox|Offcloud|Debrid)\b/i.test(String(s?.name||'')))); }
+function isDebridStream(s){ return !!(s && (s._debrid || s._isDebrid || /AllDebrid|Real-?Debrid/i.test(String(s?.name||'')))); }
 function badgeName(s){
   let name = String(s?.name || '');
   name = name.replace(/\s*\[(?:Nuvio|Torrentio|Debrid)(?:[^\]]*)\]\s*/gi, ' ').replace(/\s{2,}/g,' ').trim();
@@ -511,19 +508,6 @@ function __finalize(list, { nuvioCookie, labelOrigin }, req, actualDeviceType = 
     // First try existing URLs
     s.url = s.url || s.externalUrl || s.link || (s.sources && s.sources[0] && s.sources[0].url) || '';
     
-    // CRITICAL FIX: Preserve debrid flags for ALL streams (not just InfoHash streams)
-    // Also detect Torrentio debrid URLs that might not be flagged yet
-    const isTorrentioDebridUrl = /torrentio\.strem\.fun\/resolve\/(?:alldebrid|realdebrid|premiumize|offcloud|torbox|debridlink|easydebrid)/i.test(String(s.url||''));
-    
-    if (s._debrid || s._isDebrid || isTorrentioDebridUrl) {
-      s._isDebrid = true;
-      s._debrid = true;
-      // Log when we detect a Torrentio debrid URL that wasn't flagged yet
-      if (isTorrentioDebridUrl && !(s._debrid || s._isDebrid)) {
-        console.log(`[${requestId}]   🔄 Detected Torrentio debrid URL - setting _isDebrid flag`);
-      }
-    }
-    
     // Torrentio-style stream handling: debrid streams get /play URLs, non-debrid get infoHash only
     if (s.infoHash && (!s.url || /^magnet:/i.test(s.url))) {
       // Check if this is a debrid stream (should have a play URL by now)
@@ -536,9 +520,6 @@ function __finalize(list, { nuvioCookie, labelOrigin }, req, actualDeviceType = 
           console.warn(`[${requestId}] ⚠️ Debrid stream missing play URL: ${s.infoHash?.substring(0, 8)}...`);
         }
         // Keep the debrid play URL, don't replace with magnet
-        // IMPORTANT: Preserve debrid flags for client
-        s._isDebrid = true;
-        s._debrid = true;
       } else {
         // Non-debrid: Torrentio pattern - provide infoHash + sources, NO URL
         // Let Stremio handle the torrent internally (this works on Android TV)
@@ -642,16 +623,6 @@ async function validateDebridKey(provider, apiKey) {
       case 'offcloud':
         testUrl = `https://offcloud.com/api/account/info`;
         break;
-      case 'ed':
-      case 'easy-debrid':
-      case 'easydebrid':
-        testUrl = `https://api.easy-debrid.com/v1/user/details`;
-        break;
-      case 'dl':
-      case 'debrid-link':
-      case 'debridlink':
-        testUrl = `https://debrid-link.fr/api/v2/account/infos`;
-        break;
       default:
         return false;
     }
@@ -664,10 +635,6 @@ async function validateDebridKey(provider, apiKey) {
     } else if (provider.toLowerCase() === 'tb') {
       headers['Authorization'] = `Bearer ${apiKey}`;
     } else if (provider.toLowerCase() === 'oc') {
-      headers['Authorization'] = `Bearer ${apiKey}`;
-    } else if (provider.toLowerCase() === 'ed' || provider.toLowerCase() === 'easy-debrid' || provider.toLowerCase() === 'easydebrid') {
-      headers['Authorization'] = `Bearer ${apiKey}`;
-    } else if (provider.toLowerCase() === 'dl' || provider.toLowerCase() === 'debrid-link' || provider.toLowerCase() === 'debridlink') {
       headers['Authorization'] = `Bearer ${apiKey}`;
     }
     
@@ -762,7 +729,7 @@ function startServer(port = PORT) {
         }, null, 2));
       }
       
-      if (pathname === '/status') return writeJson(res, { status: 'ok', addon: 'AutoStream', version: '3.5.1' }, 200);
+      if (pathname === '/status') return writeJson(res, { status: 'ok', addon: 'AutoStream', version: '3.4.6' }, 200);
 
       // Penalty reliability API endpoints
       if (pathname === '/reliability/stats') {
@@ -876,61 +843,69 @@ function startServer(port = PORT) {
         }
         MANIFEST_DEFAULTS = Object.assign({}, MANIFEST_DEFAULTS, rememberedSafe);
         
-        // UNIFIED DEBRID PROVIDER VALIDATION
-        // Support all debrid providers equally using our new provider system
-        const configuredProviders = getConfiguredProviders(paramsObj);
-        const workingProviders = [];
-        
-        // Validate each configured provider
-        for (const { key, provider, token } of configuredProviders) {
-          console.log(`🔍 Validating ${provider.name} API key...`);
-          
+        // SECURITY: Only use user-provided API keys, never from global defaults
+        const adKey = paramsObj.ad || paramsObj.apikey || paramsObj.alldebrid || paramsObj.ad_apikey;
+        let adKeyWorking = false;
+        if (adKey) {
           try {
-            let isWorking = false;
-            
-            // Use provider-specific validation
-            switch (key) {
-              case 'alldebrid':
-                isWorking = await validateAllDebridKey(token);
-                break;
-              case 'realdebrid':
-                isWorking = await validateDebridKey('rd', token);
-                break;
-              case 'premiumize':
-                isWorking = await validateDebridKey('pm', token);
-                break;
-              case 'torbox':
-                isWorking = await validateDebridKey('tb', token);
-                break;
-              case 'offcloud':
-                isWorking = await validateDebridKey('oc', token);
-                break;
-              case 'easydebrid':
-                isWorking = await validateDebridKey('ed', token);
-                break;
-              case 'debridlink':
-                isWorking = await validateDebridKey('dl', token);
-                break;
-              default:
-                console.log(`⚠️ No validation method for provider: ${key}`);
-                isWorking = isValidApiKey(token, key); // Basic validation
-            }
-            
-            if (isWorking) {
-              workingProviders.push({ key, provider, token });
-              console.log(`✅ ${provider.name} API key validated successfully`);
-            } else {
-              console.log(`❌ ${provider.name} API key validation failed`);
-            }
-            
+            adKeyWorking = await validateAllDebridKey(adKey);
           } catch (e) {
-            console.log(`❌ ${provider.name} key validation error:`, e.message);
+            console.log('AllDebrid key validation failed:', e.message);
+            adKeyWorking = false;
+          }
+        }
+        
+        // SECURITY: Only use user-provided API keys, never from global defaults
+        const rdKey = paramsObj.rd || paramsObj['real-debrid'] || paramsObj.realdebrid;
+        const pmKey = paramsObj.pm || paramsObj.premiumize;
+        const tbKey = paramsObj.tb || paramsObj.torbox;
+        const ocKey = paramsObj.oc || paramsObj.offcloud;
+        
+        let rdKeyWorking = false, pmKeyWorking = false, tbKeyWorking = false, ocKeyWorking = false;
+        
+        if (rdKey) {
+          try {
+            rdKeyWorking = await validateDebridKey('rd', rdKey);
+          } catch (e) {
+            console.log('RealDebrid key validation failed:', e.message);
+          }
+        }
+        
+        if (pmKey) {
+          try {
+            pmKeyWorking = await validateDebridKey('pm', pmKey);
+          } catch (e) {
+            console.log('Premiumize key validation failed:', e.message);
+          }
+        }
+        
+        if (tbKey) {
+          try {
+            tbKeyWorking = await validateDebridKey('tb', tbKey);
+          } catch (e) {
+            console.log('TorBox key validation failed:', e.message);
+          }
+        }
+        
+        if (ocKey) {
+          try {
+            ocKeyWorking = await validateDebridKey('oc', ocKey);
+          } catch (e) {
+            console.log('OffCloud key validation failed:', e.message);
           }
         }
 
-        // Build the tag based on the FIRST working debrid provider
-        const primaryProvider = workingProviders.length > 0 ? workingProviders[0] : null;
-        const tag = primaryProvider ? primaryProvider.provider.shortName : null;
+        // Build the tag based on WORKING debrid services only
+        const tag = (()=>{
+          // Only show provider if API key is working and validated
+          if (adKeyWorking) return 'AD';
+          if (rdKeyWorking) return 'RD';
+          if (pmKeyWorking) return 'PM';
+          if (tbKeyWorking) return 'TB';
+          if (ocKeyWorking) return 'OC';
+          
+          return null; // No working debrid provider
+        })();
         
         // Build query string for preserved parameters
         const queryParams = new URLSearchParams();
@@ -942,7 +917,7 @@ function startServer(port = PORT) {
         
         const manifest = {
           id: 'com.stremio.autostream.addon',
-          version: '3.5.1',
+          version: '3.4.6',
           name: tag ? `AutoStream (${tag})` : 'AutoStream',
           description: 'Curated best-pick streams with optional debrid; Nuvio direct-host supported.',
           logo: 'https://github.com/keypop3750/AutoStream/blob/main/logo.png?raw=true',
@@ -992,11 +967,6 @@ function startServer(port = PORT) {
       
       // Simple universal device type (no TV-specific handling)
       const actualDeviceType = deviceType;
-
-      // ============ EARLY DEBRID PARAMETER EXTRACTION ============
-      // Extract AllDebrid key early for use in Torrentio queries
-      const getQ = (query, key) => query.get(key) || '';
-      const torrentioDebridKey = getQ(q, 'alldebrid_key') || getQ(q, 'ad_key') || getQ(q, 'ad') || '';
 
       // ============ DEFENSIVE CODE: REQUEST VALIDATION ============
       
@@ -1115,18 +1085,10 @@ function startServer(port = PORT) {
 
       log(`🎯 Source selection - dhosts: [${dhosts.join(', ')}], nuvioEnabled: ${nuvioEnabled}, onlySource: ${onlySource}`);
 
-      // Build query parameters for Torrentio (pass AllDebrid key for pre-converted URLs)
-      const torrentioQuery = {};
-      if (torrentioDebridKey) {
-        // Torrentio expects 'realdebrid' parameter even for AllDebrid keys
-        torrentioQuery.realdebrid = torrentioDebridKey;
-        log(`🔄 Passing AllDebrid key to Torrentio for pre-converted URLs`);
-      }
-      
-      // fetch sources - parallel execution with timeout for faster response
+      // fetch sources (no debrid here) - parallel execution with timeout for faster response
       log('🚀 Fetching streams from sources...');
       const sourcePromises = [
-        (!onlySource || onlySource === 'torrentio') ? fetchTorrentioStreams(type, actualId, torrentioQuery, (msg) => log('Torrentio: ' + msg, 'verbose')) : Promise.resolve([]),
+        (!onlySource || onlySource === 'torrentio') ? fetchTorrentioStreams(type, actualId, {}, (msg) => log('Torrentio: ' + msg, 'verbose')) : Promise.resolve([]),
         (!onlySource || onlySource === 'tpb')       ? fetchTPBStreams(type, actualId, {}, (msg) => log('TPB+: ' + msg, 'verbose'))       : Promise.resolve([]),
         nuvioEnabled ? fetchNuvioStreams(type, actualId, { query: { direct: '1' }, cookie: nuvioCookie }, (msg) => log('Nuvio: ' + msg, 'verbose')) : Promise.resolve([])
       ];
@@ -1416,103 +1378,47 @@ function startServer(port = PORT) {
       }
 
       // CRITICAL FIX: Don't auto-convert ALL torrents to debrid
-      // UNIFIED DEBRID PROVIDER SYSTEM
-      // Support all debrid providers equally - not AllDebrid-centric
+      // Instead, let sources compete first, then convert winners to debrid URLs
+      // SECURITY: Only use API keys explicitly provided by users, never from environment
+      // SECURITY: Only use user-provided API keys, never from global defaults  
+      const adParam = (getQ(q,'ad') || getQ(q,'apikey') || getQ(q,'alldebrid') || getQ(q,'ad_apikey') || '');
       
-      // Extract provider configuration from query parameters
-      const providerConfig = {};
-      const providerKeys = getProviderKeys();
-      
-      for (const key of providerKeys) {
-        const value = getQ(q, key) || '';
-        if (value) {
-          providerConfig[key] = value;
-        }
-      }
-      
-      // Legacy AllDebrid parameter mapping for backward compatibility
-      const legacyAdParam = getQ(q,'ad') || getQ(q,'apikey') || getQ(q,'alldebrid') || getQ(q,'ad_apikey') || getQ(q,'alldebrid_key') || '';
-      if (legacyAdParam && !providerConfig.alldebrid) {
-        providerConfig.alldebrid = legacyAdParam;
-      }
-      
-      // SECURITY CHECK: Refuse to use environment variables for API keys  
-      if (Object.keys(providerConfig).length === 0 && (process.env.AD_KEY || process.env.ALLDEBRID_KEY || process.env.ALLDEBRID_API_KEY || process.env.RD_KEY || process.env.PM_KEY)) {
+      // SECURITY CHECK: Refuse to use environment variables for API keys
+      if (!adParam && (process.env.AD_KEY || process.env.ALLDEBRID_KEY || process.env.ALLDEBRID_API_KEY)) {
         log('🚨 SECURITY: Environment variable API keys detected but ignored. Users must provide their own keys.');
       }
       
       // RENDER-LEVEL SECURITY: Additional protection against environment credential usage
-      if (BLOCK_ENV_CREDENTIALS && (process.env.ALLDEBRID_KEY || process.env.AD_KEY || process.env.APIKEY || process.env.RD_KEY || process.env.PM_KEY)) {
+      if (BLOCK_ENV_CREDENTIALS && (process.env.ALLDEBRID_KEY || process.env.AD_KEY || process.env.APIKEY)) {
         log('🔒 RENDER SECURITY: Dangerous environment variables detected and blocked');
       }
       
       // FORCE SECURE MODE: In production, never allow environment fallbacks
-      if (FORCE_SECURE_MODE && Object.keys(providerConfig).length === 0) {
+      if (FORCE_SECURE_MODE && !adParam) {
         log('🔒 SECURE MODE: Only user-provided API keys allowed, no environment fallbacks');
       }
       
       // EMERGENCY DEBRID DISABLE: Server-wide debrid shutdown capability
       if (EMERGENCY_DISABLE_DEBRID) {
         log('🚨 EMERGENCY: All debrid features disabled server-wide');
-        Object.keys(providerConfig).forEach(key => providerConfig[key] = ''); // Force no debrid for ALL users
+        adParam = ''; // Force no debrid for ALL users
       }
       
-      // Validate configured debrid providers
-      const workingProviders = [];
-      for (const [key, token] of Object.entries(providerConfig)) {
-        if (!token) continue;
-        
+      // Validate AllDebrid key if provided - fall back to non-debrid if invalid
+      let adKeyWorking = false;
+      if (adParam) {
         try {
-          let isWorking = false;
-          
-          switch (key) {
-            case 'alldebrid':
-              isWorking = await validateAllDebridKey(token);
-              break;
-            case 'realdebrid':
-              isWorking = await validateDebridKey('rd', token);
-              break;
-            case 'premiumize':
-              isWorking = await validateDebridKey('pm', token);
-              break;
-            case 'torbox':
-              isWorking = await validateDebridKey('tb', token);
-              break;
-            case 'offcloud':
-              isWorking = await validateDebridKey('oc', token);
-              break;
-            case 'easydebrid':
-              isWorking = await validateDebridKey('ed', token);
-              break;
-            case 'debridlink':
-              isWorking = await validateDebridKey('dl', token);
-              break;
-            default:
-              console.log(`⚠️ No validation method for provider: ${key}`);
-              isWorking = isValidApiKey(token, key);
+          adKeyWorking = await validateAllDebridKey(adParam);
+          if (!adKeyWorking) {
+            log('⚠️ AllDebrid key provided but not working (blocked/invalid) - falling back to non-debrid mode');
           }
-          
-          if (isWorking) {
-            workingProviders.push({ key, token, provider: getProvider(key) });
-            log(`✅ ${getProvider(key)?.name || key} API key validated successfully`);
-          } else {
-            log(`❌ ${getProvider(key)?.name || key} key validation failed`);
-          }
-          
         } catch (e) {
-          log(`⚠️ ${getProvider(key)?.name || key} key validation failed - falling back to non-debrid mode: ` + e.message);
+          log('⚠️ AllDebrid key validation failed - falling back to non-debrid mode: ' + e.message);
+          adKeyWorking = false;
         }
       }
       
-      // Use the first working provider as primary
-      const primaryProvider = workingProviders.length > 0 ? workingProviders[0] : null;
-      const effectiveDebridProvider = primaryProvider ? primaryProvider.key : '';
-      const effectiveDebridToken = primaryProvider ? primaryProvider.token : '';
-      
-      // SECURITY FIX: For ANY debrid provider, enable debrid URL conversion
-      // This prevents raw magnet URLs from being served when debrid is configured
-      const effectiveAdParam = primaryProvider ? primaryProvider.token : '';
-      const hasDebridConfigured = !!primaryProvider;
+      const effectiveAdParam = adKeyWorking ? adParam : ''; // Only use AD if key is validated
       
       // Step 1: Score streams without converting to debrid yet
       combined = sortByOriginPriority(combined, { labelOrigin: false });
@@ -1569,59 +1475,29 @@ function startServer(port = PORT) {
       // Define originBase for URL building (used in multiple places)
       const originBase = `${req.headers['x-forwarded-proto'] || 'http'}://${req.headers.host}`;
       
-      // Step 3: Convert torrents to debrid URLs if ANY debrid provider is configured
-      if (hasDebridConfigured && selectedStreams.length > 0) {
-        log(`🔧 Converting ${selectedStreams.length} torrents to ${primaryProvider.provider.name} URLs...`);
+      // Step 3: Convert torrents to debrid URLs if debrid is available
+      if (effectiveAdParam && selectedStreams.length > 0) {
+        log(`🔧 Converting ${selectedStreams.length} torrents to AllDebrid URLs...`);
         for (const s of selectedStreams) {
           if (!s) continue;
           
           const isHttp = /^https?:/i.test(String(s.url||''));
           const isMagnetish = (!isHttp) && (!!s.infoHash || /^magnet:/i.test(String(s.url||'')));
           
-          // Check if this is a torrent that needs debrid conversion OR is already a debrid URL
-          if ((s.autostreamOrigin === 'torrentio' || s.autostreamOrigin === 'tpb') && 
-              (s.infoHash || isMagnetish || (s.autostreamOrigin === 'torrentio' && isHttp))) {
+          // Only convert torrents (not nuvio streams) to debrid
+          if ((s.autostreamOrigin === 'torrentio' || s.autostreamOrigin === 'tpb') && (s.infoHash || isMagnetish)) {
+            s._debrid = true; 
+            s._isDebrid = true;
+            s.url = buildPlayUrl({
+              ih: s.infoHash || '',
+              magnet: isMagnetish ? s.url : '',
+              idx: (typeof s.fileIdx === 'number' ? s.fileIdx : 0),
+              imdb: id
+            }, { origin: originBase, ad: effectiveAdParam });
             
-            // Check if Torrentio already provided a working debrid URL
-            const hasTorrentioDebridUrl = s.autostreamOrigin === 'torrentio' && isHttp && 
-                                         (s.url.includes('torrentio.strem.fun') || s.url.includes('debrid'));
-            
-            if (hasTorrentioDebridUrl) {
-              // Use Torrentio's pre-converted debrid URL (no conversion needed)
-              log(`✅ Using Torrentio's pre-converted debrid URL for ${s.infoHash?.substring(0,8)}...`);
-              s._debrid = true; 
-              s._isDebrid = true;
-              // Keep s.url as-is (Torrentio's working debrid URL)
-            } else {
-              // Convert using our own debrid integration (for TPB streams or non-debrid Torrentio streams)
-              log(`🔄 Converting ${s.autostreamOrigin} stream to ${primaryProvider.provider.name} URL for ${s.infoHash?.substring(0,8)}...`);
-              s._debrid = true; 
-              s._isDebrid = true;
-              s.url = buildPlayUrl({
-                ih: s.infoHash || '',
-                magnet: isMagnetish ? s.url : '',
-                idx: (typeof s.fileIdx === 'number' ? s.fileIdx : 0),
-                imdb: id
-              }, { 
-                origin: originBase, 
-                ad: effectiveAdParam,
-                provider: effectiveDebridProvider,
-                token: effectiveDebridToken
-              });
-              
-              // SECURITY: Ensure no magnet URLs leak when debrid is configured
-              if (!s.url || /^magnet:/i.test(s.url)) {
-                log(`⚠️ SECURITY WARNING: Failed to convert torrent to debrid URL for ${s.infoHash?.substring(0,8)}...`);
-                // Remove the stream entirely rather than serving raw magnet
-                s._invalid = true;
-              }
-            }
+            // notWebReady flag is now handled device-aware in __finalize function
           }
         }
-        
-        // SECURITY: Filter out any streams that failed debrid conversion
-        selectedStreams = selectedStreams.filter(s => !s._invalid);
-        
       } else {
         // No debrid available - use Torrentio pattern (infoHash + sources, no URLs)
         log('ℹ️ No debrid available - using Torrentio pattern for universal compatibility');
@@ -1663,7 +1539,17 @@ function startServer(port = PORT) {
       });
       
       // Detect which debrid provider is being used (only if actually working)
-      const debridProvider = effectiveDebridProvider || null;
+      const debridProvider = (() => {
+        // Return the actual working provider name
+        if (adKeyWorking) return 'ad';
+        // Add other providers when their stream processing is implemented
+        // if (rdKeyWorking) return 'rd';
+        // if (pmKeyWorking) return 'pm';
+        // if (tbKeyWorking) return 'tb';
+        // if (ocKeyWorking) return 'oc';
+        
+        return null;
+      })();
       
       // Step 5: Always process additional stream logic to ensure both primary and secondary are available
       // The additionalStreamEnabled flag will only control final visibility
@@ -1721,47 +1607,14 @@ function startServer(port = PORT) {
           }
           
           if (additional) {
-            // Process additional stream same way as primary was processed  
-            if (hasDebridConfigured && (additional.autostreamOrigin === 'torrentio' || additional.autostreamOrigin === 'tpb') && additional.infoHash) {
-              
-              const additionalIsHttp = /^https?:/i.test(String(additional.url||''));
-              const additionalIsMagnetish = (!additionalIsHttp) && (!!additional.infoHash || /^magnet:/i.test(String(additional.url||'')));
-              
-              // Check if Torrentio already provided a working debrid URL for additional stream
-              const hasAdditionalTorrentioDebridUrl = additional.autostreamOrigin === 'torrentio' && additionalIsHttp && 
-                                                     (additional.url.includes('torrentio.strem.fun') || additional.url.includes('debrid'));
-              
-              if (hasAdditionalTorrentioDebridUrl) {
-                // Use Torrentio's pre-converted debrid URL (no conversion needed)
-                log(`✅ Using Torrentio's pre-converted debrid URL for additional stream ${additional.infoHash?.substring(0,8)}...`);
-                additional._debrid = true; 
-                additional._isDebrid = true;
-                // Keep additional.url as-is (Torrentio's working debrid URL)
-              } else {
-                // Convert using our own debrid integration (for TPB streams or non-debrid Torrentio streams)
-                log(`🔄 Converting additional ${additional.autostreamOrigin} stream to ${primaryProvider.provider.name} URL for ${additional.infoHash?.substring(0,8)}...`);
-                // CRITICAL: Mark as debrid stream (was missing - caused 1080p loading issues)
-                additional._debrid = true;
-                additional._isDebrid = true;
-                
-                additional.url = buildPlayUrl({
-                  ih: additional.infoHash,
-                  magnet: additionalIsMagnetish ? additional.url : '',
-                  idx: (typeof additional.fileIdx === 'number' ? additional.fileIdx : 0),
-                  imdb: id
-                }, { 
-                  origin: originBase, 
-                  ad: effectiveAdParam,
-                  provider: effectiveDebridProvider,
-                  token: effectiveDebridToken
-                });
-                
-                // SECURITY: Ensure no magnet URLs leak in additional stream
-                if (!additional.url || /^magnet:/i.test(additional.url)) {
-                  log(`⚠️ SECURITY WARNING: Failed to convert additional stream to debrid URL for ${additional.infoHash?.substring(0,8)}...`);
-                  additional = null; // Remove the additional stream rather than serving raw magnet
-                }
-              }
+            // Process additional stream same way as primary was processed
+            if (effectiveAdParam && (additional.autostreamOrigin === 'torrentio' || additional.autostreamOrigin === 'tpb') && additional.infoHash) {
+              additional.url = buildPlayUrl({
+                ih: additional.infoHash,
+                magnet: additional.url && /^magnet:/i.test(additional.url) ? additional.url : '',
+                idx: (typeof additional.fileIdx === 'number' ? additional.fileIdx : 0),
+                imdb: id
+              }, { origin: originBase, ad: effectiveAdParam });
             }
             
             // Finalize additional stream
