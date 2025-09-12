@@ -1,0 +1,261 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>AutoStream Configuration</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<style>
+  *,*::before,*::after{box-sizing:border-box}
+  :root{
+    --bg:#0A0F1C;
+    --card:#161737;
+    --fg:#EEF1F7;
+    --muted:#5F67AD;
+    --preview:#5A5F8F;
+    --box:#0E0B1F;
+    --primary:#3926A6;
+    --border:rgba(255,255,255,.08);
+    --shadow:0 28px 96px rgba(0,0,0,.46);
+    --radius:26px;
+    --ctl-h:50px;
+    --pill-h: var(--ctl-h);
+    --pill-gap:10px;
+  }
+  html,body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.55 ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,"Helvetica Neue",Arial,"Noto Sans",sans-serif;}
+  .wrap{max-width:1360px;margin:56px auto;padding:0 32px;}
+  .card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow);padding:48px;}
+  h1{font-weight:800;font-size:38px;letter-spacing:.2px;margin:0 0 18px;text-align:center;}
+  .subtle{color:var(--muted);text-align:center;margin:-2px 0 34px;}
+  /* two independent columns */
+  .columns{display:grid;grid-template-columns:1fr 1fr;gap:56px;align-items:start}
+  @media (max-width: 1080px){ .columns{grid-template-columns:1fr;gap:28px} }
+  .stack{display:grid;grid-template-columns:1fr;row-gap:22px}
+  label{display:block;font-weight:600;font-size:15px;margin:0 0 8px;}
+  .section-title{font-weight:600;font-size:15px;margin:2px 0 8px;}
+  .control{width:100%;background:var(--box);color:var(--fg);border:1px solid transparent;border-radius:16px;padding:0 16px;height:var(--ctl-h);line-height:calc(var(--ctl-h) - 2px);outline:none;}
+  .control:focus{box-shadow:0 0 0 2px rgba(57,38,166,.35);border-color:var(--primary)}
+  select.control{appearance:none;background-image:linear-gradient(45deg,transparent 50%, var(--preview) 50%),linear-gradient(135deg, var(--preview) 50%, transparent 50%);background-position:calc(100% - 16px) 50%, calc(100% - 11px) 50%;background-size:6px 6px,6px 6px;background-repeat:no-repeat;padding-right:44px}
+  .help{color:var(--muted);font-size:13px;margin-top:8px;line-height:1.45}
+  input::placeholder, textarea::placeholder{color:var(--preview);opacity:1}
+  input::-ms-input-placeholder{color:var(--preview)}
+  input::-webkit-input-placeholder{color:var(--preview)}
+  .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;border-radius:18px;border:2px solid transparent;padding:14px 18px;min-width:220px;cursor:pointer;text-decoration:none;color:var(--fg);transition:transform .05s ease, box-shadow .2s ease, background .2s ease, border .2s ease;}
+  .btn:active{transform:translateY(1px)}
+  .btn-primary{background:var(--primary);border-color:var(--primary)}
+  .btn-primary:hover{box-shadow:0 12px 38px rgba(57,38,166,.35)}
+  .btn-outline{background:transparent;border-color:var(--primary);color:var(--fg)}
+  .btn-outline:hover{background:rgba(57,38,166,.08)}
+  .btn-sm{min-width:auto;padding:8px 14px;border-radius:12px;border-width:1px;height:40px}
+  .toggle-box{display:flex;align-items:center;gap:12px;background:var(--box);border:1px solid transparent;border-radius:16px;padding:12px 16px;height:var(--ctl-h);cursor:pointer;user-select:none}
+  .toggle-box:hover{border-color:transparent}
+  /* Penalty UI improvements */
+  .penalty-controls{background:var(--box);border-radius:12px;padding:16px;border:1px solid var(--border);}
+  .penalty-controls .btn{white-space:nowrap;}
+  #penaltyDisplay div{animation:fadeIn 0.3s ease-in;}
+  @keyframes fadeIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+  .toggle-box input{transform:scale(1.1)}
+  .toggle-box .label{font-weight:600}
+  .size-row{display:grid;grid-template-columns:1fr 200px;gap:var(--pill-gap)}
+  @media (max-width: 640px){ .size-row{grid-template-columns:1fr} }
+  .lang-controls{display:grid;grid-template-columns:1fr auto auto;gap:var(--pill-gap);align-items:center}
+  .lang-grid{display:grid;gap:var(--pill-gap);margin-top:10px;min-height:calc(2*var(--pill-h) + var(--pill-gap))}
+  .lang-grid.one{grid-template-columns:repeat(3, 1fr)}
+  .lang-grid.two{grid-template-columns:repeat(3, 1fr)}
+  .pill{display:flex;align-items:center;background:var(--box);border:1px solid transparent;border-radius:16px;height:var(--pill-h);padding:0 12px;width:100%;overflow:hidden}
+  .pill .num{display:inline-flex;align-items:center;justify-content:center;background:transparent;border:1px solid transparent;width:24px;height:24px;border-radius:8px;margin-right:10px;opacity:1;font-size:12px;color:var(--fg)}
+  .pill .txt{font-weight:600;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .pill .handle{opacity:.55;user-select:none;font-size:18px;letter-spacing:1px;margin-left:auto;padding-left:12px;color:var(--preview) !important}
+  .pill .handle.remove{opacity:.8;cursor:pointer;font-size:16px;color:#f44336 !important;border-radius:50%;width:20px;height:20px;display:flex;align-items:center;justify-content:center;transition:all 0.2s ease}
+  .pill .handle.remove:hover{background:rgba(244,67,54,0.1);transform:scale(1.1)}
+  .pill[draggable="true"]{cursor:grab}
+  .pill.dragging{opacity:.75;border-color:rgba(124,110,255,.5)}
+  .buttons{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:32px}
+  @media (max-width: 720px){ .buttons{grid-template-columns:1fr} }
+  code.inline{background:rgba(255,255,255,.06);border:1px solid var(--border);padding:6px 12px;border-radius:8px;font-size:12px;color:var(--preview);display:block;word-break:break-all;line-height:1.4;min-height:calc(2 * 1.4em);white-space:pre-wrap;overflow-wrap:anywhere}
+  .footline{display:flex;justify-content:space-between;align-items:flex-start;gap:var(--pill-gap);flex-wrap:wrap;margin-top:16px}
+  .manifest-container{flex: 1;min-width:0}
+  .manifest-label{color:var(--muted);font-size:14px;margin-bottom:8px;font-weight:500}
+  .hidden{display:none !important}
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <h1>AutoStream Configuration</h1>
+      <p class="subtle">Choose preferences and click <b>Install</b>. Debrid optional. Nuvio optional.</p>
+
+      <div class="columns">
+        <!-- LEFT COLUMN -->
+        <div class="stack">
+          <div>
+            <label>Debrid Provider (Optional)</label>
+            <select id="provider" class="control">
+              <option value="">None</option>
+              <option value="realdebrid">RealDebrid (RD)</option>
+              <option value="alldebrid">AllDebrid (AD)</option>
+              <option value="premiumize">Premiumize (PM)</option>
+              <option value="easydebrid">EasyDebrid (ED)</option>
+              <option value="debridlink">DebridLink (DL)</option>
+              <option value="torbox">TorBox (TB)</option>
+              <option value="offcloud">Offcloud (OC)</option>
+              <option value="putio">Put.io (Putio)</option>
+            </select>
+          </div>
+
+          <div>
+            <label>Video Size Limit</label>
+            <div class="size-row">
+              <select id="sizePreset" class="control"></select>
+              <input id="sizeCustom" class="control" type="number" min="0" step="0.1" placeholder="Custom GB" />
+            </div>
+            <div class="help">Choose a preset or enter a custom GB value. Set to <b>Unlimited</b> to disable.</div>
+          </div>
+
+          <div>
+            <div class="section-title">Additional Customisation</div>
+            <div id="toggleFallback" class="toggle-box" role="button" tabindex="0" aria-pressed="false">
+              <input id="fallback1080" type="checkbox" />
+              <div class="label">Include an additional stream option?</div>
+            </div>
+            <div class="help">If enabled, you will always see an additional stream alongside the “best” stream. Usually this will be 1080p and if 1080 is not available it will look for second best.</div>
+          </div>
+
+          <div>
+            <div id="toggleNuvio" class="toggle-box" role="button" tabindex="0" aria-pressed="false">
+              <input id="nuvioEnabled" type="checkbox" />
+              <div class="label">Activate Nuvio?</div>
+            </div>
+            <div class="help">Nuvio is an additional stream source (like Torrentio, TPB+), but instead of using torrents, it is fetching from direct streams. It is more likely to break, but the addon has accounted for any breaking, it is here for those who don't want it on.</div>
+          </div>
+
+          <!-- Hidden but functional cookie conservation option -->
+          <div class="hidden">
+            <div id="toggleConserveCookie" class="toggle-box" role="button" tabindex="0" aria-pressed="true">
+              <input id="conserveCookie" type="checkbox" checked />
+              <div class="label">Conserve Cookie Data?</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- RIGHT COLUMN -->
+        <div class="stack">
+          <div>
+            <label>Debrid API Key</label>
+            <input id="apikey" class="control" type="text" placeholder="Only required when a provider is selected." />
+            
+          </div>
+
+          <div>
+            <label>Priority Languages</label>
+            <div class="lang-controls">
+              <select id="langPicker" class="control"></select>
+              <button class="btn btn-sm btn-outline" id="langAdd" type="button">Add</button>
+              <button class="btn btn-sm btn-outline" id="langClear" type="button">Clear</button>
+            </div>
+            <div class="help">Order matters: items on top are preferred first. Drag to reorder. <span class="muted">(Max 6)</span></div>
+            <div id="langPills" class="lang-grid one"></div>
+          </div>
+
+          <div id="cookieSection">
+            <label>Personal Cookie (Optional)</label>
+            <input id="nuvioCookie" class="control" type="text" placeholder="Paste FebBox/ShowBox cookie or token" />
+            <div class="help">Without personalization, you'll share cookies with other addon users, which can exhaust the 100GB quota quickly and result in slow streams. When not using a personal cookie, Nuvio streams are limited to sizes below 9GB.</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="buttons">
+        <a id="installApp" class="btn btn-primary" style="width:100%">Install to Stremio</a>
+        <a id="installWeb" class="btn btn-outline" style="width:100%">Install to Web</a>
+      </div>
+
+      <div class="footline">
+        <div class="manifest-container">
+          <div class="manifest-label">Manifest URL:</div>
+          <code id="manifestUrl" class="inline"></code>
+        </div>
+      </div>
+    </div>
+
+    <!-- Separate Blacklist Section -->
+    <div class="card" style="margin-top: 32px;">
+      <h2 style="font-weight: 700; font-size: 24px; margin: 0 0 8px; color: var(--fg);">Blacklist</h2>
+      <p style="margin: 0 0 16px; font-size: 14px; color: var(--muted); text-align: left;">Exclude streams containing these terms. Order doesn't matter - any matching stream will be filtered out. <span class="muted">(Max 10)</span></p>
+      
+      <div id="blacklistSection">
+        <div class="lang-controls">
+          <select id="blacklistPicker" class="control">
+            <option value="">Select items to exclude...</option>
+            <optgroup label="Resolution">
+              <option value="4K">4K / 2160p</option>
+              <option value="1080p">1080p</option>
+              <option value="720p">720p</option>
+              <option value="480p">480p</option>
+            </optgroup>
+            <optgroup label="Audio & Video">
+              <option value="Dolby">Dolby (Vision/Atmos)</option>
+              <option value="HDR">HDR</option>
+              <option value="DV">DV (Dolby Vision)</option>
+              <option value="Atmos">Atmos</option>
+              <option value="TrueHD">TrueHD</option>
+              <option value="DTS">DTS</option>
+            </optgroup>
+            <optgroup label="Source Quality">
+              <option value="CAM">CAM</option>
+              <option value="TS">TS (Telesync)</option>
+              <option value="TC">TC (Telecine)</option>
+              <option value="HDTS">HDTS</option>
+              <option value="HDTC">HDTC</option>
+              <option value="WEBRip">WEBRip</option>
+              <option value="WEB-DL">WEB-DL</option>
+              <option value="BluRay">BluRay</option>
+              <option value="REMUX">REMUX</option>
+            </optgroup>
+            <optgroup label="Codec">
+              <option value="x264">x264</option>
+              <option value="x265">x265</option>
+              <option value="AV1">AV1</option>
+              <option value="HEVC">HEVC</option>
+              <option value="H.264">H.264</option>
+              <option value="H.265">H.265</option>
+            </optgroup>
+            <optgroup label="Torrent Sources">
+              <option value="1337x">1337x</option>
+              <option value="YTS">YTS</option>
+              <option value="EZTV">EZTV</option>
+              <option value="RARBG">RARBG</option>
+              <option value="TorrentGalaxy">TorrentGalaxy</option>
+              <option value="Nyaa">Nyaa</option>
+              <option value="LimeTorrents">LimeTorrents</option>
+              <option value="Torrentz2">Torrentz2</option>
+              <option value="Pirate Bay">Pirate Bay</option>
+              <option value="TPB">TPB</option>
+              <option value="Torrent">Torrent</option>
+              <option value="Rutor">Rutor</option>
+              <option value="ilCorSaRo">ilCorSaRo</option>
+              <option value="Best1000">Best1000</option>
+              <option value="MeGusta">MeGusta</option>
+              <option value="AMZN">AMZN</option>
+            </optgroup>
+            <optgroup label="Release Groups">
+              <option value="YIFY">YIFY</option>
+              <option value="FGT">FGT</option>
+              <option value="PSA">PSA</option>
+              <option value="CMRG">CMRG</option>
+              <option value="SPARKS">SPARKS</option>
+              <option value="DEFLATE">DEFLATE</option>
+              <option value="ION10">ION10</option>
+              <option value="STUTTERSHIT">STUTTERSHIT</option>
+            </optgroup>
+          </select>
+          <button class="btn btn-sm btn-outline" id="blacklistAdd" type="button">Add</button>
+          <button class="btn btn-sm btn-outline" id="blacklistClear" type="button">Clear</button>
+        </div>
+        <div id="blacklistPills" class="lang-grid one" style="margin-top: 16px;"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- INLINE_SCRIPT -->
+</body>
+</html>
