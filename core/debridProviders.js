@@ -17,7 +17,7 @@ const DEBRID_PROVIDERS = {
     name: 'AllDebrid',
     shortName: 'AD',
     apiBaseUrl: 'https://api.alldebrid.com/v4',  // Confirmed v4 works
-    authMethod: 'agent',  // AllDebrid uses agent= parameter, not Bearer
+    authHeader: 'Bearer',  // AllDebrid DOES use Authorization Bearer headers
     headers: {
       'User-Agent': 'AutoStream/3.0'  // Required for hosting providers
     },

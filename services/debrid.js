@@ -316,7 +316,7 @@ async function providerAwareAllDebridApiCall(endpoint, options = {}, timeout = 1
       throw new Error('AllDebrid provider not found in configuration');
     }
     
-    // Construct URL using provider base URL
+    // Construct URL using provider base URL (no API key in URL)
     const url = endpoint.startsWith('http') 
       ? endpoint 
       : `${provider.apiBaseUrl}/${endpoint.replace(/^\//, '')}`;
@@ -326,12 +326,13 @@ async function providerAwareAllDebridApiCall(endpoint, options = {}, timeout = 1
     // Basic rate limiting check
     await debridRateLimiter.checkRateLimit(apiKey);
     
-    // Use provider-specific headers
+    // Use provider-specific headers with proper Authorization
     const finalInit = { 
       method: 'GET',
       ...options,
       headers: {
         ...provider.headers,  // Use provider headers from config
+        'Authorization': `${provider.authHeader} ${apiKey}`,  // FIXED: Add Authorization header
         ...(options.headers || {})
       }
     };
@@ -620,7 +621,7 @@ async function handlePlay(req, res, defaults = {}) {
       const uploadUrl = 'https://api.alldebrid.com/v4/magnet/upload?apikey=' + encodeURIComponent(adKey) + '&magnets[]=' + encodeURIComponent(magnet);
       
       // SECURE FIX: Use AllDebrid-specific wrapper that maintains security but removes aggressive patterns
-      const up = await providerAwareAllDebridApiCall(`magnet/upload?agent=${adKey}&magnet=${encodeURIComponent(magnet)}`, { method: 'GET' }, 15000, adKey);
+      const up = await providerAwareAllDebridApiCall(`magnet/upload?magnet=${encodeURIComponent(magnet)}`, { method: 'GET' }, 15000, adKey);
       
       if (isFirstRequest) {
         log('Upload response status: ' + up.status, 'verbose');
@@ -688,7 +689,7 @@ async function handlePlay(req, res, defaults = {}) {
         const statusUrl = 'https://api.alldebrid.com/v4/magnet/status?apikey=' + encodeURIComponent(adKey) + '&id=' + encodeURIComponent(ih || magnet);
         
         // SECURE FIX: Use AllDebrid-specific wrapper
-        const st = await providerAwareAllDebridApiCall(`magnet/status?agent=${adKey}&id=${magnetId}`, { method: 'GET' }, 15000, adKey);
+        const st = await providerAwareAllDebridApiCall(`magnet/status?id=${magnetId}`, { method: 'GET' }, 15000, adKey);
         const sj = await jsonSafe(st);
         
         log('Status response: status=' + st.status + ', ok=' + st.ok, 'verbose');
@@ -806,7 +807,7 @@ async function handlePlay(req, res, defaults = {}) {
         // Additional check: only call Files API for Ready torrents to prevent errors
         try {
           const statusUrl = 'https://api.alldebrid.com/v4/magnet/status?apikey=' + encodeURIComponent(adKey) + '&id=' + encodeURIComponent(ih || magnet);
-          const st = await safeDebridApiCall(statusUrl, { method: 'GET' }, 5000, adKey);
+          const st = await providerAwareAllDebridApiCall(`magnet/status?id=${encodeURIComponent(ih || magnet)}`, { method: 'GET' }, 5000, adKey);
           const sj = await jsonSafe(st);
           
           if (sj && sj.status === 'success' && sj.data && Array.isArray(sj.data.magnets)) {
@@ -820,7 +821,7 @@ async function handlePlay(req, res, defaults = {}) {
               const filesUrl = 'https://api.alldebrid.com/v4/magnet/files?apikey=' + encodeURIComponent(adKey) + '&id=' + encodeURIComponent(magnetId);
               
               // SECURE FIX: Use AllDebrid-specific wrapper
-              const f = await providerAwareAllDebridApiCall(`magnet/files?agent=${adKey}&id=${magnetId}`, { method: 'GET' }, 15000, adKey);
+              const f = await providerAwareAllDebridApiCall(`magnet/files?id=${magnetId}`, { method: 'GET' }, 15000, adKey);
               const fj = await jsonSafe(f);
               
               log('Files API response (with ID): status=' + f.status + ', ok=' + f.ok + ', body=' + JSON.stringify(sanitizeResponseForLogging(fj)));
@@ -967,7 +968,7 @@ async function handlePlay(req, res, defaults = {}) {
       const unlockUrl = 'https://api.alldebrid.com/v4/link/unlock?apikey=' + encodeURIComponent(adKey) + '&link=' + encodeURIComponent(chosen.link);
       
       // SECURE FIX: Use AllDebrid-specific wrapper
-      const unl = await providerAwareAllDebridApiCall(`link/unlock?agent=${adKey}&link=${encodeURIComponent(directUrl)}`, { method: 'GET' }, 15000, adKey);
+      const unl = await providerAwareAllDebridApiCall(`link/unlock?link=${encodeURIComponent(chosen.link)}`, { method: 'GET' }, 15000, adKey);
       const uj = await jsonSafe(unl);
       
       log('Unlock response: status=' + unl.status + ', ok=' + unl.ok + ', body=' + JSON.stringify(sanitizeResponseForLogging(uj)));
