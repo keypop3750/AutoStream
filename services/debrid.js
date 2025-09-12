@@ -225,7 +225,7 @@ function sanitizeResponseForLogging(responseData) {
     try {
       const uploadUrl = 'https://api.alldebrid.com/v4/magnet/upload?apikey=' + encodeURIComponent(adKey) + '&magnets[]=' + encodeURIComponent(magnet);
       const up = await safeAllDebridApiCall(uploadUrl, { method: 'GET' }, 10000, adKey);
-      const uploadResult = await jsonSafe(up);
+      const uploadResult = await jsonSafe(deup);
       log('Upload result: ' + (uploadResult?.status || 'unknown'));
     } catch (e) {
       log('Upload error (non-fatal): ' + e.message);
