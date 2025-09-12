@@ -27,6 +27,9 @@
     });
   }
 })();
+// CRITICAL FIX: Import universal provider system
+const debridProviders = require('../core/debridProviders');
+
 
 // CRITICAL FIX: Headers required for hosting providers (Render, etc.) to avoid NO_SERVER error
 // Use simple client-like User-Agent that matches old working AutoStream version
@@ -304,6 +307,61 @@ async function safeDebridApiCall(url, init, timeout, apiKey, retries = 2) {
   }
 }
 
+// FIXED: Provider-aware AllDebrid API calls using universal system
+async function providerAwareAllDebridApiCall(endpoint, options = {}, timeout = 15000, apiKey) {
+  try {
+    // Get AllDebrid provider configuration
+    const provider = debridProviders.getProvider('alldebrid');
+    if (!provider) {
+      throw new Error('AllDebrid provider not found in configuration');
+    }
+    
+    // Construct URL using provider base URL
+    const url = endpoint.startsWith('http') 
+      ? endpoint 
+      : `${provider.apiBaseUrl}/${endpoint.replace(/^\//, '')}`;
+    
+    console.log(`[PROVIDER-AWARE] AllDebrid API call: ${url}`);
+    
+    // Basic rate limiting check
+    await debridRateLimiter.checkRateLimit(apiKey);
+    
+    // Use provider-specific headers
+    const finalInit = { 
+      method: 'GET',
+      ...options,
+      headers: {
+        ...provider.headers,  // Use provider headers from config
+        ...(options.headers || {})
+      }
+    };
+    
+    // Single attempt with provider configuration  
+    const response = await fetchWithTimeout(url, finalInit, timeout);
+    
+    // Handle rate limiting
+    if (response.status === 429) {
+      const retryAfter = response.headers.get('retry-after') || '60';
+      throw new Error(`Rate limited by AllDebrid API. Retry after ${retryAfter} seconds.`);
+    }
+    
+    // Record success for non-error responses
+    if (response.status >= 200 && response.status < 500) {
+      debridCircuitBreaker.recordSuccess(apiKey);
+    }
+    
+    return response;
+    
+  } catch (error) {
+    // Only record network/server failures, not API error responses
+    if (error.message.includes('fetch') || error.message.includes('timeout') || error.message.includes('network')) {
+      debridCircuitBreaker.recordFailure(apiKey);
+    }
+    console.error(`[PROVIDER-AWARE] AllDebrid API error: ${error.message}`);
+    throw error;
+  }
+}
+
 function discoverADKey(params, defaults, headers) {
   const usp = params instanceof URLSearchParams ? params : new URLSearchParams(params || {});
   const get = (k)=> (usp.get(k) || '').trim();
@@ -560,7 +618,9 @@ async function handlePlay(req, res, defaults = {}) {
     let uploadSuccess = false;
     try {
       const uploadUrl = 'https://api.alldebrid.com/v4/magnet/upload?apikey=' + encodeURIComponent(adKey) + '&magnets[]=' + encodeURIComponent(magnet);
-      const up = await safeDebridApiCall(uploadUrl, { method: 'GET' }, 10000, adKey);
+      
+      // SECURE FIX: Use AllDebrid-specific wrapper that maintains security but removes aggressive patterns
+      const up = await providerAwareAllDebridApiCall(`magnet/upload?agent=${adKey}&magnet=${encodeURIComponent(magnet)}`, { method: 'GET' }, 15000, adKey);
       
       if (isFirstRequest) {
         log('Upload response status: ' + up.status, 'verbose');
@@ -626,7 +686,9 @@ async function handlePlay(req, res, defaults = {}) {
       if (isFirstRequest && i === 0) log(`Polling for files...`);
       try {
         const statusUrl = 'https://api.alldebrid.com/v4/magnet/status?apikey=' + encodeURIComponent(adKey) + '&id=' + encodeURIComponent(ih || magnet);
-        const st = await safeDebridApiCall(statusUrl, { method: 'GET' }, 10000, adKey);
+        
+        // SECURE FIX: Use AllDebrid-specific wrapper
+        const st = await providerAwareAllDebridApiCall(`magnet/status?agent=${adKey}&id=${magnetId}`, { method: 'GET' }, 15000, adKey);
         const sj = await jsonSafe(st);
         
         log('Status response: status=' + st.status + ', ok=' + st.ok, 'verbose');
@@ -756,7 +818,9 @@ async function handlePlay(req, res, defaults = {}) {
             // Only call Files API if torrent is actually Ready
             if (matchingMagnet && matchingMagnet.status === 'Ready') {
               const filesUrl = 'https://api.alldebrid.com/v4/magnet/files?apikey=' + encodeURIComponent(adKey) + '&id=' + encodeURIComponent(magnetId);
-              const f = await safeDebridApiCall(filesUrl, { method: 'GET' }, 10000, adKey);
+              
+              // SECURE FIX: Use AllDebrid-specific wrapper
+              const f = await providerAwareAllDebridApiCall(`magnet/files?agent=${adKey}&id=${magnetId}`, { method: 'GET' }, 15000, adKey);
               const fj = await jsonSafe(f);
               
               log('Files API response (with ID): status=' + f.status + ', ok=' + f.ok + ', body=' + JSON.stringify(sanitizeResponseForLogging(fj)));
@@ -901,7 +965,9 @@ async function handlePlay(req, res, defaults = {}) {
     let finalUrl = chosen.link;
     try {
       const unlockUrl = 'https://api.alldebrid.com/v4/link/unlock?apikey=' + encodeURIComponent(adKey) + '&link=' + encodeURIComponent(chosen.link);
-      const unl = await safeDebridApiCall(unlockUrl, { method: 'GET' }, 10000, adKey);
+      
+      // SECURE FIX: Use AllDebrid-specific wrapper
+      const unl = await providerAwareAllDebridApiCall(`link/unlock?agent=${adKey}&link=${encodeURIComponent(directUrl)}`, { method: 'GET' }, 15000, adKey);
       const uj = await jsonSafe(unl);
       
       log('Unlock response: status=' + unl.status + ', ok=' + unl.ok + ', body=' + JSON.stringify(sanitizeResponseForLogging(uj)));
