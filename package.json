@@ -6,6 +6,7 @@
     "start": "node server.js"
   },
   "dependencies": {
+    "all-debrid-api": "^1.2.0",
     "axios": "^1.11.0"
   }
 }

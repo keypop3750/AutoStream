@@ -1,6 +1,9 @@
 
 'use strict';
 
+// Import AllDebrid API client (same as Torrentio)
+const AllDebridClient = require('all-debrid-api'); 
+
 // SECURITY: Check for dangerous environment variables and refuse to use them
 (function securityCheck() {
   const dangerousEnvVars = [
@@ -244,68 +247,32 @@ catch {
   };
 }
 
-// Defensive wrapper for debrid API calls
-async function safeDebridApiCall(url, init, timeout, apiKey, retries = 2) {
-  for (let attempt = 0; attempt <= retries; attempt++) {
-    try {
-      // Add jitter to reduce thundering herd
-      if (attempt > 0) {
-        const jitter = Math.random() * 1000 * attempt; // Progressive backoff with jitter
-        await new Promise(resolve => setTimeout(resolve, jitter));
-      }
-      
-      // CRITICAL FIX: Add browser-like headers to avoid NO_SERVER error
-      const headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'application/json, text/plain, */*',
-        'Accept-Language': 'en-US,en;q=0.9',
-        'Accept-Encoding': 'gzip, deflate, br',
-        'DNT': '1',
-        'Connection': 'keep-alive',
-        'Sec-Fetch-Dest': 'empty',
-        'Sec-Fetch-Mode': 'cors',
-        'Sec-Fetch-Site': 'cross-site',
-        ...((init && init.headers) || {})
-      };
-      
-      const enhancedInit = {
-        ...init,
-        headers
-      };
-      
-      const response = await fetchWithTimeout(url, enhancedInit, timeout);
-      
-      // Check for rate limiting
-      if (response.status === 429) {
-        debridCircuitBreaker.recordFailure(apiKey);
-        const retryAfter = response.headers.get('retry-after') || '60';
-        throw new Error(`Rate limited by debrid API. Retry after ${retryAfter} seconds.`);
-      }
-      
-      // Check for other errors
-      if (!response.ok && response.status >= 500) {
-        throw new Error(`Debrid API server error: ${response.status} ${response.statusText}`);
-      }
-      
-      debridCircuitBreaker.recordSuccess(apiKey);
-      return response;
-      
-    } catch (error) {
-      debridCircuitBreaker.recordFailure(apiKey);
-      
-      // Don't retry on certain errors
-      if (error.message.includes('Rate limited') || 
-          error.message.includes('circuit breaker') ||
-          (error.response && error.response.status < 500)) {
-        throw error;
-      }
-      
-      // Retry on network errors and 5xx errors
-      if (attempt === retries) {
-        throw new Error(`Debrid API call failed after ${retries + 1} attempts: ${error.message}`);
-      }
-    }
+// Get default options for AllDebrid client (exactly like Torrentio)
+async function getDefaultOptions(ip) {
+  return { ip, base_agent: 'autostream', timeout: 10000 };
+}
+
+// Create AllDebrid client (exactly like Torrentio)
+async function createAllDebridClient(apiKey, ip) {
+  const options = await getDefaultOptions(ip);
+  return new AllDebridClient(apiKey, options);
+}
+
+// Convert AllDebrid errors to our error format (like Torrentio)
+function toCommonError(error) {
+  if (error && error.code === 'AUTH_BAD_APIKEY') {
+    return { permanent: true, code: 'AUTH_BAD_APIKEY', message: 'Invalid API key' };
   }
+  if (error && error.code === 'AUTH_USER_BANNED') {
+    return { permanent: true, code: 'AUTH_USER_BANNED', message: 'User banned' };
+  }
+  if (error && error.code === 'AUTH_BLOCKED') {
+    return { permanent: true, code: 'AUTH_BLOCKED', message: 'Access blocked' };
+  }
+  if (error && error.code === 'NO_SERVER') {
+    return { permanent: true, code: 'NO_SERVER', message: 'AllDebrid service error' };
+  }
+  return undefined;
 }
 
 function discoverADKey(params, defaults, headers) {
@@ -327,7 +294,7 @@ function buildPlayUrl(meta, { origin, ad }) {
   return u.toString();
 }
 
-async function jsonSafe(res){ try{ return await res.json(); } catch{ return null; } }
+// jsonSafe function removed - no longer needed with AllDebrid API client
 const sleep = (ms)=> new Promise(r=>setTimeout(r, ms));
 
 // Simple cache to avoid re-resolving the same magnet multiple times
@@ -559,15 +526,14 @@ async function handlePlay(req, res, defaults = {}) {
       if (imdb) log('  IMDB: ' + imdb, 'verbose');
     }
 
-    // 1) Check instant availability first (critical optimization)
+    // 1) Check instant availability first (critical optimization) - using AllDebrid API client
     if (isFirstRequest) log('Step 1: Checking instant availability...');
     let instantFiles = [];
     try {
-      const instantUrl = 'https://api.alldebrid.com/v4/magnet/instant?apikey=' + encodeURIComponent(adKey) + '&magnets[]=' + encodeURIComponent(magnet);
-      const instant = await safeDebridApiCall(instantUrl, { method: 'GET' }, 10000, adKey);
-      const instantResult = await jsonSafe(instant);
+      const AD = await createAllDebridClient(adKey, req.ip || req.connection.remoteAddress);
+      const instantResult = await AD.magnet.instant([magnet]);
       
-      if (instantResult && instantResult.status === 'success' && instantResult.data && instantResult.data.magnets) {
+      if (instantResult && instantResult.data && instantResult.data.magnets) {
         const magnetData = instantResult.data.magnets[0]; // First (and only) magnet
         if (magnetData && magnetData.instant === true && magnetData.files && magnetData.files.length > 0) {
           if (isFirstRequest) log('✅ Files are instantly available! Skipping upload.');
@@ -607,22 +573,27 @@ async function handlePlay(req, res, defaults = {}) {
       if (isFirstRequest) log('⏳ Files not instantly available, proceeding with upload...');
     } catch (e) {
       if (isFirstRequest) log('⚠️ Instant availability check failed: ' + e.message);
-      // Continue with upload if instant check fails
+      // Check for permanent errors from AllDebrid API
+      const commonError = toCommonError(e);
+      if (commonError && commonError.permanent) {
+        if (isFirstRequest) log('❌ Permanent error during instant check: ' + commonError.code);
+        res.writeHead(400, {'Content-Type':'application/json'});
+        return res.end(JSON.stringify({ 
+          ok: false, 
+          error: commonError.code,
+          message: commonError.message,
+          permanent: true 
+        }));
+      }
+      // Continue with upload if instant check fails with non-permanent error
     }
 
-    // 2) Upload magnet (only if not instantly available)
+    // 2) Upload magnet (only if not instantly available) - using AllDebrid API client
     if (isFirstRequest) log('Step 2: Uploading magnet to AllDebrid...');
     let uploadSuccess = false;
     try {
-      const uploadUrl = 'https://api.alldebrid.com/v4/magnet/upload?apikey=' + encodeURIComponent(adKey) + '&magnets[]=' + encodeURIComponent(magnet);
-      const up = await safeDebridApiCall(uploadUrl, { method: 'GET' }, 10000, adKey);
-      
-      if (isFirstRequest) {
-        log('Upload response status: ' + up.status, 'verbose');
-        log('Upload response ok: ' + up.ok, 'verbose');
-      }
-      
-      const uploadResult = await jsonSafe(up);
+      const AD = await createAllDebridClient(adKey, req.ip || req.connection.remoteAddress);
+      const uploadResult = await AD.magnet.upload([magnet]);
       
       if (isFirstRequest) {
         if (uploadResult && uploadResult.status === 'success') {
@@ -632,35 +603,11 @@ async function handlePlay(req, res, defaults = {}) {
           log('Upload result: ' + (uploadResult?.status || 'failed'));
           if (uploadResult?.error) {
             log('Upload error details: ' + JSON.stringify(uploadResult.error));
-            
-            // Check for permanent upload errors
-            const errorCode = uploadResult.error.code;
-            const permanentUploadErrors = [
-              'MAGNET_MUST_BE_PREMIUM',
-              'AUTH_BLOCKED',
-              'AUTH_BAD_APIKEY', 
-              'AUTH_USER_BANNED',
-              'NO_SERVER'  // AllDebrid blocks server/VPN IPs - user needs to check their network
-            ];
-            
-            if (permanentUploadErrors.includes(errorCode)) {
-              log('❌ Permanent upload error: ' + errorCode + ' - stopping immediately');
-              res.writeHead(400, {'Content-Type':'application/json'});
-              return res.end(JSON.stringify({ 
-                ok: false, 
-                error: errorCode,
-                message: uploadResult.error.message || 'AllDebrid service error',
-                permanent: true 
-              }));
-            }
           }
           if (uploadResult?.message) {
             log('Upload message: ' + uploadResult.message);
           }
-          if (!uploadResult) {
-            log('Upload result was null/undefined - possible network issue');
-          }
-          // Log the full response for debugging on Render (SANITIZED FOR SECURITY)
+          // Log the full response for debugging (SANITIZED FOR SECURITY)
           log('Full upload response: ' + JSON.stringify(sanitizeResponseForLogging(uploadResult)));
         }
       }
@@ -669,9 +616,22 @@ async function handlePlay(req, res, defaults = {}) {
         log('Upload error (exception): ' + e.message);
         log('Upload error stack: ' + e.stack);
       }
+      
+      // Check for permanent errors from AllDebrid API
+      const commonError = toCommonError(e);
+      if (commonError && commonError.permanent) {
+        if (isFirstRequest) log('❌ Permanent upload error: ' + commonError.code + ' - stopping immediately');
+        res.writeHead(400, {'Content-Type':'application/json'});
+        return res.end(JSON.stringify({ 
+          ok: false, 
+          error: commonError.code,
+          message: commonError.message,
+          permanent: true 
+        }));
+      }
     }
 
-    // 3) poll a few times for files
+    // 3) poll a few times for files - using AllDebrid API client
     if (isFirstRequest) log('Step 3: Polling for files...');
     let files = [];
     let magnetId = null; // Store the actual magnet ID from status response
@@ -680,11 +640,10 @@ async function handlePlay(req, res, defaults = {}) {
     for (let i=0;i<6;i++){ // Increased back to 6 iterations for better handling
       if (isFirstRequest && i === 0) log(`Polling for files...`);
       try {
-        const statusUrl = 'https://api.alldebrid.com/v4/magnet/status?apikey=' + encodeURIComponent(adKey) + '&id=' + encodeURIComponent(ih || magnet);
-        const st = await safeDebridApiCall(statusUrl, { method: 'GET' }, 10000, adKey);
-        const sj = await jsonSafe(st);
+        const AD = await createAllDebridClient(adKey, req.ip || req.connection.remoteAddress);
+        const sj = await AD.magnet.status(ih || magnet);
         
-        log('Status response: status=' + st.status + ', ok=' + st.ok, 'verbose');
+        log('Status response: ' + JSON.stringify(sj), 'verbose');
         if (VERBOSE_LOGGING) {
           log('Status body: ' + JSON.stringify(sanitizeResponseForLogging(sj)), 'verbose');
         }
@@ -796,11 +755,10 @@ async function handlePlay(req, res, defaults = {}) {
       
       // Only try Files API if we have a Ready magnet - avoid "MAGNET_INVALID_ID" errors
       if (magnetId && inQueueCount === 0) {
-        // Additional check: only call Files API for Ready torrents to prevent errors
+        // Additional check: only call Files API for Ready torrents to prevent errors - using AllDebrid API client
         try {
-          const statusUrl = 'https://api.alldebrid.com/v4/magnet/status?apikey=' + encodeURIComponent(adKey) + '&id=' + encodeURIComponent(ih || magnet);
-          const st = await safeDebridApiCall(statusUrl, { method: 'GET' }, 5000, adKey);
-          const sj = await jsonSafe(st);
+          const AD2 = await createAllDebridClient(adKey, req.ip || req.connection.remoteAddress);
+          const sj = await AD2.magnet.status(ih || magnet);
           
           if (sj && sj.status === 'success' && sj.data && Array.isArray(sj.data.magnets)) {
             const targetHash = (ih || '').toLowerCase();
@@ -810,11 +768,9 @@ async function handlePlay(req, res, defaults = {}) {
             
             // Only call Files API if torrent is actually Ready
             if (matchingMagnet && matchingMagnet.status === 'Ready') {
-              const filesUrl = 'https://api.alldebrid.com/v4/magnet/files?apikey=' + encodeURIComponent(adKey) + '&id=' + encodeURIComponent(magnetId);
-              const f = await safeDebridApiCall(filesUrl, { method: 'GET' }, 10000, adKey);
-              const fj = await jsonSafe(f);
+              const fj = await AD2.magnet.files(magnetId);
               
-              log('Files API response (with ID): status=' + f.status + ', ok=' + f.ok + ', body=' + JSON.stringify(sanitizeResponseForLogging(fj)));
+              log('Files API response (with ID): ' + JSON.stringify(sanitizeResponseForLogging(fj)));
               
               if (fj && fj.status === 'success' && fj.data && Array.isArray(fj.data.files) && fj.data.files.length) { 
                 log('Found files via files API: ' + fj.data.files.length);
@@ -952,19 +908,30 @@ async function handlePlay(req, res, defaults = {}) {
 
     log('Step 4: Unlocking direct link...');
 
-    // 3) unlock direct link
+    // 3) unlock direct link - using AllDebrid API client
     let finalUrl = chosen.link;
     try {
-      const unlockUrl = 'https://api.alldebrid.com/v4/link/unlock?apikey=' + encodeURIComponent(adKey) + '&link=' + encodeURIComponent(chosen.link);
-      const unl = await safeDebridApiCall(unlockUrl, { method: 'GET' }, 10000, adKey);
-      const uj = await jsonSafe(unl);
+      const AD3 = await createAllDebridClient(adKey, req.ip || req.connection.remoteAddress);
+      const uj = await AD3.link.unlock(chosen.link);
       
-      log('Unlock response: status=' + unl.status + ', ok=' + unl.ok + ', body=' + JSON.stringify(sanitizeResponseForLogging(uj)));
+      log('Unlock response: ' + JSON.stringify(sanitizeResponseForLogging(uj)));
       
       finalUrl = (uj && uj.status === 'success' && uj.data && (uj.data.link || uj.data.download || uj.data.downloadLink)) || finalUrl;
       log('✅ Unlocked successfully, final URL length: ' + finalUrl.length);
     } catch (e) {
       log('Unlock error (non-fatal): ' + e.message + ', stack: ' + e.stack);
+      // Check for permanent errors from AllDebrid API
+      const commonError = toCommonError(e);
+      if (commonError && commonError.permanent) {
+        log('❌ Permanent unlock error: ' + commonError.code);
+        res.writeHead(400, {'Content-Type':'application/json'});
+        return res.end(JSON.stringify({ 
+          ok: false, 
+          error: commonError.code,
+          message: commonError.message,
+          permanent: true 
+        }));
+      }
     }
 
     // Cache the result for future requests
