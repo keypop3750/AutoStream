@@ -254,7 +254,26 @@ async function safeDebridApiCall(url, init, timeout, apiKey, retries = 2) {
         await new Promise(resolve => setTimeout(resolve, jitter));
       }
       
-      const response = await fetchWithTimeout(url, init, timeout);
+      // CRITICAL FIX: Add browser-like headers to avoid NO_SERVER error
+      const headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'application/json, text/plain, */*',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'DNT': '1',
+        'Connection': 'keep-alive',
+        'Sec-Fetch-Dest': 'empty',
+        'Sec-Fetch-Mode': 'cors',
+        'Sec-Fetch-Site': 'cross-site',
+        ...((init && init.headers) || {})
+      };
+      
+      const enhancedInit = {
+        ...init,
+        headers
+      };
+      
+      const response = await fetchWithTimeout(url, enhancedInit, timeout);
       
       // Check for rate limiting
       if (response.status === 429) {
