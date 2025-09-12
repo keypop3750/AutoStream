@@ -511,6 +511,12 @@ function __finalize(list, { nuvioCookie, labelOrigin }, req, actualDeviceType = 
     // First try existing URLs
     s.url = s.url || s.externalUrl || s.link || (s.sources && s.sources[0] && s.sources[0].url) || '';
     
+    // CRITICAL FIX: Preserve debrid flags for ALL streams (not just InfoHash streams)
+    if (s._debrid || s._isDebrid) {
+      s._isDebrid = true;
+      s._debrid = true;
+    }
+    
     // Torrentio-style stream handling: debrid streams get /play URLs, non-debrid get infoHash only
     if (s.infoHash && (!s.url || /^magnet:/i.test(s.url))) {
       // Check if this is a debrid stream (should have a play URL by now)
@@ -523,6 +529,9 @@ function __finalize(list, { nuvioCookie, labelOrigin }, req, actualDeviceType = 
           console.warn(`[${requestId}] ⚠️ Debrid stream missing play URL: ${s.infoHash?.substring(0, 8)}...`);
         }
         // Keep the debrid play URL, don't replace with magnet
+        // IMPORTANT: Preserve debrid flags for client
+        s._isDebrid = true;
+        s._debrid = true;
       } else {
         // Non-debrid: Torrentio pattern - provide infoHash + sources, NO URL
         // Let Stremio handle the torrent internally (this works on Android TV)
@@ -977,6 +986,11 @@ function startServer(port = PORT) {
       // Simple universal device type (no TV-specific handling)
       const actualDeviceType = deviceType;
 
+      // ============ EARLY DEBRID PARAMETER EXTRACTION ============
+      // Extract AllDebrid key early for use in Torrentio queries
+      const getQ = (query, key) => query.get(key) || '';
+      const torrentioDebridKey = getQ(q, 'alldebrid_key') || getQ(q, 'ad_key') || getQ(q, 'ad') || '';
+
       // ============ DEFENSIVE CODE: REQUEST VALIDATION ============
       
       // 1. Rate limiting per IP
@@ -1094,10 +1108,18 @@ function startServer(port = PORT) {
 
       log(`🎯 Source selection - dhosts: [${dhosts.join(', ')}], nuvioEnabled: ${nuvioEnabled}, onlySource: ${onlySource}`);
 
-      // fetch sources (no debrid here) - parallel execution with timeout for faster response
+      // Build query parameters for Torrentio (pass AllDebrid key for pre-converted URLs)
+      const torrentioQuery = {};
+      if (torrentioDebridKey) {
+        // Torrentio expects 'realdebrid' parameter even for AllDebrid keys
+        torrentioQuery.realdebrid = torrentioDebridKey;
+        log(`🔄 Passing AllDebrid key to Torrentio for pre-converted URLs`);
+      }
+      
+      // fetch sources - parallel execution with timeout for faster response
       log('🚀 Fetching streams from sources...');
       const sourcePromises = [
-        (!onlySource || onlySource === 'torrentio') ? fetchTorrentioStreams(type, actualId, {}, (msg) => log('Torrentio: ' + msg, 'verbose')) : Promise.resolve([]),
+        (!onlySource || onlySource === 'torrentio') ? fetchTorrentioStreams(type, actualId, torrentioQuery, (msg) => log('Torrentio: ' + msg, 'verbose')) : Promise.resolve([]),
         (!onlySource || onlySource === 'tpb')       ? fetchTPBStreams(type, actualId, {}, (msg) => log('TPB+: ' + msg, 'verbose'))       : Promise.resolve([]),
         nuvioEnabled ? fetchNuvioStreams(type, actualId, { query: { direct: '1' }, cookie: nuvioCookie }, (msg) => log('Nuvio: ' + msg, 'verbose')) : Promise.resolve([])
       ];
@@ -1402,7 +1424,7 @@ function startServer(port = PORT) {
       }
       
       // Legacy AllDebrid parameter mapping for backward compatibility
-      const legacyAdParam = getQ(q,'ad') || getQ(q,'apikey') || getQ(q,'alldebrid') || getQ(q,'ad_apikey') || '';
+      const legacyAdParam = getQ(q,'ad') || getQ(q,'apikey') || getQ(q,'alldebrid') || getQ(q,'ad_apikey') || getQ(q,'alldebrid_key') || '';
       if (legacyAdParam && !providerConfig.alldebrid) {
         providerConfig.alldebrid = legacyAdParam;
       }
@@ -1549,27 +1571,43 @@ function startServer(port = PORT) {
           const isHttp = /^https?:/i.test(String(s.url||''));
           const isMagnetish = (!isHttp) && (!!s.infoHash || /^magnet:/i.test(String(s.url||'')));
           
-          // Only convert torrents (not nuvio streams) to debrid
-          if ((s.autostreamOrigin === 'torrentio' || s.autostreamOrigin === 'tpb') && (s.infoHash || isMagnetish)) {
-            s._debrid = true; 
-            s._isDebrid = true;
-            s.url = buildPlayUrl({
-              ih: s.infoHash || '',
-              magnet: isMagnetish ? s.url : '',
-              idx: (typeof s.fileIdx === 'number' ? s.fileIdx : 0),
-              imdb: id
-            }, { 
-              origin: originBase, 
-              ad: effectiveAdParam,
-              provider: effectiveDebridProvider,
-              token: effectiveDebridToken
-            });
+          // Check if this is a torrent that needs debrid conversion OR is already a debrid URL
+          if ((s.autostreamOrigin === 'torrentio' || s.autostreamOrigin === 'tpb') && 
+              (s.infoHash || isMagnetish || (s.autostreamOrigin === 'torrentio' && isHttp))) {
             
-            // SECURITY: Ensure no magnet URLs leak when debrid is configured
-            if (!s.url || /^magnet:/i.test(s.url)) {
-              log(`⚠️ SECURITY WARNING: Failed to convert torrent to debrid URL for ${s.infoHash?.substring(0,8)}...`);
-              // Remove the stream entirely rather than serving raw magnet
-              s._invalid = true;
+            // Check if Torrentio already provided a working debrid URL
+            const hasTorrentioDebridUrl = s.autostreamOrigin === 'torrentio' && isHttp && 
+                                         (s.url.includes('torrentio.strem.fun') || s.url.includes('debrid'));
+            
+            if (hasTorrentioDebridUrl) {
+              // Use Torrentio's pre-converted debrid URL (no conversion needed)
+              log(`✅ Using Torrentio's pre-converted debrid URL for ${s.infoHash?.substring(0,8)}...`);
+              s._debrid = true; 
+              s._isDebrid = true;
+              // Keep s.url as-is (Torrentio's working debrid URL)
+            } else {
+              // Convert using our own debrid integration (for TPB streams or non-debrid Torrentio streams)
+              log(`🔄 Converting ${s.autostreamOrigin} stream to ${primaryProvider.provider.name} URL for ${s.infoHash?.substring(0,8)}...`);
+              s._debrid = true; 
+              s._isDebrid = true;
+              s.url = buildPlayUrl({
+                ih: s.infoHash || '',
+                magnet: isMagnetish ? s.url : '',
+                idx: (typeof s.fileIdx === 'number' ? s.fileIdx : 0),
+                imdb: id
+              }, { 
+                origin: originBase, 
+                ad: effectiveAdParam,
+                provider: effectiveDebridProvider,
+                token: effectiveDebridToken
+              });
+              
+              // SECURITY: Ensure no magnet URLs leak when debrid is configured
+              if (!s.url || /^magnet:/i.test(s.url)) {
+                log(`⚠️ SECURITY WARNING: Failed to convert torrent to debrid URL for ${s.infoHash?.substring(0,8)}...`);
+                // Remove the stream entirely rather than serving raw magnet
+                s._invalid = true;
+              }
             }
           }
         }
@@ -1678,26 +1716,44 @@ function startServer(port = PORT) {
           if (additional) {
             // Process additional stream same way as primary was processed  
             if (hasDebridConfigured && (additional.autostreamOrigin === 'torrentio' || additional.autostreamOrigin === 'tpb') && additional.infoHash) {
-              // CRITICAL: Mark as debrid stream (was missing - caused 1080p loading issues)
-              additional._debrid = true;
-              additional._isDebrid = true;
               
-              additional.url = buildPlayUrl({
-                ih: additional.infoHash,
-                magnet: additional.url && /^magnet:/i.test(additional.url) ? additional.url : '',
-                idx: (typeof additional.fileIdx === 'number' ? additional.fileIdx : 0),
-                imdb: id
-              }, { 
-                origin: originBase, 
-                ad: effectiveAdParam,
-                provider: effectiveDebridProvider,
-                token: effectiveDebridToken
-              });
+              const additionalIsHttp = /^https?:/i.test(String(additional.url||''));
+              const additionalIsMagnetish = (!additionalIsHttp) && (!!additional.infoHash || /^magnet:/i.test(String(additional.url||'')));
               
-              // SECURITY: Ensure no magnet URLs leak in additional stream
-              if (!additional.url || /^magnet:/i.test(additional.url)) {
-                log(`⚠️ SECURITY WARNING: Failed to convert additional stream to debrid URL for ${additional.infoHash?.substring(0,8)}...`);
-                additional = null; // Remove the additional stream rather than serving raw magnet
+              // Check if Torrentio already provided a working debrid URL for additional stream
+              const hasAdditionalTorrentioDebridUrl = additional.autostreamOrigin === 'torrentio' && additionalIsHttp && 
+                                                     (additional.url.includes('torrentio.strem.fun') || additional.url.includes('debrid'));
+              
+              if (hasAdditionalTorrentioDebridUrl) {
+                // Use Torrentio's pre-converted debrid URL (no conversion needed)
+                log(`✅ Using Torrentio's pre-converted debrid URL for additional stream ${additional.infoHash?.substring(0,8)}...`);
+                additional._debrid = true; 
+                additional._isDebrid = true;
+                // Keep additional.url as-is (Torrentio's working debrid URL)
+              } else {
+                // Convert using our own debrid integration (for TPB streams or non-debrid Torrentio streams)
+                log(`🔄 Converting additional ${additional.autostreamOrigin} stream to ${primaryProvider.provider.name} URL for ${additional.infoHash?.substring(0,8)}...`);
+                // CRITICAL: Mark as debrid stream (was missing - caused 1080p loading issues)
+                additional._debrid = true;
+                additional._isDebrid = true;
+                
+                additional.url = buildPlayUrl({
+                  ih: additional.infoHash,
+                  magnet: additionalIsMagnetish ? additional.url : '',
+                  idx: (typeof additional.fileIdx === 'number' ? additional.fileIdx : 0),
+                  imdb: id
+                }, { 
+                  origin: originBase, 
+                  ad: effectiveAdParam,
+                  provider: effectiveDebridProvider,
+                  token: effectiveDebridToken
+                });
+                
+                // SECURITY: Ensure no magnet URLs leak in additional stream
+                if (!additional.url || /^magnet:/i.test(additional.url)) {
+                  log(`⚠️ SECURITY WARNING: Failed to convert additional stream to debrid URL for ${additional.infoHash?.substring(0,8)}...`);
+                  additional = null; // Remove the additional stream rather than serving raw magnet
+                }
               }
             }
             
