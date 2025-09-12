@@ -31,9 +31,11 @@
 const debridProviders = require('../core/debridProviders');
 
 // CRITICAL FIX: AllDebrid Compatibility Mode
-// AllDebrid's NO_SERVER detection is triggered by complex request patterns
-// Solution: Use simple, direct API calls that match the working OldAutoStream pattern
+// DISCOVERY: NO_SERVER is caused by Render.com IP detection, NOT request pattern
+// AllDebrid blocks hosting provider IPs (Render, AWS, etc.) regardless of request format
+// Solution: Need proxy routing for hosting environments
 const ALLDEBRID_COMPATIBILITY_MODE = true; // Enable compatibility mode to prevent NO_SERVER
+const DETECTED_HOSTING_ENVIRONMENT = process.env.RENDER || process.env.PORT === '10000'; // Detect hosting
 
 // Simple headers that work with AllDebrid (matches OldAutoStream exactly)
 const ALLDEBRID_SIMPLE_HEADERS = {
@@ -43,7 +45,9 @@ const ALLDEBRID_SIMPLE_HEADERS = {
 // DEBUG: Log compatibility mode status on module load
 console.log(`🚨 [DEBRID-DEBUG] AllDebrid Compatibility Mode: ${ALLDEBRID_COMPATIBILITY_MODE ? 'ENABLED' : 'DISABLED'}`);
 console.log(`🚨 [DEBRID-DEBUG] Using headers: ${JSON.stringify(ALLDEBRID_SIMPLE_HEADERS)}`);
-console.log(`🚨 [DEBRID-DEBUG] This should prevent NO_SERVER errors by mimicking OldAutoStream pattern`);
+console.log(`🚨 [DEBRID-DEBUG] Detected hosting environment: ${DETECTED_HOSTING_ENVIRONMENT ? 'YES' : 'NO'}`);
+console.log(`🚨 [DEBRID-DEBUG] CRITICAL DISCOVERY: NO_SERVER is IP-based blocking, not request pattern`);
+console.log(`🚨 [DEBRID-DEBUG] AllDebrid blocks hosting providers (Render, AWS, etc.) by IP range`);
 
 // CRITICAL FIX: AllDebrid Compatibility API Call
 // This function mimics the exact working pattern from OldAutoStream
@@ -717,12 +721,21 @@ async function handlePlay(req, res, defaults = {}) {
             
             if (permanentUploadErrors.includes(errorCode)) {
               log('❌ Permanent upload error: ' + errorCode + ' - stopping immediately');
+              
+              // CRITICAL: Provide helpful error message for NO_SERVER
+              let userMessage = uploadResult.error.message || 'AllDebrid service error';
+              if (errorCode === 'NO_SERVER' && DETECTED_HOSTING_ENVIRONMENT) {
+                userMessage = 'AllDebrid blocks hosting service IPs (Render, AWS, etc.). This addon needs to run on a residential connection or use a proxy service to work with AllDebrid. The issue is environmental, not a code bug.';
+              }
+              
               res.writeHead(400, {'Content-Type':'application/json'});
               return res.end(JSON.stringify({ 
                 ok: false, 
                 error: errorCode,
-                message: uploadResult.error.message || 'AllDebrid service error',
-                permanent: true 
+                message: userMessage,
+                permanent: true,
+                hosting_detected: DETECTED_HOSTING_ENVIRONMENT,
+                solution: errorCode === 'NO_SERVER' ? 'Deploy on residential IP or use proxy service' : null
               }));
             }
           }
