@@ -540,8 +540,59 @@ async function handlePlay(req, res, defaults = {}) {
       if (imdb) log('  IMDB: ' + imdb, 'verbose');
     }
 
-    // 1) upload
-    if (isFirstRequest) log('Step 1: Uploading magnet to AllDebrid...');
+    // 1) Check instant availability first (critical optimization)
+    if (isFirstRequest) log('Step 1: Checking instant availability...');
+    let instantFiles = [];
+    try {
+      const instantUrl = 'https://api.alldebrid.com/v4/magnet/instant?apikey=' + encodeURIComponent(adKey) + '&magnets[]=' + encodeURIComponent(magnet);
+      const instant = await safeDebridApiCall(instantUrl, { method: 'GET' }, 10000, adKey);
+      const instantResult = await jsonSafe(instant);
+      
+      if (instantResult && instantResult.status === 'success' && instantResult.data && instantResult.data.magnets) {
+        const magnetData = instantResult.data.magnets[0]; // First (and only) magnet
+        if (magnetData && magnetData.instant === true && magnetData.files && magnetData.files.length > 0) {
+          if (isFirstRequest) log('✅ Files are instantly available! Skipping upload.');
+          instantFiles = magnetData.files;
+          
+          // Get the specific file we want
+          const targetFile = instantFiles[idx] || instantFiles[0];
+          if (targetFile && targetFile.link) {
+            if (isFirstRequest) log('🚀 Using instant link: ' + targetFile.name);
+            
+            // Cache the result
+            resolveCache.set(cacheKey, {
+              url: targetFile.link,
+              timestamp: Date.now()
+            });
+            
+            // Clean up pending request
+            pendingRequests.delete(cacheKey);
+            resolveDedup({ url: targetFile.link });
+            
+            // Redirect to the instant file
+            const headers = {
+              'Location': targetFile.link,
+              'Cache-Control': 'public, max-age=900',
+              'Access-Control-Allow-Origin': '*',
+              'Access-Control-Allow-Headers': 'Range',
+              'Accept-Ranges': 'bytes'
+            };
+            
+            res.writeHead(302, headers);
+            clearTimeout(handlePlayTimeout);
+            return res.end();
+          }
+        }
+      }
+      
+      if (isFirstRequest) log('⏳ Files not instantly available, proceeding with upload...');
+    } catch (e) {
+      if (isFirstRequest) log('⚠️ Instant availability check failed: ' + e.message);
+      // Continue with upload if instant check fails
+    }
+
+    // 2) Upload magnet (only if not instantly available)
+    if (isFirstRequest) log('Step 2: Uploading magnet to AllDebrid...');
     let uploadSuccess = false;
     try {
       const uploadUrl = 'https://api.alldebrid.com/v4/magnet/upload?apikey=' + encodeURIComponent(adKey) + '&magnets[]=' + encodeURIComponent(magnet);
@@ -601,8 +652,8 @@ async function handlePlay(req, res, defaults = {}) {
       }
     }
 
-    // 2) poll a few times for files
-    if (isFirstRequest) log('Step 2: Polling for files...');
+    // 3) poll a few times for files
+    if (isFirstRequest) log('Step 3: Polling for files...');
     let files = [];
     let magnetId = null; // Store the actual magnet ID from status response
     let inQueueCount = 0; // Track how many times we see "In queue"

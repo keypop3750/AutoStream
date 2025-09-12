@@ -46,12 +46,15 @@
   function loadFromURL() {
     const params = new URLSearchParams(window.location.search);
     
-    // Load debrid provider and API key
+    // Load debrid provider and API key - support all 8 providers
     if (params.get('ad')) { state.provider = 'AD'; state.apiKey = params.get('ad'); }
     else if (params.get('rd')) { state.provider = 'RD'; state.apiKey = params.get('rd'); }
     else if (params.get('pm')) { state.provider = 'PM'; state.apiKey = params.get('pm'); }
     else if (params.get('tb')) { state.provider = 'TB'; state.apiKey = params.get('tb'); }
     else if (params.get('oc')) { state.provider = 'OC'; state.apiKey = params.get('oc'); }
+    else if (params.get('ed')) { state.provider = 'ED'; state.apiKey = params.get('ed'); }
+    else if (params.get('dl')) { state.provider = 'DL'; state.apiKey = params.get('dl'); }
+    else if (params.get('pi')) { state.provider = 'PI'; state.apiKey = params.get('pi'); }
     
     // Load size limit (convert from GB to bytes)
     if (params.get('max_size')) {
@@ -122,8 +125,25 @@
   sizePresetEl.innerHTML = SIZE_PRESETS.map(([v,t])=>`<option value="${v}">${t}</option>`).join('');
   langPickerEl.innerHTML = LANG_OPTIONS.map(([v,t])=>`<option value="${v}">${t}</option>`).join('');
 
+  // Provider mapping: short codes to full names for HTML select
+  const PROVIDER_MAPPING = {
+    'AD': 'alldebrid',
+    'RD': 'realdebrid', 
+    'PM': 'premiumize',
+    'TB': 'torbox',
+    'OC': 'offcloud',
+    'ED': 'easydebrid',
+    'DL': 'debridlink',
+    'PI': 'putio'
+  };
+  
+  // Reverse mapping: full names to short codes
+  const REVERSE_PROVIDER_MAPPING = Object.fromEntries(
+    Object.entries(PROVIDER_MAPPING).map(([short, full]) => [full, short])
+  );
+
   // Hydrate fields from state (after URL loading)
-  providerEl.value = state.provider || '';
+  providerEl.value = PROVIDER_MAPPING[state.provider] || '';
   apikeyEl.value = state.apiKey || '';
   fallbackEl.checked = !!state.fallback;
   nuvioEnabledEl.checked = !!state.nuvioEnabled;
@@ -228,7 +248,12 @@
   }
 
   // events
-  providerEl.onchange = ()=>{ state.provider = providerEl.value; persist(); rerender(); };
+  providerEl.onchange = ()=>{ 
+    // Convert full provider name to short code for internal state
+    state.provider = REVERSE_PROVIDER_MAPPING[providerEl.value] || providerEl.value; 
+    persist(); 
+    rerender(); 
+  };
   apikeyEl.oninput   = ()=>{ state.apiKey  = apikeyEl.value;   persist(); rerender(); };
   fallbackEl.onchange= ()=>{ state.fallback= !!fallbackEl.checked; persist(); rerender(); };
 
@@ -304,9 +329,18 @@
 
     // Debrid: include exactly one provider param ONLY when provider + key are provided
     const key = (state.apiKey || '').trim();
-    const prov = (state.provider || '').trim(); // AD, RD, PM, TB, OC
+    const prov = (state.provider || '').trim(); // All 8 supported providers
     if (prov && key) {
-      const map = { AD: 'ad', RD: 'rd', PM: 'pm', TB: 'tb', OC: 'oc' };
+      const map = { 
+        AD: 'ad',      // AllDebrid
+        RD: 'rd',      // RealDebrid  
+        PM: 'pm',      // Premiumize
+        TB: 'tb',      // TorBox
+        OC: 'oc',      // Offcloud
+        ED: 'ed',      // EasyDebrid
+        DL: 'dl',      // DebridLink
+        PI: 'pi'       // Put.io
+      };
       const pk = map[prov];
       if (pk) params.set(pk, key);
     }
