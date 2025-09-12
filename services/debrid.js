@@ -683,7 +683,7 @@ async function handlePlay(req, res, defaults = {}) {
     let magnetId = null; // Store the actual magnet ID from status response
     let inQueueCount = 0; // Track how many times we see "In queue"
     
-    for (let i=0;i<6;i++){ // Increased back to 6 iterations for better handling
+    for (let i=0;i<15;i++){ // Increased to 15 iterations to handle downloading torrents (up to ~30 seconds)
       if (isFirstRequest && i === 0) log(`Polling for files...`);
       try {
         const statusUrl = 'https://api.alldebrid.com/v4/magnet/status?apikey=' + encodeURIComponent(adKey) + '&id=' + encodeURIComponent(ih || magnet);
@@ -724,10 +724,19 @@ async function handlePlay(req, res, defaults = {}) {
           }
         }
         
-        if (sj && sj.status === 'success' && sj.data && Array.isArray(sj.data.magnets)) {
+        if (sj && sj.status === 'success' && sj.data) {
+          // Handle both single magnet object and array of magnets
+          let magnets = [];
+          if (Array.isArray(sj.data.magnets)) {
+            magnets = sj.data.magnets;
+          } else if (sj.data.magnets && typeof sj.data.magnets === 'object') {
+            // Single magnet object - convert to array
+            magnets = [sj.data.magnets];
+          }
+          
           // Find the magnet that matches our hash
           const targetHash = (ih || '').toLowerCase();
-          const matchingMagnet = sj.data.magnets.find(m => 
+          const matchingMagnet = magnets.find(m => 
             m && m.hash && m.hash.toLowerCase() === targetHash
           );
           
@@ -753,19 +762,37 @@ async function handlePlay(req, res, defaults = {}) {
                 }));
               }
             } else if (matchingMagnet.status === 'Downloading') {
-              log('⏳ Torrent downloading (' + (matchingMagnet.downloaded || 0) + '/' + (matchingMagnet.size || 0) + ' bytes)');
+              const downloaded = matchingMagnet.downloaded || 0;
+              const total = matchingMagnet.size || 0;
+              const progress = total > 0 ? Math.round((downloaded / total) * 100) : 0;
               
-              // Check if torrent has been downloading too long without progress
-              if (i >= 4) { // After 4 polling attempts (about 2-3 seconds)
-                log('⚠️ Torrent stuck downloading - this may indicate a problem with the torrent');
-                res.writeHead(202, {'Content-Type':'application/json'});
-                return res.end(JSON.stringify({ 
-                  ok: false, 
-                  caching: true,
-                  stuckDownloading: true,
-                  msg: 'This torrent appears to be stuck downloading. It may have no seeders or be corrupted. Try a different quality.',
-                  magnetId: magnetId
-                }));
+              log('⏳ Torrent downloading (' + downloaded + '/' + total + ' bytes, ' + progress + '%)');
+              
+              // For downloading torrents, be much more patient
+              // Only consider "stuck" after many attempts (30+ seconds) AND no progress
+              if (i >= 10) { // Increased from 4 to 10 attempts (15-20 seconds)
+                log('ℹ️ Torrent still downloading after extended polling (' + progress + '% complete)');
+                
+                // If torrent is making good progress (>50%), let it continue
+                if (progress >= 50) {
+                  log('✅ Torrent is making good progress (' + progress + '%), continuing to wait...');
+                  // Don't return error, let it continue polling
+                } else if (progress === 0) {
+                  // Only mark as stuck if there's literally zero progress
+                  log('⚠️ Torrent shows no download progress - may be stuck');
+                  res.writeHead(202, {'Content-Type':'application/json'});
+                  return res.end(JSON.stringify({ 
+                    ok: false, 
+                    caching: true,
+                    stuckDownloading: true,
+                    msg: 'This torrent appears to have no seeders or may be corrupted. Try a different quality.',
+                    magnetId: magnetId,
+                    progress: progress
+                  }));
+                } else {
+                  // Some progress but slow - inform user but continue
+                  log('⏳ Torrent downloading slowly (' + progress + '%), continuing to monitor...');
+                }
               }
             }
             
@@ -793,10 +820,10 @@ async function handlePlay(req, res, defaults = {}) {
               }));
             }
           } else {
-            log('No matching magnet found for hash: ' + targetHash + ', available magnets: ' + sj.data.magnets.map(m => m.hash).join(','));
+            log('No matching magnet found for hash: ' + targetHash + ', available magnets: ' + magnets.map(m => m.hash).join(','));
           }
         } else {
-          log('Invalid status response structure: ' + JSON.stringify(sj));
+          log('No magnet data in status response: ' + JSON.stringify(sanitizeResponseForLogging(sj)));
         }
       } catch (e) {
         log('Status API error: ' + e.message + ', stack: ' + e.stack);
@@ -810,9 +837,18 @@ async function handlePlay(req, res, defaults = {}) {
           const st = await providerAwareAllDebridApiCall(`magnet/status?id=${encodeURIComponent(ih || magnet)}`, { method: 'GET' }, 5000, adKey);
           const sj = await jsonSafe(st);
           
-          if (sj && sj.status === 'success' && sj.data && Array.isArray(sj.data.magnets)) {
+          if (sj && sj.status === 'success' && sj.data) {
+            // Handle both single magnet object and array of magnets
+            let magnets = [];
+            if (Array.isArray(sj.data.magnets)) {
+              magnets = sj.data.magnets;
+            } else if (sj.data.magnets && typeof sj.data.magnets === 'object') {
+              // Single magnet object - convert to array
+              magnets = [sj.data.magnets];
+            }
+            
             const targetHash = (ih || '').toLowerCase();
-            const matchingMagnet = sj.data.magnets.find(m => 
+            const matchingMagnet = magnets.find(m => 
               m && m.hash && m.hash.toLowerCase() === targetHash
             );
             
@@ -840,8 +876,14 @@ async function handlePlay(req, res, defaults = {}) {
         }
       }
       
-      // Adaptive sleep - longer waits if in queue
-      const sleepTime = inQueueCount > 0 ? 1000 : 500;
+      // Adaptive sleep - different timing based on torrent status
+      let sleepTime = 500; // Default
+      if (inQueueCount > 0) {
+        sleepTime = 1000; // Longer wait for queue processing
+      } else if (i >= 5) {
+        sleepTime = 2000; // Even longer wait for extended polling (downloads)
+      }
+      
       log('No files found, sleeping ' + sleepTime + 'ms...');
       await sleep(sleepTime);
     }
