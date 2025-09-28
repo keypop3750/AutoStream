@@ -495,7 +495,144 @@ function __finalize(list, { nuvioCookie, labelOrigin }, req, actualDeviceType = 
   const deviceType = actualDeviceType || scoring.detectDeviceType(req);
   const requestId = req._requestId || 'unknown';
   
-  out.forEach((s, index) => {
+  // PHASE 1: TECHNICAL ENHANCEMENT (Preserve/Restore Metadata)
+  out = enhanceStreamTechnical(out, deviceType, requestId);
+  
+  // PHASE 2: TORRENTIO-STYLE STREAM PROCESSING (Unchanged Logic)
+  out = processStreamUrls(out, requestId);
+  
+  // PHASE 3: NUVIO COOKIE ATTACHMENT (Unchanged)
+  out = attachNuvioCookie(out, nuvioCookie);
+  
+  // PHASE 4: BEAUTIFICATION (Display Names Only)
+  if (labelOrigin) out = beautifyStreamNames(out);
+  
+  return out;
+}
+
+/**
+ * PHASE 1: Technical Enhancement Layer
+ * Restores critical metadata and adds device-specific properties
+ * This is where TV compatibility is fixed!
+ */
+function enhanceStreamTechnical(streams, deviceType, requestId) {
+  return streams.map((s, index) => {
+    if (!s) return s;
+    
+    const enhanced = { ...s };
+    const originalMetadata = s._originalMetadata;
+    
+    // Only enhance streams that have preserved metadata
+    if (!originalMetadata) {
+      console.log(`[${requestId}] ⚠️ Stream ${index} missing original metadata - may lack TV compatibility`);
+      return enhanced;
+    }
+    
+    // RESTORE CRITICAL PROPERTIES FOR TV COMPATIBILITY
+    
+    // 1. File Index - CRITICAL for multi-file torrents on TV
+    if (originalMetadata.fileIdx !== undefined && originalMetadata.fileIdx !== null) {
+      enhanced.fileIdx = originalMetadata.fileIdx;
+    }
+    
+    // 2. Rich Sources Array - CRITICAL for connection options on TV
+    enhanced.sources = buildRichSourcesArray(originalMetadata, enhanced.infoHash);
+    
+    // 3. Comprehensive BehaviorHints - CRITICAL for TV client decisions
+    enhanced.behaviorHints = buildComprehensiveBehaviorHints(originalMetadata, deviceType, enhanced);
+    
+    // 4. Device-Specific Enhancements
+    if (deviceType === 'tv') {
+      enhanceForTV(enhanced, originalMetadata, requestId);
+    }
+    
+    return enhanced;
+  });
+}
+
+/**
+ * Build rich sources array like Torrentio (not just DHT)
+ */
+function buildRichSourcesArray(originalMetadata, infoHash) {
+  const sources = [];
+  
+  // Add tracker sources first (most reliable)
+  if (originalMetadata.trackers && originalMetadata.trackers.length > 0) {
+    originalMetadata.trackers.forEach(tracker => {
+      sources.push(`tracker:${tracker}`);
+    });
+  }
+  
+  // Add original sources if they exist
+  if (originalMetadata.sources && originalMetadata.sources.length > 0) {
+    originalMetadata.sources.forEach(source => {
+      if (!sources.includes(source)) {
+        sources.push(source);
+      }
+    });
+  }
+  
+  // Always ensure DHT as fallback
+  if (infoHash && !sources.some(s => s.includes('dht:'))) {
+    sources.push(`dht:${infoHash}`);
+  }
+  
+  return sources;
+}
+
+/**
+ * Build comprehensive behaviorHints like Torrentio
+ */
+function buildComprehensiveBehaviorHints(originalMetadata, deviceType, stream) {
+  const behaviorHints = { ...originalMetadata.behaviorHints };
+  
+  // Filename - CRITICAL for TV codec detection
+  if (originalMetadata.filename) {
+    behaviorHints.filename = originalMetadata.filename;
+  }
+  
+  // Preserve bingeGroup if present (Torrentio compatibility)
+  if (originalMetadata.bingeGroup) {
+    behaviorHints.bingeGroup = originalMetadata.bingeGroup;
+  }
+  
+  // Video metadata for TV buffering decisions
+  if (originalMetadata.videoSize) {
+    behaviorHints.videoSize = originalMetadata.videoSize;
+  }
+  if (originalMetadata.videoHash) {
+    behaviorHints.videoHash = originalMetadata.videoHash;
+  }
+  
+  return behaviorHints;
+}
+
+/**
+ * TV-specific enhancements - THE MISSING PIECE!
+ */
+function enhanceForTV(stream, originalMetadata, requestId) {
+  // THE CRITICAL MISSING FLAG: notWebReady for TV magnet streams
+  if (stream.infoHash && !stream.url) {
+    stream.behaviorHints = stream.behaviorHints || {};
+    stream.behaviorHints.notWebReady = true;
+    console.log(`[${requestId}] 📺 Added notWebReady flag for TV device: ${stream.infoHash.substring(0, 8)}...`);
+  }
+  
+  // Ensure filename is available for TV codec detection
+  if (!stream.behaviorHints.filename && originalMetadata.filename) {
+    stream.behaviorHints.filename = originalMetadata.filename;
+    console.log(`[${requestId}] 📺 Restored filename for TV codec detection: ${originalMetadata.filename}`);
+  }
+  
+  // Additional TV-specific logging
+  console.log(`[${requestId}] 📺 Enhanced stream for TV: fileIdx=${stream.fileIdx}, sources=${stream.sources?.length || 0}, behaviorHints keys=[${Object.keys(stream.behaviorHints || {}).join(', ')}]`);
+}
+
+/**
+ * PHASE 2: Stream URL Processing (UNCHANGED - Original Logic)
+ */
+function processStreamUrls(streams, requestId) {
+  streams.forEach((s, index) => {
     if (!s) return;
     
     // First try existing URLs
@@ -516,26 +653,36 @@ function __finalize(list, { nuvioCookie, labelOrigin }, req, actualDeviceType = 
         // Non-debrid: Torrentio pattern - provide infoHash + sources, NO URL
         // Let Stremio handle the torrent internally (this works on Android TV)
         if (s.infoHash) {
-          console.log(`[${requestId}] 🧲 Generated magnet URL for ${s.infoHash.substring(0, 8)}...`);
+          console.log(`[${requestId}] 🧲 Providing infoHash stream for client: ${s.infoHash.substring(0, 8)}...`);
         }
         
         // Remove any existing URL to force Stremio to use infoHash
         delete s.url;
         
-        // Ensure we have sources for the torrent
-        if (!s.sources || s.sources.length === 0) {
-          s.sources = [`dht:${s.infoHash}`];
-        }
+        // NOTE: Sources are now enhanced in Phase 1, not just basic DHT
       }
     }
     
     if (s.autostreamOrigin === 'nuvio' && nuvioCookie) s._usedCookie = true;
   });
   
-  out = attachNuvioCookie(out, nuvioCookie);
-  if (labelOrigin) out.forEach(s => s.name = badgeName(s));
-  
-  return out;
+  return streams;
+}
+
+/**
+ * PHASE 4: Beautification Layer (COSMETIC ONLY - No Technical Changes)
+ * This preserves the clean user experience while keeping all technical metadata intact
+ */
+function beautifyStreamNames(streams) {
+  return streams.map(s => {
+    if (!s) return s;
+    
+    // ONLY change display properties - preserve all technical metadata
+    const beautified = { ...s };
+    beautified.name = badgeName(s); // Apply existing beautification logic
+    
+    return beautified;
+  });
 }
 
 // AllDebrid API key validation function
