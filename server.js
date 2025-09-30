@@ -883,6 +883,11 @@ function createManifestFromConfig(configParams, baseUrl) {
     }
   }
   
+  // Detect configured debrid provider and build name with provider tag (same pattern as regular manifest)
+  const configuredProviders = getConfiguredProviders(configParams);
+  const primaryProvider = configuredProviders.length > 0 ? configuredProviders[0] : null;
+  const tag = primaryProvider ? primaryProvider.provider.shortName : null;
+  
   // Create query string for resource URL (same as existing logic)
   const queryParts = [];
   for (const [k, v] of Object.entries(configParams)) {
@@ -895,7 +900,7 @@ function createManifestFromConfig(configParams, baseUrl) {
   const manifest = {
     id: 'com.stremio.autostream.addon',
     version: '3.5.1',
-    name: 'AutoStream',
+    name: tag ? `AutoStream (${tag})` : 'AutoStream',
     description: 'Curated best-pick streams with optional debrid; Nuvio direct-host supported.',
     logo: 'https://github.com/keypop3750/AutoStream/blob/main/logo.png?raw=true',
     background: 'https://github.com/keypop3750/AutoStream/blob/main/logo.png?raw=true',
@@ -1174,7 +1179,7 @@ function startServer(port = PORT) {
         const manifest = {
           id: 'com.stremio.autostream.addon',
           version: '3.5.1',
-          name: tag ? `AutoStream Tester (${tag})` : 'AutoStream Tester',
+          name: tag ? `AutoStream (${tag})` : 'AutoStream',
           description: 'Curated best-pick streams with optional debrid; Nuvio direct-host supported.',
           logo: 'https://github.com/keypop3750/AutoStream/blob/main/logo.png?raw=true',
           background: 'https://github.com/keypop3750/AutoStream/blob/main/logo.png?raw=true',
