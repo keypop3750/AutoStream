@@ -303,7 +303,73 @@
     else cookieSection.classList.add('hidden');
   }
 
+  // ===============================================
+  // PATH-BASED CONFIGURATION (Torrentio-style)
+  // ===============================================
   
+  function encodeConfigurationPath() {
+    const configParts = [];
+    
+    // Debrid provider (only if both provider and key are set)
+    const key = (state.apiKey || '').trim();
+    const prov = (state.provider || '').trim();
+    if (prov && key) {
+      const map = { 
+        'alldebrid': 'alldebrid',
+        'realdebrid': 'realdebrid', 
+        'premiumize': 'premiumize',
+        'torbox': 'torbox',
+        'offcloud': 'offcloud',
+        'easydebrid': 'easydebrid',
+        'debridlink': 'debridlink',
+        'putio': 'putio'
+      };
+      const pk = map[prov];
+      if (pk) configParts.push(`${pk}=${key}`);
+    }
+    
+    // Fallback setting
+    if (state.fallback) {
+      configParts.push('fallback=1');
+    }
+    
+    // Size limit (in GB)
+    if (state.maxSizeBytes && Number(state.maxSizeBytes) > 0) {
+      const sizeGB = state.maxSizeBytes / BYTES_IN_GB;
+      configParts.push(`max_size=${sizeGB}`);
+    }
+    
+    // Language priorities
+    if (state.langs && state.langs.length) {
+      configParts.push(`lang_prio=${state.langs.join(',')}`);
+    }
+    
+    // Blacklist terms
+    if (state.blacklist && state.blacklist.length) {
+      configParts.push(`blacklist=${state.blacklist.join(',')}`);
+    }
+    
+    // Nuvio settings
+    if (state.nuvioEnabled) {
+      configParts.push('include_nuvio=1');
+      const ck = (state.nuvioCookie || '').trim();
+      if (ck) configParts.push(`nuvio_cookie=${ck}`);
+      if (!state.conserveCookie) {
+        configParts.push('conserve_cookie=0');
+      }
+    }
+    
+    return configParts.join('|');
+  }
+  
+  function buildPathBasedUrl() {
+    const configuration = encodeConfigurationPath();
+    if (configuration) {
+      return `${originHost}/${configuration}/manifest.json`;
+    } else {
+      return `${originHost}/manifest.json`;
+    }
+  }
   
   function buildUrl(){
     const params = new URLSearchParams();
@@ -366,17 +432,17 @@
   }
 
 function rerender(){
-    const url = buildUrl();
-    const redacted = url.replace(/^https?:\/\//, '');
+    // Query-based URL for web compatibility (existing approach)
+    const queryBasedUrl = buildUrl();
+    const redacted = queryBasedUrl.replace(/^https?:\/\//, '');
     manifestEl.textContent = redacted;
-    const q = url.split('?')[1] || '';
     
-    // Back to simple working URLs with configuration parameters
-    const configuredUrl = buildUrl();
-    const stremioUrl = 'stremio://' + configuredUrl.replace(/^https?:\/\//, '');
+    // Path-based URL for Stremio native app compatibility (new approach)
+    const pathBasedUrl = buildPathBasedUrl();
+    const stremioUrl = 'stremio://' + pathBasedUrl.replace(/^https?:\/\//, '');
     
-    // Fix: Build proper Stremio Web URL for web install button
-    const stremioWebUrl = `https://web.stremio.com/#/addons?addon=${encodeURIComponent(configuredUrl)}`;
+    // Web install uses query-based URL (properly URL-encoded)
+    const stremioWebUrl = `https://web.stremio.com/#/addons?addon=${encodeURIComponent(queryBasedUrl)}`;
     
     appBtn.href = stremioUrl;
     webBtn.href = stremioWebUrl;
@@ -390,16 +456,10 @@ function rerender(){
   syncSize();
   refreshCookieVisibility();
   rerender();
-
-  appBtn.addEventListener('click', function(e){
-    // Back to simple, working method - just update href with fresh config URL
-    const freshUrl = buildUrl();
-    const stremioUrl = 'stremio://' + freshUrl.replace(/^https?:\/\//, '');
-    appBtn.href = stremioUrl;
-    
-    // Let default behavior handle the navigation
-    return true;
-  });
+o  // FIXED: Remove redundant click handler that was causing configuration loss
+  // The rerender() function already sets the correct href with all configurations
+  // Right-click works because it uses this static href, left-click should too
+  // No need for a click handler - let default browser behavior handle the navigation
 
   // ==================================================
   // PENALTY RELIABILITY MANAGEMENT FUNCTIONS

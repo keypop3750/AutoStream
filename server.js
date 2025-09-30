@@ -841,6 +841,86 @@ function getUserFriendlyResolution(resNumber) {
   return `${resNumber}p`;
 }
 
+// ===============================================
+// PATH-BASED CONFIGURATION SUPPORT (Torrentio-style)
+// ===============================================
+
+function parsePathConfiguration(configurationPath) {
+  if (!configurationPath) {
+    return {};
+  }
+  
+  const configValues = configurationPath.split('|')
+    .reduce((map, next) => {
+      const parameterParts = next.split('=');
+      if (parameterParts.length === 2) {
+        const key = parameterParts[0].toLowerCase();
+        const value = parameterParts[1];
+        map[key] = value;
+      }
+      return map;
+    }, {});
+  
+  return configValues;
+}
+
+function createManifestFromConfig(configParams, baseUrl) {
+  const remembered = {};
+  for (const [k, v] of Object.entries(configParams)) {
+    if (REMEMBER_KEYS.has(k)) {
+      remembered[k] = String(v);
+    }
+  }
+  
+  // Handle debrid provider mapping (same as existing logic)
+  remembered.ad = remembered.ad || remembered.apikey || remembered.alldebrid || remembered.ad_apikey || MANIFEST_DEFAULTS.ad || '';
+  
+  // Apply same security measures as existing manifest endpoint
+  const rememberedSafe = {};
+  for (const [k, v] of Object.entries(remembered)) {
+    if (!['ad', 'apikey', 'alldebrid', 'ad_apikey', 'rd', 'real-debrid', 'realdebrid', 'pm', 'premiumize', 'tb', 'torbox', 'oc', 'offcloud'].includes(k)) {
+      rememberedSafe[k] = v;
+    }
+  }
+  
+  // Create query string for resource URL (same as existing logic)
+  const queryParts = [];
+  for (const [k, v] of Object.entries(configParams)) {
+    if (!isSensitiveParam(k) && v) {
+      queryParts.push(`${k}=${encodeURIComponent(v)}`);
+    }
+  }
+  const queryString = queryParts.length > 0 ? queryParts.join('&') : '';
+  
+  const manifest = {
+    id: 'com.stremio.autostream.addon',
+    version: '3.5.1',
+    name: 'AutoStream',
+    description: 'Curated best-pick streams with optional debrid; Nuvio direct-host supported.',
+    logo: 'https://github.com/keypop3750/AutoStream/blob/main/logo.png?raw=true',
+    background: 'https://github.com/keypop3750/AutoStream/blob/main/logo.png?raw=true',
+    contactEmail: 'autostream@example.com',
+    resources: [{
+      name: 'stream',
+      types: ['movie', 'series'],
+      idPrefixes: ['tt', 'tmdb']
+    }],
+    types: ['movie', 'series'],
+    catalogs: [],
+    behaviorHints: {
+      configurable: true,
+      configurationRequired: false
+    }
+  };
+  
+  // Add resource URL with parameters if any exist
+  if (queryString) {
+    manifest.resources[0].url = `${baseUrl}/stream/{type}/{id}.json?${queryString}`;
+  }
+  
+  return manifest;
+}
+
 // ---------- server ----------
 function startServer(port = PORT) {
   const server = http.createServer();
@@ -964,6 +1044,26 @@ function startServer(port = PORT) {
         for (const f of candidates) { if (serveFile(f, res)) return; }
         if (!res.headersSent) res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
         return res.end('<!doctype html><meta charset="utf-8"><title>AutoStream</title><h1>AutoStream</h1><p>Addon is running.</p>');
+      }
+
+      // Path-based configuration route (Torrentio-style): /:configuration/manifest.json
+      const pathBasedMatch = pathname.match(/^\/([^\/]+)\/manifest\.json$/);
+      if (pathBasedMatch) {
+        const configurationPath = pathBasedMatch[1];
+        console.log('📁 PATH-BASED: Processing configuration:', configurationPath);
+        
+        try {
+          const configParams = parsePathConfiguration(configurationPath);
+          const baseUrl = `${req.headers['x-forwarded-proto'] || 'http'}://${req.headers.host}`;
+          const manifest = createManifestFromConfig(configParams, baseUrl);
+          
+          return writeJson(res, manifest, 200);
+        } catch (error) {
+          console.error('❌ PATH-BASED: Configuration parsing failed:', error);
+          // Fall back to basic manifest
+          const basicManifest = createManifestFromConfig({}, `${req.headers['x-forwarded-proto'] || 'http'}://${req.headers.host}`);
+          return writeJson(res, basicManifest, 200);
+        }
       }
 
       if (pathname === '/manifest.json') {
