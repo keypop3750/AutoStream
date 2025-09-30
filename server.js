@@ -1074,7 +1074,7 @@ function startServer(port = PORT) {
         const manifest = {
           id: 'com.stremio.autostream.addon',
           version: '3.5.1',
-          name: tag ? `AutoStream (${tag})` : 'AutoStream',
+          name: tag ? `AutoStream Tester (${tag})` : 'AutoStream Tester',
           description: 'Curated best-pick streams with optional debrid; Nuvio direct-host supported.',
           logo: 'https://github.com/keypop3750/AutoStream/blob/main/logo.png?raw=true',
           background: 'https://github.com/keypop3750/AutoStream/blob/main/logo.png?raw=true',
