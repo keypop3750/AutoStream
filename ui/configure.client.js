@@ -359,7 +359,7 @@
       }
     }
     
-    return configParts.join('|');
+    return configParts.join('&');
   }
   
   function buildPathBasedUrl() {
