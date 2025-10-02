@@ -850,7 +850,10 @@ function parsePathConfiguration(configurationPath) {
     return {};
   }
   
-  const configValues = configurationPath.split('|')
+  // FIXED: URL-decode the configuration path first to handle encoded | symbols (%7C)
+  const decodedPath = decodeURIComponent(configurationPath);
+  
+  const configValues = decodedPath.split('|')
     .reduce((map, next) => {
       const parameterParts = next.split('=');
       if (parameterParts.length === 2) {
@@ -864,7 +867,7 @@ function parsePathConfiguration(configurationPath) {
   return configValues;
 }
 
-function createManifestFromConfig(configParams, baseUrl) {
+async function createManifestFromConfig(configParams, baseUrl) {
   const remembered = {};
   for (const [k, v] of Object.entries(configParams)) {
     if (REMEMBER_KEYS.has(k)) {
@@ -883,9 +886,49 @@ function createManifestFromConfig(configParams, baseUrl) {
     }
   }
   
-  // Detect configured debrid provider and build name with provider tag (same pattern as regular manifest)
-  const configuredProviders = getConfiguredProviders(configParams);
-  const primaryProvider = configuredProviders.length > 0 ? configuredProviders[0] : null;
+  // FIXED: Map short form keys to full provider keys for getConfiguredProviders
+  const expandedConfig = { ...configParams };
+  if (configParams.ad) expandedConfig.alldebrid = configParams.ad;
+  if (configParams.rd) expandedConfig.realdebrid = configParams.rd;
+  if (configParams.pm) expandedConfig.premiumize = configParams.pm;
+  if (configParams.tb) expandedConfig.torbox = configParams.tb;
+  if (configParams.oc) expandedConfig.offcloud = configParams.oc;
+  if (configParams.ed) expandedConfig.easydebrid = configParams.ed;
+  if (configParams.dl) expandedConfig.debridlink = configParams.dl;
+  if (configParams.pu) expandedConfig.putio = configParams.pu;
+  
+  // ADDED: API KEY VALIDATION FOR PATH-BASED CONFIGURATION
+  // Support all debrid providers equally using our new provider system
+  const configuredProviders = getConfiguredProviders(expandedConfig);
+  const workingProviders = [];
+  
+  // Validate each configured provider (same logic as query-based system)
+  for (const { key, provider, token } of configuredProviders) {
+    console.log(`🔍 PATH-BASED: Validating ${provider.name} API key...`);
+    
+    try {
+      // Use provider-specific validation
+      const isValid = await (async () => {
+        if (provider.key === 'alldebrid') {
+          return await validateAllDebridKey(token);
+        } else {
+          return await validateDebridKey(provider.key, token);
+        }
+      })();
+      
+      if (isValid) {
+        workingProviders.push({ key, provider, token });
+        console.log(`✅ PATH-BASED: ${provider.name} API key is valid`);
+      } else {
+        console.log(`❌ PATH-BASED: ${provider.name} API key is invalid`);
+      }
+    } catch (e) {
+      console.error(`❌ PATH-BASED: ${provider.name} validation failed:`, e.message);
+    }
+  }
+
+  // Build the tag based on the FIRST working debrid provider (only show tag if API key is valid)
+  const primaryProvider = workingProviders.length > 0 ? workingProviders[0] : null;
   const tag = primaryProvider ? primaryProvider.provider.shortName : null;
   
   // Create query string for resource URL (same as existing logic)
@@ -900,7 +943,7 @@ function createManifestFromConfig(configParams, baseUrl) {
   const manifest = {
     id: 'com.stremio.autostream.addon',
     version: '3.5.1',
-    name: tag ? `AutoStream (${tag})` : 'AutoStream',
+    name: tag ? `AutoStream Tester (${tag})` : 'AutoStream Tester',
     description: 'Curated best-pick streams with optional debrid; Nuvio direct-host supported.',
     logo: 'https://github.com/keypop3750/AutoStream/blob/main/logo.png?raw=true',
     background: 'https://github.com/keypop3750/AutoStream/blob/main/logo.png?raw=true',
@@ -1059,14 +1102,15 @@ function startServer(port = PORT) {
         
         try {
           const configParams = parsePathConfiguration(configurationPath);
+          console.log('📁 PATH-BASED: Parsed params:', JSON.stringify(configParams));
           const baseUrl = `${req.headers['x-forwarded-proto'] || 'http'}://${req.headers.host}`;
-          const manifest = createManifestFromConfig(configParams, baseUrl);
+          const manifest = await createManifestFromConfig(configParams, baseUrl);
           
           return writeJson(res, manifest, 200);
         } catch (error) {
           console.error('❌ PATH-BASED: Configuration parsing failed:', error);
           // Fall back to basic manifest
-          const basicManifest = createManifestFromConfig({}, `${req.headers['x-forwarded-proto'] || 'http'}://${req.headers.host}`);
+          const basicManifest = await createManifestFromConfig({}, `${req.headers['x-forwarded-proto'] || 'http'}://${req.headers.host}`);
           return writeJson(res, basicManifest, 200);
         }
       }
@@ -1109,7 +1153,19 @@ function startServer(port = PORT) {
         
         // UNIFIED DEBRID PROVIDER VALIDATION
         // Support all debrid providers equally using our new provider system
-        const configuredProviders = getConfiguredProviders(paramsObj);
+        
+        // FIXED: Map short form keys to full provider keys for getConfiguredProviders
+        const expandedParams = { ...paramsObj };
+        if (paramsObj.ad) expandedParams.alldebrid = paramsObj.ad;
+        if (paramsObj.rd) expandedParams.realdebrid = paramsObj.rd;
+        if (paramsObj.pm) expandedParams.premiumize = paramsObj.pm;
+        if (paramsObj.tb) expandedParams.torbox = paramsObj.tb;
+        if (paramsObj.oc) expandedParams.offcloud = paramsObj.oc;
+        if (paramsObj.ed) expandedParams.easydebrid = paramsObj.ed;
+        if (paramsObj.dl) expandedParams.debridlink = paramsObj.dl;
+        if (paramsObj.pu) expandedParams.putio = paramsObj.pu;
+        
+        const configuredProviders = getConfiguredProviders(expandedParams);
         const workingProviders = [];
         
         // Validate each configured provider
