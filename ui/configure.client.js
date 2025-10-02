@@ -309,14 +309,14 @@
   
   function encodeConfigurationPath() {
     const configParts = [];
-    
+
     // Debrid provider (only if both provider and key are set)
     const key = (state.apiKey || '').trim();
     const prov = (state.provider || '').trim();
     if (prov && key) {
-      const map = { 
+      const map = {
         'alldebrid': 'alldebrid',
-        'realdebrid': 'realdebrid', 
+        'realdebrid': 'realdebrid',
         'premiumize': 'premiumize',
         'torbox': 'torbox',
         'offcloud': 'offcloud',
@@ -327,12 +327,12 @@
       const pk = map[prov];
       if (pk) configParts.push(`${pk}=${key}`);
     }
-    
+
     // Fallback setting
     if (state.fallback) {
       configParts.push('fallback=1');
     }
-    
+
     // Size limit (in GB)
     if (state.maxSizeBytes && Number(state.maxSizeBytes) > 0) {
       const sizeGB = state.maxSizeBytes / BYTES_IN_GB;
@@ -343,12 +343,12 @@
     if (state.langs && state.langs.length) {
       configParts.push(`lang_prio=${state.langs.join(',')}`);
     }
-    
+
     // Blacklist terms
     if (state.blacklist && state.blacklist.length) {
       configParts.push(`blacklist=${state.blacklist.join(',')}`);
     }
-    
+
     // Nuvio settings
     if (state.nuvioEnabled) {
       configParts.push('include_nuvio=1');
@@ -358,8 +358,9 @@
         configParts.push('conserve_cookie=0');
       }
     }
-    
-    return configParts.join('&');
+
+    // FIXED: Use pipe separator like Torrentio for Stremio desktop app compatibility
+    return configParts.join('|');
   }
   
   function buildPathBasedUrl() {
@@ -439,12 +440,12 @@ function rerender(){
     
     // Path-based URL for Stremio native app compatibility (new approach)
     const pathBasedUrl = buildPathBasedUrl();
-    const stremioUrl = 'stremio://' + pathBasedUrl.replace(/^https?:\/\//, '');
     
     // Web install uses query-based URL (properly URL-encoded)
     const stremioWebUrl = `https://web.stremio.com/#/addons?addon=${encodeURIComponent(queryBasedUrl)}`;
     
-    appBtn.href = stremioUrl;
+    // FIXED: Use direct HTTP URL for path-based installation, not stremio:// protocol
+    appBtn.href = pathBasedUrl;
     webBtn.href = stremioWebUrl;
     
     appBtn.textContent = 'Install to Stremio';

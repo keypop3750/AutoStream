@@ -853,7 +853,11 @@ function parsePathConfiguration(configurationPath) {
   // FIXED: URL-decode the configuration path first to handle encoded parameters
   const decodedPath = decodeURIComponent(configurationPath);
   
-  const configValues = decodedPath.split('&')
+  // FIXED: Support both pipe and ampersand separators for backward compatibility
+  // Torrentio uses pipe separators, which Stremio desktop app expects
+  const separator = decodedPath.includes('|') ? '|' : '&';
+  
+  const configValues = decodedPath.split(separator)
     .reduce((map, next) => {
       const parameterParts = next.split('=');
       if (parameterParts.length === 2) {
