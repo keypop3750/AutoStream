@@ -474,6 +474,12 @@ function markStreamSuccess(req, url) {
 
 /**
  * Get seeder score based on magnet URL metadata or title
+ * 
+ * DESIGN PHILOSOPHY: Never hide streams due to low seeders alone.
+ * Low seeder streams should still appear but rank lower than high seeder streams.
+ * Only truly broken (0 seeders) get meaningful penalty, but still show.
+ * 
+ * User's preference: "never not show streams unless CAM/480p"
  */
 function getSeederScore(stream) {
   const url = stream.url || stream.externalUrl || '';
@@ -512,24 +518,34 @@ function getSeederScore(stream) {
 
   const seeders = parseInt(match[1], 10);
   
-  // More lenient penalties for low seeders - prefer quality over seeder count
+  // VERY LENIENT penalties - streams should ALWAYS show, just rank differently
+  // A 4K stream with 1 seeder should still beat a 1080p stream with 100 seeders
+  // Quality bonuses: 4K=+60, 1080p=+30, so seeder penalties must be smaller
   if (seeders === 0) {
-    return { score: -500, reason: 'zero_seeders' }; // Reduced from -1000
+    // Zero seeders = likely dead, but might still work with debrid cache
+    // Penalty is significant but won't hide a 4K stream (-40 < +60)
+    return { score: -40, reason: 'zero_seeders' };
   } else if (seeders === 1) {
-    return { score: -100, reason: 'one_seeder' }; // Reduced penalty for single seeder
+    // Single seeder = slow but works, small penalty
+    return { score: -15, reason: 'one_seeder' };
   } else if (seeders < 3) {
-    return { score: -50, reason: 'very_low_seeders' }; // Much reduced from -300
+    // Very low but functional
+    return { score: -8, reason: 'very_low_seeders' };
   } else if (seeders < 5) {
-    return { score: -20, reason: 'low_seeders' }; // Reduced from -100
+    // Low but acceptable
+    return { score: -4, reason: 'low_seeders' };
   } else if (seeders < 10) {
-    return { score: -5, reason: 'few_seeders' }; // Much reduced from -20
+    // Minimal penalty, just for sorting purposes
+    return { score: -2, reason: 'few_seeders' };
   }
   
-  // Good seeder counts get small bonus
+  // Good seeder counts get small bonus (for tie-breaking)
   if (seeders >= 50) {
-    return { score: 10, reason: 'many_seeders' };
+    return { score: 8, reason: 'many_seeders' };
   } else if (seeders >= 20) {
     return { score: 5, reason: 'good_seeders' };
+  } else if (seeders >= 10) {
+    return { score: 2, reason: 'decent_seeders' };
   }
   
   return { score: 0, reason: 'adequate_seeders' };

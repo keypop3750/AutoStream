@@ -1,6 +1,8 @@
 
 'use strict';
 
+const crypto = require('crypto');
+
 // SECURITY: Check for dangerous environment variables and refuse to use them
 (function securityCheck() {
   const dangerousEnvVars = [
@@ -27,6 +29,51 @@
     });
   }
 })();
+
+// HMAC signature for play URL validation
+// This prevents URL tampering without requiring user action
+const PLAY_URL_SECRET = process.env.PLAY_URL_SECRET || crypto.randomBytes(32).toString('hex');
+
+/**
+ * Generate HMAC signature for play URL parameters
+ * @param {Object} params - URL parameters to sign (ih, idx, imdb, fn)
+ * @returns {string} - Base64url-encoded HMAC signature
+ */
+function generatePlaySignature(params) {
+  const signableData = [
+    params.ih || '',
+    params.idx || '0',
+    params.imdb || '',
+    params.filename || ''
+  ].join('|');
+  
+  const hmac = crypto.createHmac('sha256', PLAY_URL_SECRET);
+  hmac.update(signableData);
+  return hmac.digest('base64url').substring(0, 16); // Truncate to 16 chars for URL brevity
+}
+
+/**
+ * Verify HMAC signature for play URL
+ * @param {Object} params - URL parameters (ih, idx, imdb, fn, sig)
+ * @returns {boolean} - True if signature is valid
+ */
+function verifyPlaySignature(params) {
+  const providedSig = params.sig || '';
+  if (!providedSig) return false;
+  
+  const expectedSig = generatePlaySignature(params);
+  
+  // Constant-time comparison to prevent timing attacks
+  try {
+    return crypto.timingSafeEqual(
+      Buffer.from(providedSig, 'base64url'),
+      Buffer.from(expectedSig, 'base64url')
+    );
+  } catch (e) {
+    return false; // Length mismatch or other error
+  }
+}
+
 // CRITICAL FIX: Import universal provider system
 const debridProviders = require('../core/debridProviders');
 
@@ -372,13 +419,68 @@ function discoverADKey(params, defaults, headers) {
   return get('ad') || get('apikey') || get('alldebrid') || get('ad_apikey') || defaults.ad || headerKey || '';
 }
 
+/**
+ * Normalize filename for comparison (like Torrentio's sameFilename)
+ * Handles URL encoding, case sensitivity, and common variations
+ */
+function normalizeFilename(filename) {
+  if (!filename) return '';
+  try {
+    // Decode URL-encoded filenames
+    filename = decodeURIComponent(filename);
+  } catch (e) {
+    // Already decoded or invalid encoding
+  }
+  return filename
+    .toLowerCase()
+    .replace(/[\s\-_.]+/g, '') // Remove spaces, dashes, underscores, dots
+    .replace(/\[(.*?)\]/g, '') // Remove bracket content like [1080p]
+    .trim();
+}
+
+/**
+ * Check if two filenames match (Torrentio-style comparison)
+ * Used for season pack file selection
+ */
+function sameFilename(targetFilename, candidateFilename) {
+  if (!targetFilename || !candidateFilename) return false;
+  
+  const normalizedTarget = normalizeFilename(targetFilename);
+  const normalizedCandidate = normalizeFilename(candidateFilename);
+  
+  // Exact match after normalization
+  if (normalizedTarget === normalizedCandidate) return true;
+  
+  // Check if one contains the other (handles partial matches)
+  if (normalizedTarget.length > 10 && normalizedCandidate.length > 10) {
+    if (normalizedCandidate.includes(normalizedTarget) || 
+        normalizedTarget.includes(normalizedCandidate)) {
+      return true;
+    }
+  }
+  
+  return false;
+}
+
 function buildPlayUrl(meta, { origin, ad }) {
   const u = new URL('/play', origin.replace(/\/+$/,''));
   if (meta && meta.ih) u.searchParams.set('ih', meta.ih);
   if (meta && meta.magnet) u.searchParams.set('magnet', meta.magnet);
   if (typeof meta?.idx === 'number') u.searchParams.set('idx', String(meta.idx));
   if (meta && meta.imdb) u.searchParams.set('imdb', meta.imdb);
+  // Include filename for season pack file matching (like Torrentio)
+  if (meta && meta.filename) u.searchParams.set('fn', meta.filename);
   if (ad) u.searchParams.set('ad', ad);
+  
+  // Generate HMAC signature for URL validation (tamper protection)
+  const sig = generatePlaySignature({
+    ih: meta?.ih || '',
+    idx: typeof meta?.idx === 'number' ? String(meta.idx) : '0',
+    imdb: meta?.imdb || '',
+    filename: meta?.filename || ''
+  });
+  u.searchParams.set('sig', sig);
+  
   return u.toString();
 }
 
@@ -532,9 +634,23 @@ async function handlePlay(req, res, defaults = {}) {
     const magnet = usp.get('magnet') || `magnet:?xt=urn:btih:${ih}`;
     const idx = parseInt(usp.get('idx') || '0', 10);
     const imdb = usp.get('imdb') || '';
+    const targetFilename = usp.get('fn') || ''; // Filename for season pack matching
+    const providedSig = usp.get('sig') || ''; // HMAC signature for validation
     
-    // Create cache key
-    const cacheKey = `${ih}_${idx}`;
+    // Verify HMAC signature to prevent URL tampering
+    // This is a soft check - we log warnings but don't block (for backward compatibility)
+    const signatureParams = { ih, idx: String(idx), imdb, filename: targetFilename, sig: providedSig };
+    const isValidSignature = verifyPlaySignature(signatureParams);
+    if (!isValidSignature && providedSig) {
+      // Signature was provided but invalid - potential tampering
+      if (isFirstRequest) log('⚠️ SECURITY: Invalid signature detected - possible URL tampering');
+    } else if (!providedSig) {
+      // No signature provided - old URL format or direct access
+      if (isFirstRequest) log('ℹ️ No signature in URL (backward compatibility mode)');
+    }
+    
+    // Create cache key - include filename for proper season pack episode caching
+    const cacheKey = targetFilename ? `${ih}_${targetFilename}` : `${ih}_${idx}`;
     
     // Check cache first (extended cache for better deduplication)
     if (resolveCache.has(cacheKey)) {
@@ -612,6 +728,7 @@ async function handlePlay(req, res, defaults = {}) {
       log('  Magnet: ' + magnet.substring(0, 60) + '...', 'verbose');
       log('  File Index: ' + idx, 'verbose');
       if (imdb) log('  IMDB: ' + imdb, 'verbose');
+      if (targetFilename) log('  Target Filename: ' + targetFilename, 'verbose');
     }
 
     // 1) upload
@@ -911,7 +1028,7 @@ async function handlePlay(req, res, defaults = {}) {
       }
     }
     
-    // pick file (idx preferred, else episode match, else largest mkv/mp4/avi, else largest)
+    // pick file (filename match preferred, else idx, else episode pattern, else largest)
     let chosen = null;
     const videoRe = /\.(mkv|mp4|m4v|avi|mov|ts|flv|webm)$/i;
     
@@ -933,7 +1050,41 @@ async function handlePlay(req, res, defaults = {}) {
     
     log(`Found ${videoFiles.length} video files from ${files.length} total`);
     
-    // Try episode-specific file selection first
+    // PRIORITY 1: Filename matching (like Torrentio's sameFilename)
+    // This is the most reliable method for season packs
+    if (!chosen && targetFilename && videoFiles.length > 1) {
+      for (const file of videoFiles) {
+        const fileName = file.name || file.path || '';
+        if (sameFilename(targetFilename, fileName)) {
+          chosen = file;
+          if (isFirstRequest) {
+            log(`✅ Found filename match: ${fileName} (matched target: ${targetFilename.substring(0, 50)}...)`);
+          }
+          break;
+        }
+      }
+      
+      // If no exact match, try partial matching (last resort for filenames)
+      if (!chosen) {
+        // Try matching just the episode part of the filename
+        const targetBase = targetFilename.replace(/\.(mkv|mp4|m4v|avi|mov|ts|flv|webm)$/i, '');
+        for (const file of videoFiles) {
+          const fileName = file.name || file.path || '';
+          const fileBase = fileName.replace(/\.(mkv|mp4|m4v|avi|mov|ts|flv|webm)$/i, '');
+          // Check if target contains a unique identifier that matches
+          if (fileBase.length > 10 && targetBase.length > 10 && 
+              fileBase.toLowerCase().includes(targetBase.toLowerCase().substring(0, 30))) {
+            chosen = file;
+            if (isFirstRequest) {
+              log(`✅ Found partial filename match: ${fileName}`);
+            }
+            break;
+          }
+        }
+      }
+    }
+    
+    // PRIORITY 2: Episode pattern matching (for season packs without filename)
     if (!chosen && targetSeason && targetEpisode && videoFiles.length > 1) {
       // For season packs, try to find the exact episode file
       const episodePatterns = [
@@ -948,7 +1099,7 @@ async function handlePlay(req, res, defaults = {}) {
         if (episodePatterns.some(pattern => pattern.test(fileName))) {
           chosen = file;
           if (isFirstRequest) {
-            log(`✅ Found episode match: ${fileName}`);
+            log(`✅ Found episode pattern match: ${fileName}`);
           }
           break;
         }

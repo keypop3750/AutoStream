@@ -1875,11 +1875,18 @@ function startServer(port = PORT) {
           if ((s.autostreamOrigin === 'torrentio' || s.autostreamOrigin === 'tpb') && (s.infoHash || isMagnetish)) {
             s._debrid = true; 
             s._isDebrid = true;
+            
+            // Extract filename for season pack file matching (like Torrentio)
+            const streamFilename = s.behaviorHints?.filename || 
+                                   s._originalMetadata?.filename || 
+                                   '';
+            
             s.url = buildPlayUrl({
               ih: s.infoHash || '',
               magnet: isMagnetish ? s.url : '',
               idx: (typeof s.fileIdx === 'number' ? s.fileIdx : 0),
-              imdb: id
+              imdb: id,
+              filename: streamFilename // Pass filename for season pack matching
             }, { 
               origin: originBase, 
               ad: effectiveAdParam,
@@ -2004,11 +2011,17 @@ function startServer(port = PORT) {
               additional._debrid = true;
               additional._isDebrid = true;
               
+              // Extract filename for season pack file matching (like Torrentio)
+              const additionalFilename = additional.behaviorHints?.filename || 
+                                        additional._originalMetadata?.filename || 
+                                        '';
+              
               additional.url = buildPlayUrl({
                 ih: additional.infoHash,
                 magnet: additional.url && /^magnet:/i.test(additional.url) ? additional.url : '',
                 idx: (typeof additional.fileIdx === 'number' ? additional.fileIdx : 0),
-                imdb: id
+                imdb: id,
+                filename: additionalFilename // Pass filename for season pack matching
               }, { 
                 origin: originBase, 
                 ad: effectiveAdParam,
