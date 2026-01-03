@@ -100,10 +100,9 @@
   }
   
   // Load URL parameters on page load
+  console.log('🔧 Loading from URL parameters...');
   loadFromURL();
-  
-  // Load URL parameters on page load
-  loadFromURL();
+  console.log('🔧 State after URL loading:', JSON.stringify(state, null, 2));
 
   const $ = sel => document.querySelector(sel);
   const providerEl = $('#provider');
@@ -156,7 +155,10 @@
     sizeCustomEl.value = '';
   }
 
-  function persist(){ localStorage.setItem('autostream_config', JSON.stringify(state)); }
+  function persist(){ 
+    console.log('💾 Persisting state:', JSON.stringify(state, null, 2));
+    localStorage.setItem('autostream_config', JSON.stringify(state)); 
+  }
 
   function renderLangPills(){
     langPillsEl.innerHTML = '';
@@ -209,7 +211,7 @@
       const pill = document.createElement('div');
       pill.className = 'pill';
       pill.dataset.index = String(idx);
-      pill.innerHTML = `<div class="num">🚫</div><div class="txt">${term}</div><div class="handle remove" onclick="removeBlacklistItem(${idx})" title="Remove ${term}">✕</div>`;
+      pill.innerHTML = `<div class="txt">${term}</div><div class="handle remove" onclick="removeBlacklistItem(${idx})" title="Remove ${term}">✕</div>`;
       blacklistPillsEl.appendChild(pill);
     });
   }
@@ -237,9 +239,24 @@
   }
 
   // events
-  providerEl.onchange = ()=>{ state.provider = providerEl.value; persist(); rerender(); };
-  apikeyEl.oninput   = ()=>{ state.apiKey  = apikeyEl.value;   persist(); rerender(); };
-  fallbackEl.onchange= ()=>{ state.fallback= !!fallbackEl.checked; persist(); rerender(); };
+  providerEl.onchange = ()=>{ 
+    console.log('🔧 Provider changed to:', providerEl.value);
+    state.provider = providerEl.value; 
+    persist(); 
+    rerender(); 
+  };
+  apikeyEl.oninput   = ()=>{ 
+    console.log('🔧 API key changed (length):', apikeyEl.value.length);
+    state.apiKey  = apikeyEl.value;   
+    persist(); 
+    rerender(); 
+  };
+  fallbackEl.onchange= ()=>{ 
+    console.log('🔧 Fallback changed to:', fallbackEl.checked);
+    state.fallback= !!fallbackEl.checked; 
+    persist(); 
+    rerender(); 
+  };
 
   langAddEl.onclick = ()=>{
     if (state.langs.length >= MAX_LANGS) return;
@@ -304,11 +321,11 @@
   }
 
   // ===============================================
-  // PATH-BASED CONFIGURATION (Torrentio-style)
+  // PATH-BASED CONFIGURATION (HentaiStream-style)
   // ===============================================
   
-  function encodeConfigurationPath() {
-    const configParts = [];
+  function buildConfigPath() {
+    const parts = [];
 
     // Debrid provider (only if both provider and key are set)
     const key = (state.apiKey || '').trim();
@@ -325,58 +342,63 @@
         'putio': 'putio'
       };
       const pk = map[prov];
-      if (pk) configParts.push(`${pk}=${key}`);
+      if (pk) parts.push(`${pk}=${encodeURIComponent(key)}`);
     }
 
     // Fallback setting
     if (state.fallback) {
-      configParts.push('fallback=1');
+      parts.push('fallback=1');
     }
 
     // Size limit (in GB)
     if (state.maxSizeBytes && Number(state.maxSizeBytes) > 0) {
       const sizeGB = state.maxSizeBytes / BYTES_IN_GB;
-      configParts.push(`max_size=${sizeGB}`);
+      parts.push(`max_size=${sizeGB}`);
     }
     
     // Language priorities
     if (state.langs && state.langs.length) {
-      configParts.push(`lang_prio=${state.langs.join(',')}`);
+      parts.push(`lang_prio=${state.langs.join(',')}`);
     }
 
     // Blacklist terms
     if (state.blacklist && state.blacklist.length) {
-      configParts.push(`blacklist=${state.blacklist.join(',')}`);
+      parts.push(`blacklist=${state.blacklist.join(',')}`);
     }
 
     // Nuvio settings
     if (state.nuvioEnabled) {
-      configParts.push('include_nuvio=1');
+      parts.push('include_nuvio=1');
       const ck = (state.nuvioCookie || '').trim();
-      if (ck) configParts.push(`nuvio_cookie=${ck}`);
+      if (ck) parts.push(`nuvio_cookie=${encodeURIComponent(ck)}`);
       if (!state.conserveCookie) {
-        configParts.push('conserve_cookie=0');
+        parts.push('conserve_cookie=0');
       }
     }
 
-    // FIXED: Use pipe separator like Torrentio for Stremio desktop app compatibility
-    return configParts.join('|');
-  }
-  
-  function buildPathBasedUrl() {
-    const configuration = encodeConfigurationPath();
-    if (configuration) {
-      return `${originHost}/${configuration}/manifest.json`;
-    } else {
-      return `${originHost}/manifest.json`;
-    }
+    // Use & separator like HentaiStream (simpler and works reliably)
+    return parts.join('&');
   }
   
   function buildUrl(){
     const params = new URLSearchParams();
 
+    console.log('🔧 buildUrl() called with state:', {
+      provider: state.provider,
+      apiKey: state.apiKey ? '[REDACTED]' : 'empty',
+      fallback: state.fallback,
+      langs: state.langs,
+      blacklist: state.blacklist,
+      maxSizeBytes: state.maxSizeBytes,
+      nuvioEnabled: state.nuvioEnabled,
+      nuvioCookie: state.nuvioCookie ? '[REDACTED]' : 'empty'
+    });
+
     // Fallback only if enabled
-    if (state.fallback) params.set('fallback', '1');
+    if (state.fallback) {
+      params.set('fallback', '1');
+      console.log('🔧 Added fallback=1');
+    }
 
     // Debrid: include exactly one provider param ONLY when provider + key are provided
     const key = (state.apiKey || '').trim();
@@ -396,57 +418,83 @@
         'AD': 'alldebrid', 'RD': 'realdebrid', 'PM': 'premiumize', 'TB': 'torbox', 'OC': 'offcloud'
       };
       const pk = map[prov];
-      if (pk) params.set(pk, key);
+      if (pk) {
+        params.set(pk, key);
+        console.log(`🔧 Added ${pk}=[REDACTED]`);
+      } else {
+        console.warn('🔧 Unknown provider:', prov);
+      }
+    } else {
+      console.log('🔧 No debrid provider configured (provider:', prov, ', key:', key ? '[REDACTED]' : 'empty', ')');
     }
 
     // Size only if > 0 (send as GB, not bytes)
     if (state.maxSizeBytes && Number(state.maxSizeBytes) > 0) {
       const sizeGB = state.maxSizeBytes / BYTES_IN_GB;
       params.set('max_size', String(sizeGB));
+      console.log('🔧 Added max_size=' + sizeGB);
     }
 
     // Priority languages only when set
     if (state.langs && state.langs.length) {
       params.set('lang_prio', state.langs.join(','));
+      console.log('🔧 Added lang_prio=' + state.langs.join(','));
     }
 
     // Blacklist terms only when set
     if (state.blacklist && state.blacklist.length) {
       params.set('blacklist', state.blacklist.join(','));
+      console.log('🔧 Added blacklist=' + state.blacklist.join(','));
     }
 
     // Nuvio only if enabled
     if (state.nuvioEnabled) {
       params.set('include_nuvio', '1');
       params.set('nuvio', '1'); // explicit enable flag; omit entirely when disabled
+      console.log('🔧 Added include_nuvio=1 and nuvio=1');
+      
       const ck = (state.nuvioCookie || '').trim();
-      if (ck) params.set('nuvio_cookie', ck);
+      if (ck) {
+        params.set('nuvio_cookie', ck);
+        console.log('🔧 Added nuvio_cookie=[REDACTED]');
+      }
       
       // Cookie conservation setting (default true, only set if false)
       if (!state.conserveCookie) {
         params.set('conserve_cookie', '0');
+        console.log('🔧 Added conserve_cookie=0');
       }
     }
 
     const qs = params.toString();
-    return originHost + '/manifest.json' + (qs ? ('?' + qs) : '');
+    const url = originHost + '/manifest.json' + (qs ? ('?' + qs) : '');
+    console.log('🔗 Generated query-based URL:', url);
+    console.log('🔧 Query string parameters:', qs);
+    return url;
   }
 
 function rerender(){
-    // Query-based URL for web compatibility (existing approach)
+    const configPath = buildConfigPath();
     const queryBasedUrl = buildUrl();
-    const redacted = queryBasedUrl.replace(/^https?:\/\//, '');
-    manifestEl.textContent = redacted;
+    let manifestUrl;
     
-    // Path-based URL for Stremio native app compatibility (new approach)
-    const pathBasedUrl = buildPathBasedUrl();
+    if (configPath) {
+      manifestUrl = `${originHost}/${configPath}/manifest.json`;
+    } else {
+      manifestUrl = `${originHost}/manifest.json`;
+    }
     
-    // Web install uses query-based URL (properly URL-encoded)
-    const stremioWebUrl = `https://web.stremio.com/#/addons?addon=${encodeURIComponent(queryBasedUrl)}`;
+    // Display URL without protocol
+    const displayUrl = manifestUrl.replace(/^https?:\/\//, '');
+    manifestEl.textContent = displayUrl;
     
-    // FIXED: Use direct HTTP URL for path-based installation, not stremio:// protocol
-    appBtn.href = pathBasedUrl;
-    webBtn.href = stremioWebUrl;
+    // Install links - set href directly like HentaiStream does
+    if (configPath) {
+      appBtn.href = `stremio://${window.location.host}/${configPath}/manifest.json`;
+    } else {
+      appBtn.href = `stremio://${window.location.host}/manifest.json`;
+    }
+    webBtn.href = `https://web.stremio.com/#/addons?addon=${encodeURIComponent(queryBasedUrl)}`;
     
     appBtn.textContent = 'Install to Stremio';
     webBtn.textContent = 'Install to Web';
@@ -457,10 +505,8 @@ function rerender(){
   syncSize();
   refreshCookieVisibility();
   rerender();
-o  // FIXED: Remove redundant click handler that was causing configuration loss
-  // The rerender() function already sets the correct href with all configurations
-  // Right-click works because it uses this static href, left-click should too
-  // No need for a click handler - let default browser behavior handle the navigation
+
+  // No click handler needed - href is set directly in rerender() like HentaiStream
 
   // ==================================================
   // PENALTY RELIABILITY MANAGEMENT FUNCTIONS
