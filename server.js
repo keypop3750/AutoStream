@@ -1123,8 +1123,29 @@ function startServer(port = PORT) {
         const paramsObj = Object.fromEntries(q.entries());
         
         // Enhanced logging for configuration debugging
+        console.log('🔧 MANIFEST REQUEST:', {
+          pathname,
+          queryString: req.url.split('?')[1] || 'no query string',
+          paramsCount: Object.keys(paramsObj).length,
+          paramKeys: Object.keys(paramsObj),
+          userAgent: req.headers['user-agent'] || 'no user agent',
+          referer: req.headers.referer || 'no referer'
+        });
+        
         if (Object.keys(paramsObj).length > 0) {
-          console.log('� MANIFEST: Saving configuration with params:', Object.keys(paramsObj));
+          console.log('📊 MANIFEST: Saving configuration with params:', Object.keys(paramsObj));
+          // Redacted param values for security
+          const redactedParams = {};
+          for (const [k, v] of Object.entries(paramsObj)) {
+            if (['alldebrid', 'realdebrid', 'premiumize', 'torbox', 'offcloud', 'easydebrid', 'debridlink', 'putio', 'ad', 'rd', 'pm', 'tb', 'oc', 'ed', 'dl', 'pu', 'nuvio_cookie'].includes(k)) {
+              redactedParams[k] = '[REDACTED]';
+            } else {
+              redactedParams[k] = v;
+            }
+          }
+          console.log('📊 MANIFEST: Parameter values (redacted):', redactedParams);
+        } else {
+          console.log('📊 MANIFEST: No parameters received - generating basic manifest');
         }
         
         const remembered = {};
@@ -2147,8 +2168,63 @@ function startServer(port = PORT) {
     
     // Clear episode/metadata caches on startup to ensure fresh data after fixes
     clearEpisodeCaches();
+    
+    // Setup self-ping to keep Render instance alive
+    setupSelfPing();
   });
   return server;
+}
+
+// Self-ping mechanism to keep Render instance alive (like HentaiStream)
+function setupSelfPing() {
+  // Only enable in production (Render)
+  if (process.env.NODE_ENV !== 'production') {
+    console.log('⏭ Self-ping disabled (not in production mode)');
+    return;
+  }
+
+  const PING_INTERVAL = 14 * 60 * 1000; // 14 minutes (before 15-min timeout)
+  
+  // Get the app's own URL from Render environment variable
+  const selfUrl = process.env.RENDER_EXTERNAL_URL;
+  
+  if (!selfUrl) {
+    console.warn('RENDER_EXTERNAL_URL not found - self-ping disabled');
+    return;
+  }
+
+  const pingUrl = `${selfUrl}/health`;
+  
+  console.log(`🔄 Self-ping enabled: ${pingUrl} every ${PING_INTERVAL / 60000} minutes`);
+
+  setInterval(async () => {
+    try {
+      const https = require('https');
+      const httpModule = require('http');
+      const client = pingUrl.startsWith('https') ? https : httpModule;
+      
+      const startTime = Date.now();
+      client.get(pingUrl, (res) => {
+        const duration = Date.now() - startTime;
+        console.log(`Self-ping successful (${res.statusCode}) - ${duration}ms`);
+      }).on('error', (err) => {
+        console.error('Self-ping failed:', err.message);
+      });
+    } catch (error) {
+      console.error('Self-ping error:', error.message);
+    }
+  }, PING_INTERVAL);
+
+  // Do an initial ping after 1 minute
+  setTimeout(() => {
+    console.log('Performing initial self-ping...');
+    try {
+      const https = require('https');
+      const httpModule = require('http');
+      const client = pingUrl.startsWith('https') ? https : httpModule;
+      client.get(pingUrl, () => {});
+    } catch (e) {}
+  }, 60000);
 }
 
 if (require.main === module) startServer(PORT);

@@ -230,6 +230,26 @@ function getQualityScore(stream, req) {
     factors.push('standard_audio');
   }
 
+  // SUBTITLE DETECTION - bonus for streams with subtitles
+  // Many users need subtitles, so prefer streams that have them
+  if (/\b(subs?|subtitles?|subtitled|english\s*sub|multi\s*sub|multisub)\b/i.test(title)) {
+    score += 25;
+    factors.push('has_subtitles');
+  } else if (/\b(srt|vtt|ssa|ass|sub)\b/i.test(title)) {
+    score += 20;
+    factors.push('subtitle_format');
+  } else if (/\b(hardcoded|hardsub|hc)\b/i.test(title)) {
+    // Hardcoded subs are less desirable but still better than none
+    score += 10;
+    factors.push('hardcoded_subs');
+  }
+  
+  // Penalty for streams explicitly marked as having no subs
+  if (/\b(nosub|no[\s\-]?subs?|raw)\b/i.test(title)) {
+    score -= 15;
+    factors.push('no_subtitles_penalty');
+  }
+
   // Release source quality (in order of preference)
   if (/\b(bluray|bd|bdrip|brrip)\b/.test(title)) {
     score += 10;
