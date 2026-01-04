@@ -1,701 +1,852 @@
 (function(){
-  'use strict';
-  const BYTES_IN_GB = 1024 ** 3;
-  const originHost = window.location.origin;
-  const hostNoScheme = window.location.host;
+ 'use strict';
+ 
+ // Debug mode - set to true for development, false for production
+ const DEBUG = window.location.search.includes('debug=1') || 
+ localStorage.getItem('autostream_debug') === '1';
+ const log = (...args) => { if (DEBUG) console.log(...args); };
+ 
+ const BYTES_IN_GB = 1024 ** 3;
+ const originHost = window.location.origin;
+ const hostNoScheme = window.location.host;
 
-  const LANG_OPTIONS = [
-    ['EN','English'], ['ES','Spanish'], ['LT','Lithuanian'], ['RU','Russian'],
-    ['DE','German'], ['IT','Italian'], ['FR','French'], ['PL','Polish'],
-    ['TR','Turkish'], ['PT-PT','Portuguese (PT)'], ['PT-BR','Portuguese (BR)'],
-    ['AR','Arabic'], ['JA','Japanese'], ['KO','Korean'], ['ZH','Chinese']
-  ];
-  const NAME_BY_CODE = Object.fromEntries(LANG_OPTIONS);
+ const LANG_OPTIONS = [
+ ['EN','English'], ['ES','Spanish'], ['LT','Lithuanian'], ['RU','Russian'],
+ ['DE','German'], ['IT','Italian'], ['FR','French'], ['PL','Polish'],
+ ['TR','Turkish'], ['PT-PT','Portuguese (PT)'], ['PT-BR','Portuguese (BR)'],
+ ['AR','Arabic'], ['JA','Japanese'], ['KO','Korean'], ['ZH','Chinese']
+ ];
+ const NAME_BY_CODE = Object.fromEntries(LANG_OPTIONS);
 
-  const SIZE_PRESETS = [
-    ['0', 'Unlimited'],
-    [String((1.5 * BYTES_IN_GB)|0), '1.5 GB'],
-    [String(2 * BYTES_IN_GB), '2 GB'],
-    [String(4 * BYTES_IN_GB), '4 GB'],
-    [String(8 * BYTES_IN_GB), '8 GB'],
-    [String(10 * BYTES_IN_GB), '10 GB'],
-    [String(12 * BYTES_IN_GB), '12 GB'],
-    [String(15 * BYTES_IN_GB), '15 GB'],
-    [String(20 * BYTES_IN_GB), '20 GB']
-  ];
+ const SIZE_PRESETS = [
+ ['0', 'Unlimited'],
+ [String((1.5 * BYTES_IN_GB)|0), '1.5 GB'],
+ [String(2 * BYTES_IN_GB), '2 GB'],
+ [String(4 * BYTES_IN_GB), '4 GB'],
+ [String(8 * BYTES_IN_GB), '8 GB'],
+ [String(10 * BYTES_IN_GB), '10 GB'],
+ [String(12 * BYTES_IN_GB), '12 GB'],
+ [String(15 * BYTES_IN_GB), '15 GB'],
+ [String(20 * BYTES_IN_GB), '20 GB']
+ ];
 
-  const MAX_LANGS = 6;
-  const MAX_BLACKLIST = 10;
+ const MAX_LANGS = 6;
+ const MAX_BLACKLIST = 100;
 
-  const state = {
-    provider: '',
-    apiKey: '',
-    fallback: false,
-    langs: [],
-    blacklist: [],
-    maxSizeBytes: 0,
-    nuvioEnabled: false,
-    nuvioCookie: '',
-    conserveCookie: true
-  };
-  
-  // Load from localStorage first
-  try { Object.assign(state, JSON.parse(localStorage.getItem('autostream_config')||'{}')); } catch {}
-  
-  // Then override with URL parameters if present (for existing installations)
-  function loadFromURL() {
-    const params = new URLSearchParams(window.location.search);
-    
-    // Load debrid provider and API key - updated to match new provider system
-    if (params.get('alldebrid')) { state.provider = 'alldebrid'; state.apiKey = params.get('alldebrid'); }
-    else if (params.get('realdebrid')) { state.provider = 'realdebrid'; state.apiKey = params.get('realdebrid'); }
-    else if (params.get('premiumize')) { state.provider = 'premiumize'; state.apiKey = params.get('premiumize'); }
-    else if (params.get('torbox')) { state.provider = 'torbox'; state.apiKey = params.get('torbox'); }
-    else if (params.get('offcloud')) { state.provider = 'offcloud'; state.apiKey = params.get('offcloud'); }
-    else if (params.get('easydebrid')) { state.provider = 'easydebrid'; state.apiKey = params.get('easydebrid'); }
-    else if (params.get('debridlink')) { state.provider = 'debridlink'; state.apiKey = params.get('debridlink'); }
-    else if (params.get('putio')) { state.provider = 'putio'; state.apiKey = params.get('putio'); }
-    // Legacy support for old parameter names
-    else if (params.get('ad')) { state.provider = 'alldebrid'; state.apiKey = params.get('ad'); }
-    else if (params.get('rd')) { state.provider = 'realdebrid'; state.apiKey = params.get('rd'); }
-    else if (params.get('pm')) { state.provider = 'premiumize'; state.apiKey = params.get('pm'); }
-    else if (params.get('tb')) { state.provider = 'torbox'; state.apiKey = params.get('tb'); }
-    else if (params.get('oc')) { state.provider = 'offcloud'; state.apiKey = params.get('oc'); }
-    
-    // Load size limit (convert from GB to bytes)
-    if (params.get('max_size')) {
-      const sizeGB = parseFloat(params.get('max_size'));
-      if (sizeGB > 0) {
-        state.maxSizeBytes = Math.round(sizeGB * BYTES_IN_GB);
-      }
-    }
-    
-    // Load language priorities
-    if (params.get('lang_prio')) {
-      const langs = params.get('lang_prio').split(',').map(s => s.trim().toUpperCase()).filter(Boolean);
-      if (langs.length > 0) state.langs = langs.slice(0, MAX_LANGS);
-    }
-    
-    // Load blacklist
-    if (params.get('blacklist')) {
-      const blacklist = params.get('blacklist').split(',').map(s => s.trim()).filter(Boolean);
-      if (blacklist.length > 0) state.blacklist = blacklist.slice(0, MAX_BLACKLIST);
-    }
-    
-    // Load fallback setting
-    if (params.get('fallback')) {
-      state.fallback = params.get('fallback') === '1' || params.get('fallback') === 'true';
-    }
-    
-    // Load Nuvio settings
-    if (params.get('include_nuvio') || params.get('nuvio')) {
-      state.nuvioEnabled = true;
-      if (params.get('nuvio_cookie')) {
-        state.nuvioCookie = params.get('nuvio_cookie');
-      }
-      if (params.get('conserve_cookie') === '0') {
-        state.conserveCookie = false;
-      }
-    }
-  }
-  
-  // Load URL parameters on page load
-  console.log('🔧 Loading from URL parameters...');
-  loadFromURL();
-  console.log('🔧 State after URL loading:', JSON.stringify(state, null, 2));
+ // API Key documentation links for each provider
+ const API_KEY_DOCS = {
+ 'realdebrid': 'https://real-debrid.com/apitoken',
+ 'alldebrid': 'https://alldebrid.com/apikeys',
+ 'premiumize': 'https://www.premiumize.me/account',
+ 'easydebrid': 'https://easydebrid.com/account',
+ 'debridlink': 'https://debrid-link.fr/webapp/apikey',
+ 'torbox': 'https://torbox.app/settings',
+ 'offcloud': 'https://offcloud.com/#/account',
+ 'putio': 'https://app.put.io/settings/account'
+ };
 
-  const $ = sel => document.querySelector(sel);
-  const providerEl = $('#provider');
-  const apikeyEl = $('#apikey');
-  const fallbackEl = $('#fallback1080');
-  const langPickerEl = $('#langPicker');
-  const langAddEl = $('#langAdd');
-  const langClearEl = $('#langClear');
-  const langPillsEl = $('#langPills');
-  const blacklistPickerEl = $('#blacklistPicker');
-  const blacklistAddEl = $('#blacklistAdd');
-  const blacklistClearEl = $('#blacklistClear');
-  const blacklistPillsEl = $('#blacklistPills');
-  const nuvioEnabledEl = $('#nuvioEnabled');
-  const nuvioCookieEl = $('#nuvioCookie');
-  const conserveCookieEl = $('#conserveCookie');
-  const sizePresetEl = $('#sizePreset');
-  const sizeCustomEl = $('#sizeCustom');
-  const manifestEl = $('#manifestUrl');
-  const appBtn = $('#installApp');
-  const webBtn = $('#installWeb');
-  const cookieSection = document.getElementById('cookieSection');
+ const state = {
+ provider: '',
+ apiKey: '',
+ fallback: false,
+ secondBest: true,
+ langs: [],
+ blacklist: [],
+ maxSizeBytes: 0,
+ nuvioEnabled: false,
+ nuvioCookie: '',
+ conserveCookie: true
+ };
+ 
+ // Load from localStorage first
+ try { Object.assign(state, JSON.parse(localStorage.getItem('autostream_config')||'{}')); } catch {}
+ 
+ // Then override with URL parameters if present (for existing installations)
+ function loadFromURL() {
+ const params = new URLSearchParams(window.location.search);
+ 
+ // Load debrid provider and API key - updated to match new provider system
+ if (params.get('alldebrid')) { state.provider = 'alldebrid'; state.apiKey = params.get('alldebrid'); }
+ else if (params.get('realdebrid')) { state.provider = 'realdebrid'; state.apiKey = params.get('realdebrid'); }
+ else if (params.get('premiumize')) { state.provider = 'premiumize'; state.apiKey = params.get('premiumize'); }
+ else if (params.get('torbox')) { state.provider = 'torbox'; state.apiKey = params.get('torbox'); }
+ else if (params.get('offcloud')) { state.provider = 'offcloud'; state.apiKey = params.get('offcloud'); }
+ else if (params.get('easydebrid')) { state.provider = 'easydebrid'; state.apiKey = params.get('easydebrid'); }
+ else if (params.get('debridlink')) { state.provider = 'debridlink'; state.apiKey = params.get('debridlink'); }
+ else if (params.get('putio')) { state.provider = 'putio'; state.apiKey = params.get('putio'); }
+ // Legacy support for old parameter names
+ else if (params.get('ad')) { state.provider = 'alldebrid'; state.apiKey = params.get('ad'); }
+ else if (params.get('rd')) { state.provider = 'realdebrid'; state.apiKey = params.get('rd'); }
+ else if (params.get('pm')) { state.provider = 'premiumize'; state.apiKey = params.get('pm'); }
+ else if (params.get('tb')) { state.provider = 'torbox'; state.apiKey = params.get('tb'); }
+ else if (params.get('oc')) { state.provider = 'offcloud'; state.apiKey = params.get('oc'); }
+ 
+ // Load size limit (convert from GB to bytes)
+ if (params.get('max_size')) {
+ const sizeGB = parseFloat(params.get('max_size'));
+ if (sizeGB > 0) {
+ state.maxSizeBytes = Math.round(sizeGB * BYTES_IN_GB);
+ }
+ }
+ 
+ // Load language priorities
+ if (params.get('lang_prio')) {
+ const langs = params.get('lang_prio').split(',').map(s => s.trim().toUpperCase()).filter(Boolean);
+ if (langs.length > 0) state.langs = langs.slice(0, MAX_LANGS);
+ }
+ 
+ // Load blacklist
+ if (params.get('blacklist')) {
+ const blacklist = params.get('blacklist').split(',').map(s => s.trim()).filter(Boolean);
+ if (blacklist.length > 0) state.blacklist = blacklist.slice(0, MAX_BLACKLIST);
+ }
+ 
+ // Load fallback setting
+ if (params.get('fallback')) {
+ state.fallback = params.get('fallback') === '1' || params.get('fallback') === 'true';
+ }
+ 
+ // Load secondBest setting
+ if (params.get('secondBest')) {
+ state.secondBest = params.get('secondBest') === '1' || params.get('secondBest') === 'true';
+ }
+ 
+ // Load Nuvio settings
+ if (params.get('include_nuvio') || params.get('nuvio')) {
+ state.nuvioEnabled = true;
+ if (params.get('nuvio_cookie')) {
+ state.nuvioCookie = params.get('nuvio_cookie');
+ }
+ if (params.get('conserve_cookie') === '0') {
+ state.conserveCookie = false;
+ }
+ }
+ }
+ 
+ // Load URL parameters on page load
+ log('[CONFIG] Loading from URL parameters...');
+ loadFromURL();
+ log('[CONFIG] State after URL loading:', JSON.stringify(state, null, 2));
 
-  // Init selects
-  sizePresetEl.innerHTML = SIZE_PRESETS.map(([v,t])=>`<option value="${v}">${t}</option>`).join('');
-  langPickerEl.innerHTML = LANG_OPTIONS.map(([v,t])=>`<option value="${v}">${t}</option>`).join('');
+ const $ = sel => document.querySelector(sel);
+ const providerEl = $('#provider');
+ const apikeyEl = $('#apikey');
+ const fallbackEl = $('#fallback1080');
+ const secondBestEl = $('#secondBest');
+ const langPickerEl = $('#langPicker');
+ const langAddEl = $('#langAdd');
+ const langClearEl = $('#langClear');
+ const langPillsEl = $('#langPills');
+ const blacklistPickerEl = $('#blacklistPicker');
+ const blacklistAddEl = $('#blacklistAdd');
+ const blacklistClearEl = $('#blacklistClear');
+ const blacklistPillsEl = $('#blacklistPills');
+ const nuvioEnabledEl = $('#nuvioEnabled');
+ const nuvioCookieEl = $('#nuvioCookie');
+ const conserveCookieEl = $('#conserveCookie');
+ const sizePresetEl = $('#sizePreset');
+ const sizeCustomEl = $('#sizeCustom');
+ const manifestEl = $('#manifestUrl');
+ const appBtn = $('#installApp');
+ const webBtn = $('#installWeb');
+ const cookieSection = document.getElementById('cookieSection');
 
-  // Hydrate fields from state (after URL loading)
-  providerEl.value = state.provider || '';
-  apikeyEl.value = state.apiKey || '';
-  fallbackEl.checked = !!state.fallback;
-  nuvioEnabledEl.checked = !!state.nuvioEnabled;
-  nuvioCookieEl.value = state.nuvioCookie || '';
-  conserveCookieEl.checked = state.conserveCookie !== false; // Default true
-  
-  // Hydrate size preset from state
-  if (state.maxSizeBytes > 0) {
-    const bytesStr = String(state.maxSizeBytes);
-    const found = SIZE_PRESETS.find(([v]) => v === bytesStr);
-    if (found) {
-      sizePresetEl.value = bytesStr;
-      sizeCustomEl.value = '';
-    } else {
-      // Custom size - convert bytes to GB
-      sizePresetEl.value = '0';
-      sizeCustomEl.value = String(state.maxSizeBytes / BYTES_IN_GB);
-    }
-  } else {
-    sizePresetEl.value = '0'; // Unlimited
-    sizeCustomEl.value = '';
-  }
+ // Init selects
+ sizePresetEl.innerHTML = SIZE_PRESETS.map(([v,t])=>`<option value="${v}">${t}</option>`).join('');
+ langPickerEl.innerHTML = LANG_OPTIONS.map(([v,t])=>`<option value="${v}">${t}</option>`).join('');
 
-  function persist(){ 
-    console.log('💾 Persisting state:', JSON.stringify(state, null, 2));
-    localStorage.setItem('autostream_config', JSON.stringify(state)); 
-  }
+ // Hydrate fields from state (after URL loading)
+ providerEl.value = state.provider || '';
+ apikeyEl.value = state.apiKey || '';
+ fallbackEl.checked = !!state.fallback;
+ secondBestEl.checked = state.secondBest !== false; // Default true
+ nuvioEnabledEl.checked = !!state.nuvioEnabled;
+ nuvioCookieEl.value = state.nuvioCookie || '';
+ conserveCookieEl.checked = state.conserveCookie !== false; // Default true
+ 
+ // Hydrate size preset from state
+ if (state.maxSizeBytes > 0) {
+ const bytesStr = String(state.maxSizeBytes);
+ const found = SIZE_PRESETS.find(([v]) => v === bytesStr);
+ if (found) {
+ sizePresetEl.value = bytesStr;
+ sizeCustomEl.value = '';
+ } else {
+ // Custom size - convert bytes to GB
+ sizePresetEl.value = '0';
+ sizeCustomEl.value = String(state.maxSizeBytes / BYTES_IN_GB);
+ }
+ } else {
+ sizePresetEl.value = '0'; // Unlimited
+ sizeCustomEl.value = '';
+ }
 
-  function renderLangPills(){
-    langPillsEl.innerHTML = '';
-    const count = state.langs.length;
-    langPillsEl.classList.toggle('one', count <= 2);
-    langPillsEl.classList.toggle('two', count >= 3);
+ function persist(){ 
+ log('[SAVE] Persisting state:', JSON.stringify(state, null, 2));
+ localStorage.setItem('autostream_config', JSON.stringify(state)); 
+ }
 
-    const atCap = count >= MAX_LANGS;
-    if (atCap) { langAddEl.classList.add('disabled'); langAddEl.setAttribute('disabled','disabled'); }
-    else { langAddEl.classList.remove('disabled'); langAddEl.removeAttribute('disabled'); }
+ function renderLangPills(){
+ langPillsEl.innerHTML = '';
+ const count = state.langs.length;
+ langPillsEl.classList.toggle('one', count <= 2);
+ langPillsEl.classList.toggle('two', count >= 3);
 
-    state.langs.forEach((code, idx) => {
-      const pill = document.createElement('div');
-      pill.className = 'pill';
-      pill.draggable = true;
-      pill.dataset.index = String(idx);
-      const label = NAME_BY_CODE[code] || code;
-      pill.innerHTML = `<div class="num">${idx+1}</div><div class="txt">${label}</div><div class="handle">≡</div>`;
-      pill.addEventListener('dragstart', (e)=>{
-        e.dataTransfer.setData('text/plain', pill.dataset.index);
-        pill.classList.add('dragging');
-      });
-      pill.addEventListener('dragend', ()=> pill.classList.remove('dragging'));
-      pill.addEventListener('dragover', (e)=> e.preventDefault());
-      pill.addEventListener('drop', (e)=>{
-        e.preventDefault();
-        const from = Number(e.dataTransfer.getData('text/plain'));
-        const to = Number(pill.dataset.index);
-        if (!Number.isNaN(from) && !Number.isNaN(to) && from !== to) {
-          const item = state.langs.splice(from,1)[0];
-          state.langs.splice(to,0,item);
-          persist(); renderLangPills(); rerender();
-        }
-      });
-      langPillsEl.appendChild(pill);
-    });
-  }
+ const atCap = count >= MAX_LANGS;
+ if (atCap) { langAddEl.classList.add('disabled'); langAddEl.setAttribute('disabled','disabled'); }
+ else { langAddEl.classList.remove('disabled'); langAddEl.removeAttribute('disabled'); }
 
-  function renderBlacklistPills(){
-    blacklistPillsEl.innerHTML = '';
-    const count = state.blacklist.length;
-    blacklistPillsEl.classList.toggle('one', count <= 2);
-    blacklistPillsEl.classList.toggle('two', count >= 3);
+ state.langs.forEach((code, idx) => {
+ const pill = document.createElement('div');
+ pill.className = 'pill';
+ pill.draggable = true;
+ pill.dataset.index = String(idx);
+ const label = NAME_BY_CODE[code] || code;
+ pill.innerHTML = `<div class="num">${idx+1}</div><div class="txt">${label}</div><div class="handle">≡</div>`;
+ pill.addEventListener('dragstart', (e)=>{
+ e.dataTransfer.setData('text/plain', pill.dataset.index);
+ pill.classList.add('dragging');
+ });
+ pill.addEventListener('dragend', ()=> pill.classList.remove('dragging'));
+ pill.addEventListener('dragover', (e)=> e.preventDefault());
+ pill.addEventListener('drop', (e)=>{
+ e.preventDefault();
+ const from = Number(e.dataTransfer.getData('text/plain'));
+ const to = Number(pill.dataset.index);
+ if (!Number.isNaN(from) && !Number.isNaN(to) && from !== to) {
+ const item = state.langs.splice(from,1)[0];
+ state.langs.splice(to,0,item);
+ persist(); renderLangPills(); rerender();
+ }
+ });
+ langPillsEl.appendChild(pill);
+ });
+ }
 
-    const atCap = count >= MAX_BLACKLIST;
-    if (atCap) { blacklistAddEl.classList.add('disabled'); blacklistAddEl.setAttribute('disabled','disabled'); }
-    else { blacklistAddEl.classList.remove('disabled'); blacklistAddEl.removeAttribute('disabled'); }
+ function renderBlacklistPills(){
+ blacklistPillsEl.innerHTML = '';
+ const count = state.blacklist.length;
+ blacklistPillsEl.classList.toggle('one', count <= 2);
+ blacklistPillsEl.classList.toggle('two', count >= 3);
 
-    state.blacklist.forEach((term, idx) => {
-      const pill = document.createElement('div');
-      pill.className = 'pill';
-      pill.dataset.index = String(idx);
-      pill.innerHTML = `<div class="txt">${term}</div><div class="handle remove" onclick="removeBlacklistItem(${idx})" title="Remove ${term}">✕</div>`;
-      blacklistPillsEl.appendChild(pill);
-    });
-  }
+ const atCap = count >= MAX_BLACKLIST;
+ if (atCap) { blacklistAddEl.classList.add('disabled'); blacklistAddEl.setAttribute('disabled','disabled'); }
+ else { blacklistAddEl.classList.remove('disabled'); blacklistAddEl.removeAttribute('disabled'); }
 
-  // Helper function to remove blacklist item
-  window.removeBlacklistItem = function(idx) {
-    state.blacklist.splice(idx, 1);
-    persist();
-    renderBlacklistPills();
-    rerender();
-  };
+ state.blacklist.forEach((term, idx) => {
+ const pill = document.createElement('div');
+ pill.className = 'pill';
+ pill.dataset.index = String(idx);
+ pill.innerHTML = `<div class="txt">${term}</div><div class="handle remove" onclick="removeBlacklistItem(${idx})" title="Remove ${term}">x</div>`;
+ blacklistPillsEl.appendChild(pill);
+ });
+ }
 
-  function syncSize(){
-    const preset = sizePresetEl.value;
-    const custom = sizeCustomEl.value;
-    if (Number(preset) > 0 && !custom) {
-      state.maxSizeBytes = Number(preset);
-    } else if (custom) {
-      const gb = Number(custom);
-      state.maxSizeBytes = isFinite(gb) && gb>0 ? Math.round(gb * BYTES_IN_GB) : 0;
-      sizePresetEl.value = '0';
-    } else {
-      state.maxSizeBytes = 0;
-    }
-  }
+ // Helper function to remove blacklist item
+ window.removeBlacklistItem = function(idx) {
+ state.blacklist.splice(idx, 1);
+ persist();
+ renderBlacklistPills();
+ rerender();
+ };
 
-  // events
-  providerEl.onchange = ()=>{ 
-    console.log('🔧 Provider changed to:', providerEl.value);
-    state.provider = providerEl.value; 
-    persist(); 
-    rerender(); 
-  };
-  apikeyEl.oninput   = ()=>{ 
-    console.log('🔧 API key changed (length):', apikeyEl.value.length);
-    state.apiKey  = apikeyEl.value;   
-    persist(); 
-    rerender(); 
-  };
-  fallbackEl.onchange= ()=>{ 
-    console.log('🔧 Fallback changed to:', fallbackEl.checked);
-    state.fallback= !!fallbackEl.checked; 
-    persist(); 
-    rerender(); 
-  };
+ function syncSize(){
+ const preset = sizePresetEl.value;
+ const custom = sizeCustomEl.value;
+ if (Number(preset) > 0 && !custom) {
+ state.maxSizeBytes = Number(preset);
+ } else if (custom) {
+ const gb = Number(custom);
+ state.maxSizeBytes = isFinite(gb) && gb>0 ? Math.round(gb * BYTES_IN_GB) : 0;
+ sizePresetEl.value = '0';
+ } else {
+ state.maxSizeBytes = 0;
+ }
+ }
 
-  langAddEl.onclick = ()=>{
-    if (state.langs.length >= MAX_LANGS) return;
-    const code = String(langPickerEl.value || '').trim();
-    if (code && !state.langs.includes(code)) state.langs.push(code);
-    persist(); renderLangPills(); rerender();
-  };
-  langClearEl.onclick = ()=>{ state.langs = []; persist(); renderLangPills(); rerender(); };
+ // events
+ providerEl.onchange = ()=>{ 
+ log('[CONFIG] Provider changed to:', providerEl.value);
+ state.provider = providerEl.value; 
+ persist(); 
+ rerender(); 
+ };
+ apikeyEl.oninput = ()=>{ 
+ log('[CONFIG] API key changed (length):', apikeyEl.value.length);
+ state.apiKey = apikeyEl.value; 
+ persist(); 
+ rerender(); 
+ };
+ fallbackEl.onchange= ()=>{ 
+ log('[CONFIG] Fallback changed to:', fallbackEl.checked);
+ state.fallback= !!fallbackEl.checked; 
+ persist(); 
+ rerender(); 
+ };
+ 
+ secondBestEl.onchange= ()=>{ 
+ log('[CONFIG] SecondBest changed to:', secondBestEl.checked);
+ state.secondBest= !!secondBestEl.checked; 
+ persist(); 
+ rerender(); 
+ };
 
-  blacklistAddEl.onclick = ()=>{
-    if (state.blacklist.length >= MAX_BLACKLIST) return;
-    const term = String(blacklistPickerEl.value || '').trim();
-    if (term && !state.blacklist.includes(term)) {
-      state.blacklist.push(term);
-      blacklistPickerEl.value = ''; // Reset selector
-    }
-    persist(); renderBlacklistPills(); rerender();
-  };
-  blacklistClearEl.onclick = ()=>{ state.blacklist = []; persist(); renderBlacklistPills(); rerender(); };
+ langAddEl.onclick = ()=>{
+ if (state.langs.length >= MAX_LANGS) return;
+ const code = String(langPickerEl.value || '').trim();
+ if (code && !state.langs.includes(code)) state.langs.push(code);
+ persist(); renderLangPills(); rerender();
+ };
+ langClearEl.onclick = ()=>{ state.langs = []; persist(); renderLangPills(); rerender(); };
 
-  sizePresetEl.onchange = ()=>{ sizeCustomEl.value=''; syncSize(); persist(); rerender(); };
-  sizeCustomEl.oninput  = ()=>{ syncSize(); persist(); rerender(); };
+ blacklistAddEl.onclick = ()=>{
+ if (state.blacklist.length >= MAX_BLACKLIST) return;
+ const term = String(blacklistPickerEl.value || '').trim();
+ if (term && !state.blacklist.includes(term)) {
+ state.blacklist.push(term);
+ blacklistPickerEl.value = ''; // Reset selector
+ }
+ persist(); renderBlacklistPills(); rerender();
+ };
+ blacklistClearEl.onclick = ()=>{ state.blacklist = []; persist(); renderBlacklistPills(); rerender(); };
 
-  nuvioEnabledEl.onchange = ()=>{
-    state.nuvioEnabled = !!nuvioEnabledEl.checked; 
-    persist(); 
-    rerender();
-    refreshCookieVisibility();
-  };
-  nuvioCookieEl.oninput = ()=>{ state.nuvioCookie = (nuvioCookieEl.value||'').trim(); persist(); rerender(); };
-  conserveCookieEl.onchange = ()=>{ state.conserveCookie = !!conserveCookieEl.checked; persist(); rerender(); };
+ sizePresetEl.onchange = ()=>{ sizeCustomEl.value=''; syncSize(); persist(); rerender(); };
+ sizeCustomEl.oninput = ()=>{ syncSize(); persist(); rerender(); };
 
-  // Clickable toggle boxes
-  function wireToggle(boxId, inputEl){
-    const box = document.getElementById(boxId);
-    if (!box) return;
-    const updateAria = ()=> box.setAttribute('aria-pressed', inputEl.checked ? 'true' : 'false');
-    box.addEventListener('click', (e)=>{
-      if (e.target === inputEl) return;
-      inputEl.checked = !inputEl.checked;
-      inputEl.dispatchEvent(new Event('change'));
-      updateAria();
-    });
-    box.addEventListener('keydown', (e)=>{
-      if (e.key === 'Enter' || e.key === ' ') {
-        e.preventDefault();
-        inputEl.checked = !inputEl.checked;
-        inputEl.dispatchEvent(new Event('change'));
-        updateAria();
-      }
-    });
-    updateAria();
-  }
-  wireToggle('toggleFallback', fallbackEl);
-  wireToggle('toggleNuvio', nuvioEnabledEl);
-  wireToggle('toggleConserveCookie', conserveCookieEl);
+ nuvioEnabledEl.onchange = ()=>{
+ state.nuvioEnabled = !!nuvioEnabledEl.checked; 
+ persist(); 
+ rerender();
+ refreshCookieVisibility();
+ };
+ nuvioCookieEl.oninput = ()=>{ state.nuvioCookie = (nuvioCookieEl.value||'').trim(); persist(); rerender(); };
+ conserveCookieEl.onchange = ()=>{ state.conserveCookie = !!conserveCookieEl.checked; persist(); rerender(); };
 
-  function refreshCookieVisibility(){
-    if (!cookieSection) return;
-    if (nuvioEnabledEl.checked) cookieSection.classList.remove('hidden');
-    else cookieSection.classList.add('hidden');
-  }
+ // Clickable toggle boxes
+ function wireToggle(boxId, inputEl){
+ const box = document.getElementById(boxId);
+ if (!box) return;
+ const updateAria = ()=> box.setAttribute('aria-pressed', inputEl.checked ? 'true' : 'false');
+ box.addEventListener('click', (e)=>{
+ if (e.target === inputEl) return;
+ inputEl.checked = !inputEl.checked;
+ inputEl.dispatchEvent(new Event('change'));
+ updateAria();
+ });
+ box.addEventListener('keydown', (e)=>{
+ if (e.key === 'Enter' || e.key === ' ') {
+ e.preventDefault();
+ inputEl.checked = !inputEl.checked;
+ inputEl.dispatchEvent(new Event('change'));
+ updateAria();
+ }
+ });
+ updateAria();
+ }
+ wireToggle('toggleFallback', fallbackEl);
+ wireToggle('toggleSecondBest', secondBestEl);
+ wireToggle('toggleNuvio', nuvioEnabledEl);
+ wireToggle('toggleConserveCookie', conserveCookieEl);
 
-  // ===============================================
-  // PATH-BASED CONFIGURATION (HentaiStream-style)
-  // ===============================================
-  
-  function buildConfigPath() {
-    const parts = [];
+ function refreshCookieVisibility(){
+ if (!cookieSection) return;
+ if (nuvioEnabledEl.checked) cookieSection.classList.remove('hidden');
+ else cookieSection.classList.add('hidden');
+ }
 
-    // Debrid provider (only if both provider and key are set)
-    const key = (state.apiKey || '').trim();
-    const prov = (state.provider || '').trim();
-    if (prov && key) {
-      const map = {
-        'alldebrid': 'alldebrid',
-        'realdebrid': 'realdebrid',
-        'premiumize': 'premiumize',
-        'torbox': 'torbox',
-        'offcloud': 'offcloud',
-        'easydebrid': 'easydebrid',
-        'debridlink': 'debridlink',
-        'putio': 'putio'
-      };
-      const pk = map[prov];
-      if (pk) parts.push(`${pk}=${encodeURIComponent(key)}`);
-    }
+ // ===============================================
+ // PATH-BASED CONFIGURATION (HentaiStream-style)
+ // ===============================================
+ 
+ function buildConfigPath() {
+ const parts = [];
 
-    // Fallback setting
-    if (state.fallback) {
-      parts.push('fallback=1');
-    }
+ // Debrid provider (only if both provider and key are set)
+ const key = (state.apiKey || '').trim();
+ const prov = (state.provider || '').trim();
+ if (prov && key) {
+ const map = {
+ 'alldebrid': 'alldebrid',
+ 'realdebrid': 'realdebrid',
+ 'premiumize': 'premiumize',
+ 'torbox': 'torbox',
+ 'offcloud': 'offcloud',
+ 'easydebrid': 'easydebrid',
+ 'debridlink': 'debridlink',
+ 'putio': 'putio'
+ };
+ 
+ // SecondBest setting (enabled by default, only add if true)
+ if (state.secondBest !== false) {
+ parts.push('secondBest=1');
+ }
+ const pk = map[prov];
+ if (pk) parts.push(`${pk}=${encodeURIComponent(key)}`);
+ }
 
-    // Size limit (in GB)
-    if (state.maxSizeBytes && Number(state.maxSizeBytes) > 0) {
-      const sizeGB = state.maxSizeBytes / BYTES_IN_GB;
-      parts.push(`max_size=${sizeGB}`);
-    }
-    
-    // Language priorities
-    if (state.langs && state.langs.length) {
-      parts.push(`lang_prio=${state.langs.join(',')}`);
-    }
+ // Fallback setting
+ if (state.fallback) {
+ parts.push('fallback=1');
+ }
 
-    // Blacklist terms
-    if (state.blacklist && state.blacklist.length) {
-      parts.push(`blacklist=${state.blacklist.join(',')}`);
-    }
+ // Size limit (in GB)
+ if (state.maxSizeBytes && Number(state.maxSizeBytes) > 0) {
+ const sizeGB = state.maxSizeBytes / BYTES_IN_GB;
+ parts.push(`max_size=${sizeGB}`);
+ }
+ 
+ // Language priorities
+ if (state.langs && state.langs.length) {
+ parts.push(`lang_prio=${state.langs.join(',')}`);
+ }
 
-    // Nuvio settings
-    if (state.nuvioEnabled) {
-      parts.push('include_nuvio=1');
-      const ck = (state.nuvioCookie || '').trim();
-      if (ck) parts.push(`nuvio_cookie=${encodeURIComponent(ck)}`);
-      if (!state.conserveCookie) {
-        parts.push('conserve_cookie=0');
-      }
-    }
+ // Blacklist terms
+ if (state.blacklist && state.blacklist.length) {
+ parts.push(`blacklist=${state.blacklist.join(',')}`);
+ }
 
-    // Use & separator like HentaiStream (simpler and works reliably)
-    return parts.join('&');
-  }
-  
-  function buildUrl(){
-    const params = new URLSearchParams();
+ // Nuvio settings
+ if (state.nuvioEnabled) {
+ parts.push('include_nuvio=1');
+ const ck = (state.nuvioCookie || '').trim();
+ if (ck) parts.push(`nuvio_cookie=${encodeURIComponent(ck)}`);
+ if (!state.conserveCookie) {
+ parts.push('conserve_cookie=0');
+ }
+ }
 
-    console.log('🔧 buildUrl() called with state:', {
-      provider: state.provider,
-      apiKey: state.apiKey ? '[REDACTED]' : 'empty',
-      fallback: state.fallback,
-      langs: state.langs,
-      blacklist: state.blacklist,
-      maxSizeBytes: state.maxSizeBytes,
-      nuvioEnabled: state.nuvioEnabled,
-      nuvioCookie: state.nuvioCookie ? '[REDACTED]' : 'empty'
-    });
+ // Use & separator like HentaiStream (simpler and works reliably)
+ return parts.join('&');
+ }
+ 
+ function buildUrl(){
+ const params = new URLSearchParams();
 
-    // Fallback only if enabled
-    if (state.fallback) {
-      params.set('fallback', '1');
-      console.log('🔧 Added fallback=1');
-    }
+ log('[CONFIG] buildUrl() called with state:', {
+ provider: state.provider,
+ apiKey: state.apiKey ? '[REDACTED]' : 'empty',
+ fallback: state.fallback,
+ langs: state.langs,
+ blacklist: state.blacklist,
+ maxSizeBytes: state.maxSizeBytes,
+ nuvioEnabled: state.nuvioEnabled,
+ nuvioCookie: state.nuvioCookie ? '[REDACTED]' : 'empty'
+ });
+ 
+ // SecondBest (enabled by default, only add if true)
+ if (state.secondBest !== false) {
+ params.set('secondBest', '1');
+ log('[CONFIG] Added secondBest=1');
+ }
 
-    // Debrid: include exactly one provider param ONLY when provider + key are provided
-    const key = (state.apiKey || '').trim();
-    const prov = (state.provider || '').trim(); // alldebrid, realdebrid, etc.
-    if (prov && key) {
-      // Map provider names to parameter keys - this was the missing piece!
-      const map = { 
-        'alldebrid': 'alldebrid',
-        'realdebrid': 'realdebrid', 
-        'premiumize': 'premiumize',
-        'torbox': 'torbox',
-        'offcloud': 'offcloud',
-        'easydebrid': 'easydebrid',
-        'debridlink': 'debridlink',
-        'putio': 'putio',
-        // Legacy support for old short codes
-        'AD': 'alldebrid', 'RD': 'realdebrid', 'PM': 'premiumize', 'TB': 'torbox', 'OC': 'offcloud'
-      };
-      const pk = map[prov];
-      if (pk) {
-        params.set(pk, key);
-        console.log(`🔧 Added ${pk}=[REDACTED]`);
-      } else {
-        console.warn('🔧 Unknown provider:', prov);
-      }
-    } else {
-      console.log('🔧 No debrid provider configured (provider:', prov, ', key:', key ? '[REDACTED]' : 'empty', ')');
-    }
+ // Fallback only if enabled
+ if (state.fallback) {
+ params.set('fallback', '1');
+ log('[CONFIG] Added fallback=1');
+ }
 
-    // Size only if > 0 (send as GB, not bytes)
-    if (state.maxSizeBytes && Number(state.maxSizeBytes) > 0) {
-      const sizeGB = state.maxSizeBytes / BYTES_IN_GB;
-      params.set('max_size', String(sizeGB));
-      console.log('🔧 Added max_size=' + sizeGB);
-    }
+ // Debrid: include exactly one provider param ONLY when provider + key are provided
+ const key = (state.apiKey || '').trim();
+ const prov = (state.provider || '').trim(); // alldebrid, realdebrid, etc.
+ if (prov && key) {
+ // Map provider names to parameter keys - this was the missing piece!
+ const map = { 
+ 'alldebrid': 'alldebrid',
+ 'realdebrid': 'realdebrid', 
+ 'premiumize': 'premiumize',
+ 'torbox': 'torbox',
+ 'offcloud': 'offcloud',
+ 'easydebrid': 'easydebrid',
+ 'debridlink': 'debridlink',
+ 'putio': 'putio',
+ // Legacy support for old short codes
+ 'AD': 'alldebrid', 'RD': 'realdebrid', 'PM': 'premiumize', 'TB': 'torbox', 'OC': 'offcloud'
+ };
+ const pk = map[prov];
+ if (pk) {
+ params.set(pk, key);
+ log(`[CONFIG] Added ${pk}=[REDACTED]`);
+ } else {
+ log('[CONFIG] Unknown provider:', prov);
+ }
+ } else {
+ log('[CONFIG] No debrid provider configured (provider:', prov, ', key:', key ? '[REDACTED]' : 'empty', ')');
+ }
 
-    // Priority languages only when set
-    if (state.langs && state.langs.length) {
-      params.set('lang_prio', state.langs.join(','));
-      console.log('🔧 Added lang_prio=' + state.langs.join(','));
-    }
+ // Size only if > 0 (send as GB, not bytes)
+ if (state.maxSizeBytes && Number(state.maxSizeBytes) > 0) {
+ const sizeGB = state.maxSizeBytes / BYTES_IN_GB;
+ params.set('max_size', String(sizeGB));
+ log('[CONFIG] Added max_size=' + sizeGB);
+ }
 
-    // Blacklist terms only when set
-    if (state.blacklist && state.blacklist.length) {
-      params.set('blacklist', state.blacklist.join(','));
-      console.log('🔧 Added blacklist=' + state.blacklist.join(','));
-    }
+ // Priority languages only when set
+ if (state.langs && state.langs.length) {
+ params.set('lang_prio', state.langs.join(','));
+ log('[CONFIG] Added lang_prio=' + state.langs.join(','));
+ }
 
-    // Nuvio only if enabled
-    if (state.nuvioEnabled) {
-      params.set('include_nuvio', '1');
-      params.set('nuvio', '1'); // explicit enable flag; omit entirely when disabled
-      console.log('🔧 Added include_nuvio=1 and nuvio=1');
-      
-      const ck = (state.nuvioCookie || '').trim();
-      if (ck) {
-        params.set('nuvio_cookie', ck);
-        console.log('🔧 Added nuvio_cookie=[REDACTED]');
-      }
-      
-      // Cookie conservation setting (default true, only set if false)
-      if (!state.conserveCookie) {
-        params.set('conserve_cookie', '0');
-        console.log('🔧 Added conserve_cookie=0');
-      }
-    }
+ // Blacklist terms only when set
+ if (state.blacklist && state.blacklist.length) {
+ params.set('blacklist', state.blacklist.join(','));
+ log('[CONFIG] Added blacklist=' + state.blacklist.join(','));
+ }
 
-    const qs = params.toString();
-    const url = originHost + '/manifest.json' + (qs ? ('?' + qs) : '');
-    console.log('🔗 Generated query-based URL:', url);
-    console.log('🔧 Query string parameters:', qs);
-    return url;
-  }
+ // Nuvio only if enabled
+ if (state.nuvioEnabled) {
+ params.set('include_nuvio', '1');
+ params.set('nuvio', '1'); // explicit enable flag; omit entirely when disabled
+ log('[CONFIG] Added include_nuvio=1 and nuvio=1');
+ 
+ const ck = (state.nuvioCookie || '').trim();
+ if (ck) {
+ params.set('nuvio_cookie', ck);
+ log('[CONFIG] Added nuvio_cookie=[REDACTED]');
+ }
+ 
+ // Cookie conservation setting (default true, only set if false)
+ if (!state.conserveCookie) {
+ params.set('conserve_cookie', '0');
+ log('[CONFIG] Added conserve_cookie=0');
+ }
+ }
+
+ const qs = params.toString();
+ const url = originHost + '/manifest.json' + (qs ? ('?' + qs) : '');
+ log('[LINK] Generated query-based URL:', url);
+ log('[CONFIG] Query string parameters:', qs);
+ return url;
+ }
 
 function rerender(){
-    const configPath = buildConfigPath();
-    const queryBasedUrl = buildUrl();
-    let manifestUrl;
-    
-    if (configPath) {
-      manifestUrl = `${originHost}/${configPath}/manifest.json`;
-    } else {
-      manifestUrl = `${originHost}/manifest.json`;
-    }
-    
-    // Display URL without protocol
-    const displayUrl = manifestUrl.replace(/^https?:\/\//, '');
-    manifestEl.textContent = displayUrl;
-    
-    // Install links - set href directly like HentaiStream does
-    if (configPath) {
-      appBtn.href = `stremio://${window.location.host}/${configPath}/manifest.json`;
-    } else {
-      appBtn.href = `stremio://${window.location.host}/manifest.json`;
-    }
-    webBtn.href = `https://web.stremio.com/#/addons?addon=${encodeURIComponent(queryBasedUrl)}`;
-    
-    appBtn.textContent = 'Install to Stremio';
-    webBtn.textContent = 'Install to Web';
-  }
+ const configPath = buildConfigPath();
+ const queryBasedUrl = buildUrl();
+ let manifestUrl;
+ 
+ if (configPath) {
+ manifestUrl = `${originHost}/${configPath}/manifest.json`;
+ } else {
+ manifestUrl = `${originHost}/manifest.json`;
+ }
+ 
+ // Display URL without protocol
+ const displayUrl = manifestUrl.replace(/^https?:\/\//, '');
+ manifestEl.textContent = displayUrl;
+ 
+ // Install links - set href directly like HentaiStream does
+ if (configPath) {
+ appBtn.href = `stremio://${window.location.host}/${configPath}/manifest.json`;
+ } else {
+ appBtn.href = `stremio://${window.location.host}/manifest.json`;
+ }
+ webBtn.href = `https://web.stremio.com/#/addons?addon=${encodeURIComponent(queryBasedUrl)}`;
+ 
+ appBtn.textContent = 'Install to Stremio';
+ webBtn.textContent = 'Install to Web';
+ 
+ // Update API key documentation link based on selected provider
+ const apiKeyLink = document.getElementById('apiKeyLink');
+ const apiKeyHelp = document.getElementById('apiKeyHelp');
+ if (apiKeyLink && apiKeyHelp) {
+ const provider = state.provider;
+ if (provider && API_KEY_DOCS[provider]) {
+ apiKeyLink.href = API_KEY_DOCS[provider];
+ apiKeyLink.textContent = `Get your ${provider.charAt(0).toUpperCase() + provider.slice(1)} API key`;
+ apiKeyHelp.style.display = 'block';
+ } else {
+ apiKeyHelp.style.display = 'none';
+ }
+ }
+ }
 
-  renderLangPills();
-  renderBlacklistPills();
-  syncSize();
-  refreshCookieVisibility();
-  rerender();
+ renderLangPills();
+ renderBlacklistPills();
+ syncSize();
+ refreshCookieVisibility();
+ rerender();
 
-  // No click handler needed - href is set directly in rerender() like HentaiStream
+ // No click handler needed - href is set directly in rerender() like HentaiStream
 
-  // ==================================================
-  // PENALTY RELIABILITY MANAGEMENT FUNCTIONS
-  // ==================================================
+ // ==================================================
+ // PENALTY RELIABILITY MANAGEMENT FUNCTIONS
+ // ==================================================
 
-  // Initialize penalty manager
-  let penaltyManager = null;
-  
-  async function initPenaltyManager() {
-    if (penaltyManager) return penaltyManager;
-    
-    // Simple penalty manager class
-    penaltyManager = {
-      serverUrl: originHost,
-      
-      async request(endpoint, options = {}) {
-        try {
-          const response = await fetch(`${this.serverUrl}${endpoint}`, {
-            headers: { 'Content-Type': 'application/json' },
-            ...options
-          });
-          return await response.json();
-        } catch (e) {
-          console.error('Penalty request failed:', e.message);
-          return { success: false, error: e.message };
-        }
-      },
-      
-      async getStats() {
-        return await this.request('/reliability/stats');
-      },
-      
-      async getPenalties() {
-        const result = await this.request('/reliability/penalties');
-        return result.penalties || {};
-      },
-      
-      async clearPenalty(url) {
-        return await this.request('/reliability/clear', {
-          method: 'POST',
-          body: JSON.stringify({ url })
-        });
-      },
-      
-      async clearAllPenalties() {
-        return await this.request('/reliability/clear', {
-          method: 'POST',
-          body: JSON.stringify({})
-        });
-      }
-    };
-    
-    return penaltyManager;
-  }
+ // Initialize penalty manager
+ let penaltyManager = null;
+ 
+ async function initPenaltyManager() {
+ if (penaltyManager) return penaltyManager;
+ 
+ // Simple penalty manager class
+ penaltyManager = {
+ serverUrl: originHost,
+ 
+ async request(endpoint, options = {}) {
+ try {
+ const response = await fetch(`${this.serverUrl}${endpoint}`, {
+ headers: { 'Content-Type': 'application/json' },
+ ...options
+ });
+ return await response.json();
+ } catch (e) {
+ console.error('Penalty request failed:', e.message);
+ return { success: false, error: e.message };
+ }
+ },
+ 
+ async getStats() {
+ return await this.request('/reliability/stats');
+ },
+ 
+ async getPenalties() {
+ const result = await this.request('/reliability/penalties');
+ return result.penalties || {};
+ },
+ 
+ async clearPenalty(url) {
+ return await this.request('/reliability/clear', {
+ method: 'POST',
+ body: JSON.stringify({ url })
+ });
+ },
+ 
+ async clearAllPenalties() {
+ return await this.request('/reliability/clear', {
+ method: 'POST',
+ body: JSON.stringify({})
+ });
+ }
+ };
+ 
+ return penaltyManager;
+ }
 
-  // Penalty management functions (called from HTML)
-  window.showReliabilityStats = async function() {
-    const manager = await initPenaltyManager();
-    const stats = await manager.getStats();
-    
-    if (!stats) {
-      showPenaltyMessage('Failed to load statistics', 'error');
-      return;
-    }
-    
-    const display = $('#penaltyDisplay');
-    if (!display) return;
-    
-    const penaltyStats = stats.penaltySystem?.stats || {};
-    display.innerHTML = `
-      <div style="background: var(--box); padding: 12px; border-radius: 8px; margin-top: 8px;">
-        <strong>⚖️ Penalty System Statistics</strong><br>
-        <small>
-          • Penalized Hosts: ${penaltyStats.total_penalized_hosts || 0}<br>
-          • Total Penalty Points: ${penaltyStats.total_penalty_points || 0}<br>
-          • Max Penalty: ${penaltyStats.max_penalty || 0} (-${penaltyStats.max_penalty || 0} points)<br>
-          • Average Penalty: ${penaltyStats.avg_penalty || 0} points
-        </small>
-      </div>
-    `;
-  };
+ // Penalty management functions (called from HTML)
+ window.showReliabilityStats = async function() {
+ const manager = await initPenaltyManager();
+ const stats = await manager.getStats();
+ 
+ if (!stats) {
+ showPenaltyMessage('Failed to load statistics', 'error');
+ return;
+ }
+ 
+ const display = $('#penaltyDisplay');
+ if (!display) return;
+ 
+ const penaltyStats = stats.penaltySystem?.stats || {};
+ display.innerHTML = `
+ <div style="background: var(--box); padding: 12px; border-radius: 8px; margin-top: 8px;">
+ <strong>[BALANCE] Penalty System Statistics</strong><br>
+ <small>
+ • Penalized Hosts: ${penaltyStats.total_penalized_hosts || 0}<br>
+ • Total Penalty Points: ${penaltyStats.total_penalty_points || 0}<br>
+ • Max Penalty: ${penaltyStats.max_penalty || 0} (-${penaltyStats.max_penalty || 0} points)<br>
+ • Average Penalty: ${penaltyStats.avg_penalty || 0} points
+ </small>
+ </div>
+ `;
+ };
 
-  window.showPenalizedHosts = async function() {
-    const manager = await initPenaltyManager();
-    const penalties = await manager.getPenalties();
-    
-    const display = $('#penaltyDisplay');
-    if (!display) return;
-    
-    const hosts = Object.keys(penalties);
-    if (hosts.length === 0) {
-      display.innerHTML = `
-        <div style="background: var(--box); padding: 12px; border-radius: 8px; margin-top: 8px;">
-          <strong>⚖️ Penalized Hosts</strong><br>
-          <small>No hosts currently have penalties.</small>
-        </div>
-      `;
-      return;
-    }
-    
-    const sortedHosts = hosts.sort((a, b) => penalties[b] - penalties[a]);
-    
-    display.innerHTML = `
-      <div style="background: var(--box); padding: 12px; border-radius: 8px; margin-top: 8px;">
-        <strong>⚖️ Penalized Hosts (${hosts.length})</strong><br>
-        <div style="margin-top: 8px; max-height: 120px; overflow-y: auto;">
-          ${sortedHosts.map(host => `
-            <div style="display: flex; justify-content: space-between; align-items: center; padding: 2px 0; font-size: 13px;">
-              <span style="font-family: monospace;">${host}</span>
-              <span style="color: var(--muted); font-size: 11px;">-${penalties[host]} pts</span>
-              <button onclick="clearHostPenalty('${host}')" 
-                      style="background: #4CAF50; color: white; border: none; padding: 2px 6px; border-radius: 4px; cursor: pointer; font-size: 11px;">
-                Clear
-              </button>
-            </div>
-          `).join('')}
-        </div>
-      </div>
-    `;
-  };
+ window.showPenalizedHosts = async function() {
+ const manager = await initPenaltyManager();
+ const penalties = await manager.getPenalties();
+ 
+ const display = $('#penaltyDisplay');
+ if (!display) return;
+ 
+ const hosts = Object.keys(penalties);
+ if (hosts.length === 0) {
+ display.innerHTML = `
+ <div style="background: var(--box); padding: 12px; border-radius: 8px; margin-top: 8px;">
+ <strong>[BALANCE] Penalized Hosts</strong><br>
+ <small>No hosts currently have penalties.</small>
+ </div>
+ `;
+ return;
+ }
+ 
+ const sortedHosts = hosts.sort((a, b) => penalties[b] - penalties[a]);
+ 
+ display.innerHTML = `
+ <div style="background: var(--box); padding: 12px; border-radius: 8px; margin-top: 8px;">
+ <strong>[BALANCE] Penalized Hosts (${hosts.length})</strong><br>
+ <div style="margin-top: 8px; max-height: 120px; overflow-y: auto;">
+ ${sortedHosts.map(host => `
+ <div style="display: flex; justify-content: space-between; align-items: center; padding: 2px 0; font-size: 13px;">
+ <span style="font-family: monospace;">${host}</span>
+ <span style="color: var(--muted); font-size: 11px;">-${penalties[host]} pts</span>
+ <button onclick="clearHostPenalty('${host}')" 
+ style="background: #4CAF50; color: white; border: none; padding: 2px 6px; border-radius: 4px; cursor: pointer; font-size: 11px;">
+ Clear
+ </button>
+ </div>
+ `).join('')}
+ </div>
+ </div>
+ `;
+ };
 
-  window.clearHostPenalty = async function(host) {
-    const manager = await initPenaltyManager();
-    const url = `http://${host}/`; // Create dummy URL for host
-    const result = await manager.clearPenalty(url);
-    
-    if (result.success) {
-      showPenaltyMessage('✅ Penalty cleared for host', 'success');
-      showPenalizedHosts(); // Refresh display
-    } else {
-      showPenaltyMessage('❌ Failed to clear penalty: ' + (result.error || 'Unknown error'), 'error');
-    }
-  };
+ window.clearHostPenalty = async function(host) {
+ const manager = await initPenaltyManager();
+ const url = `http://${host}/`; // Create dummy URL for host
+ const result = await manager.clearPenalty(url);
+ 
+ if (result.success) {
+ showPenaltyMessage('[OK] Penalty cleared for host', 'success');
+ showPenalizedHosts(); // Refresh display
+ } else {
+ showPenaltyMessage('[FAIL] Failed to clear penalty: ' + (result.error || 'Unknown error'), 'error');
+ }
+ };
 
-  window.clearAllPenalties = async function() {
-    if (!confirm('Are you sure you want to clear all host penalties? This action cannot be undone.')) {
-      return;
-    }
-    
-    const manager = await initPenaltyManager();
-    const result = await manager.clearAllPenalties();
-    
-    if (result.success) {
-      showPenaltyMessage('✅ All penalties cleared', 'success');
-      
-      // Clear display
-      const display = $('#penaltyDisplay');
-      if (display) display.innerHTML = '';
-    } else {
-      showPenaltyMessage('❌ Failed to clear penalties: ' + (result.error || 'Unknown error'), 'error');
-    }
-  };
+ window.clearAllPenalties = async function() {
+ if (!confirm('Are you sure you want to clear all host penalties? This action cannot be undone.')) {
+ return;
+ }
+ 
+ const manager = await initPenaltyManager();
+ const result = await manager.clearAllPenalties();
+ 
+ if (result.success) {
+ showPenaltyMessage('[OK] All penalties cleared', 'success');
+ 
+ // Clear display
+ const display = $('#penaltyDisplay');
+ if (display) display.innerHTML = '';
+ } else {
+ showPenaltyMessage('[FAIL] Failed to clear penalties: ' + (result.error || 'Unknown error'), 'error');
+ }
+ };
 
-  function showPenaltyMessage(text, type = 'info') {
-    const display = $('#penaltyDisplay');
-    if (!display) return;
-    
-    const colorMap = {
-      success: '#4CAF50',
-      error: '#f44336',
-      info: '#2196F3'
-    };
-    
-    const messageDiv = document.createElement('div');
-    messageDiv.style.cssText = `
-      background: ${colorMap[type] || colorMap.info};
-      color: white;
-      padding: 8px 12px;
-      border-radius: 6px;
-      margin-top: 8px;
-      font-size: 13px;
-      font-weight: 600;
-      opacity: 1;
-      transition: opacity 0.3s;
-    `;
-    messageDiv.textContent = text;
-    
-    display.appendChild(messageDiv);
-    
-    setTimeout(() => {
-      messageDiv.style.opacity = '0';
-      setTimeout(() => {
-        if (messageDiv.parentNode) {
-          messageDiv.parentNode.removeChild(messageDiv);
-        }
-      }, 300);
-    }, 3000);
-  }
+ function showPenaltyMessage(text, type = 'info') {
+ const display = $('#penaltyDisplay');
+ if (!display) return;
+ 
+ const colorMap = {
+ success: '#4CAF50',
+ error: '#f44336',
+ info: '#2196F3'
+ };
+ 
+ const messageDiv = document.createElement('div');
+ messageDiv.style.cssText = `
+ background: ${colorMap[type] || colorMap.info};
+ color: white;
+ padding: 8px 12px;
+ border-radius: 6px;
+ margin-top: 8px;
+ font-size: 13px;
+ font-weight: 600;
+ opacity: 1;
+ transition: opacity 0.3s;
+ `;
+ messageDiv.textContent = text;
+ 
+ display.appendChild(messageDiv);
+ 
+ setTimeout(() => {
+ messageDiv.style.opacity = '0';
+ setTimeout(() => {
+ if (messageDiv.parentNode) {
+ messageDiv.parentNode.removeChild(messageDiv);
+ }
+ }, 300);
+ }, 3000);
+ }
 
-  // Initialize penalty manager on page load
-  initPenaltyManager().catch(console.error);
+ // ==================================================
+ // CONFIG EXPORT/IMPORT FUNCTIONS
+ // ==================================================
+ 
+ // Export configuration as JSON file
+ const exportBtn = $('#exportConfig');
+ const importBtn = $('#importConfig');
+ const importFile = $('#importFile');
+ 
+ if (exportBtn) {
+ exportBtn.onclick = () => {
+ const configToExport = {
+ version: '1.0',
+ exportDate: new Date().toISOString(),
+ provider: state.provider,
+ // Note: API key is intentionally excluded for security
+ fallback: state.fallback,
+ secondBest: state.secondBest,
+ langs: state.langs,
+ blacklist: state.blacklist,
+ maxSizeBytes: state.maxSizeBytes,
+ nuvioEnabled: state.nuvioEnabled,
+ conserveCookie: state.conserveCookie
+ };
+ 
+ const blob = new Blob([JSON.stringify(configToExport, null, 2)], { type: 'application/json' });
+ const url = URL.createObjectURL(blob);
+ const a = document.createElement('a');
+ a.href = url;
+ a.download = `autostream-config-${new Date().toISOString().split('T')[0]}.json`;
+ document.body.appendChild(a);
+ a.click();
+ document.body.removeChild(a);
+ URL.revokeObjectURL(url);
+ 
+ log('[CONFIG] Exported configuration');
+ };
+ }
+ 
+ if (importBtn && importFile) {
+ importBtn.onclick = () => importFile.click();
+ 
+ importFile.onchange = (e) => {
+ const file = e.target.files[0];
+ if (!file) return;
+ 
+ const reader = new FileReader();
+ reader.onload = (event) => {
+ try {
+ const imported = JSON.parse(event.target.result);
+ 
+ // Validate and apply imported config
+ if (imported.version) {
+ if (imported.provider) state.provider = imported.provider;
+ if (typeof imported.fallback === 'boolean') state.fallback = imported.fallback;
+ if (typeof imported.secondBest === 'boolean') state.secondBest = imported.secondBest;
+ if (Array.isArray(imported.langs)) state.langs = imported.langs.slice(0, MAX_LANGS);
+ if (Array.isArray(imported.blacklist)) state.blacklist = imported.blacklist.slice(0, MAX_BLACKLIST);
+ if (typeof imported.maxSizeBytes === 'number') state.maxSizeBytes = imported.maxSizeBytes;
+ if (typeof imported.nuvioEnabled === 'boolean') state.nuvioEnabled = imported.nuvioEnabled;
+ if (typeof imported.conserveCookie === 'boolean') state.conserveCookie = imported.conserveCookie;
+ 
+ // Update UI
+ persist();
+ providerEl.value = state.provider;
+ fallbackEl.checked = state.fallback;
+ secondBestEl.checked = state.secondBest;
+ nuvioEnabledEl.checked = state.nuvioEnabled;
+ conserveCookieEl.checked = state.conserveCookie;
+ syncSize();
+ renderLangPills();
+ renderBlacklistPills();
+ refreshCookieVisibility();
+ rerender();
+ 
+ alert('Configuration imported successfully!\\n\\nNote: API key was not imported for security reasons.');
+ log('[CONFIG] Imported configuration from file');
+ } else {
+ alert('Invalid config file format');
+ }
+ } catch (err) {
+ alert('Failed to parse config file: ' + err.message);
+ }
+ };
+ reader.readAsText(file);
+ importFile.value = ''; // Reset for next import
+ };
+ }
+
+ // Initialize penalty manager on page load
+ initPenaltyManager().catch(console.error);
 })();
+
+
+

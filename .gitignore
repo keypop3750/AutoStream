@@ -4,6 +4,9 @@ node_modules/
 *.log
 .DS_Store
 Thumbs.db
+locallogs.txt
+logs.txt
+test_*.js
 
 # Development and test files
 dev-files/

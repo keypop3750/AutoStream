@@ -4,18 +4,18 @@
  * 
  * Features:
  * - Penalty-based reliability (no permanent exclusion, no cooldowns)
-   if (/\b(x265|hevc|h\.?265)\b/.test(title)) {
-    if (deviceType === 'tv') {
-      // Android TV prefers x264 but x265 4K should still beat x264 1080p
-      // Reduced penalty from -15 to -5 to allow x265 4K streams
-      score -= 5;
-      factors.push('x265_codec_tv_penalty');
-    } else {
-      // Other devices handle x265 well - small bonus for efficiency
-      score += 8;
-      factors.push('x265_codec');
-    }
-  } else if (/\b(x264|avc|h\.?264)\b/.test(title)) {/resolution scoring  
+ if (/\b(x265|hevc|h\.?265)\b/.test(title)) {
+ if (deviceType === 'tv') {
+ // Android TV prefers x264 but x265 4K should still beat x264 1080p
+ // Reduced penalty from -15 to -5 to allow x265 4K streams
+ score -= 5;
+ factors.push('x265_codec_tv_penalty');
+ } else {
+ // Other devices handle x265 well - small bonus for efficiency
+ score += 8;
+ factors.push('x265_codec');
+ }
+ } else if (/\b(x264|avc|h\.?264)\b/.test(title)) {/resolution scoring 
  * - Connection quality detection
  * - Cookie stream scoring
  * - Stream type bonuses
@@ -30,26 +30,26 @@ const penaltyReliability = require('../services/penaltyReliability');
  * @returns {string} - 'tv', 'mobile', or 'web'
  */
 function detectDeviceType(req) {
-  if (!req || !req.headers) return 'web'; // Default fallback
-  
-  const userAgent = req.headers['user-agent'] || '';
-  
-  // TV detection patterns (comprehensive)
-  if (/\b(smart[-\s]?tv|tizen|webos|vidaa|roku|fire[-\s]?tv|android[-\s]?tv|chromecast|shield\s*android\s*tv|lg\s*browser|samsung.*tizen|aosp\s*tv|android.*tv|tv.*android)\b/i.test(userAgent)) {
-    return 'tv';
-  }
-  
-  // Mobile detection patterns (excluding TV)
-  if (/\b(android|iphone|ipad|mobile|phone)\b/i.test(userAgent) && 
-      !/\b(tv|television|chromecast|shield)\b/i.test(userAgent)) {
-    return 'mobile';
-  }
-  
-  // Stremio-specific headers (if they exist in future)
-  const stremioDevice = req.headers['stremio-device-type'];
-  if (stremioDevice) return stremioDevice.toLowerCase();
-  
-  return 'web'; // Default to web/desktop
+ if (!req || !req.headers) return 'web'; // Default fallback
+ 
+ const userAgent = req.headers['user-agent'] || '';
+ 
+ // TV detection patterns (comprehensive)
+ if (/\b(smart[-\s]?tv|tizen|webos|vidaa|roku|fire[-\s]?tv|android[-\s]?tv|chromecast|shield\s*android\s*tv|lg\s*browser|samsung.*tizen|aosp\s*tv|android.*tv|tv.*android)\b/i.test(userAgent)) {
+ return 'tv';
+ }
+ 
+ // Mobile detection patterns (excluding TV)
+ if (/\b(android|iphone|ipad|mobile|phone)\b/i.test(userAgent) && 
+ !/\b(tv|television|chromecast|shield)\b/i.test(userAgent)) {
+ return 'mobile';
+ }
+ 
+ // Stremio-specific headers (if they exist in future)
+ const stremioDevice = req.headers['stremio-device-type'];
+ if (stremioDevice) return stremioDevice.toLowerCase();
+ 
+ return 'web'; // Default to web/desktop
 }
 
 /**
@@ -59,93 +59,93 @@ function detectDeviceType(req) {
  * @param {Object} opts - Scoring options
  */
 function computeStreamScore(stream, req, opts = {}) {
-  const url = stream.url || stream.externalUrl || '';
-  const hasInfoHash = !!(stream.infoHash);
-  const isMagnet = /^magnet:/i.test(url);
-  
-  // Allow scoring for torrents (they get URLs later via debrid)
-  if (!url && !hasInfoHash && !isMagnet) {
-    return { score: 0, reason: 'no_url_or_torrent', breakdown: {} };
-  }
+ const url = stream.url || stream.externalUrl || '';
+ const hasInfoHash = !!(stream.infoHash);
+ const isMagnet = /^magnet:/i.test(url);
+ 
+ // Allow scoring for torrents (they get URLs later via debrid)
+ if (!url && !hasInfoHash && !isMagnet) {
+ return { score: 0, reason: 'no_url_or_torrent', breakdown: {} };
+ }
 
-  let score = 800; // Base score for valid streams
-  let penalties = [];
-  let bonuses = [];
+ let score = 800; // Base score for valid streams
+ let penalties = [];
+ let bonuses = [];
 
-  // PENALTY-BASED RELIABILITY (core system)
-  // For torrents, use infoHash for penalty lookup
-  const reliabilityUrl = url || (hasInfoHash ? `magnet:?xt=urn:btih:${stream.infoHash}` : '');
-  const reliabilityPenalty = reliabilityUrl ? penaltyReliability.getPenalty(reliabilityUrl) : 0;
-  score -= reliabilityPenalty;
-  if (reliabilityPenalty > 0) {
-    penalties.push(`reliability_penalty(-${reliabilityPenalty})`);
-  }
+ // PENALTY-BASED RELIABILITY (core system)
+ // For torrents, use infoHash for penalty lookup
+ const reliabilityUrl = url || (hasInfoHash ? `magnet:?xt=urn:btih:${stream.infoHash}` : '');
+ const reliabilityPenalty = reliabilityUrl ? penaltyReliability.getPenalty(reliabilityUrl) : 0;
+ score -= reliabilityPenalty;
+ if (reliabilityPenalty > 0) {
+ penalties.push(`reliability_penalty(-${reliabilityPenalty})`);
+ }
 
-  // SEEDER VALIDATION (prevent showing bad torrents)
-  const seederScore = getSeederScore(stream);
-  score += seederScore.score;
-  if (seederScore.score < 0) {
-    penalties.push(`low_seeders(${seederScore.score})`);
-  }
+ // SEEDER VALIDATION (prevent showing bad torrents)
+ const seederScore = getSeederScore(stream);
+ score += seederScore.score;
+ if (seederScore.score < 0) {
+ penalties.push(`low_seeders(${seederScore.score})`);
+ }
 
-  // QUALITY SCORING (device-aware for codec compatibility)
-  const qualityScore = getQualityScore(stream, req);
-  score += qualityScore.score;
-  if (qualityScore.score > 0) {
-    bonuses.push(`quality_bonus(+${qualityScore.score})`);
-  }
+ // QUALITY SCORING (device-aware for codec compatibility)
+ const qualityScore = getQualityScore(stream, req);
+ score += qualityScore.score;
+ if (qualityScore.score > 0) {
+ bonuses.push(`quality_bonus(+${qualityScore.score})`);
+ }
 
-  // COOKIE-BASED SCORING
-  const cookieScore = getCookieScore(stream, opts);
-  score += cookieScore.score;
-  if (cookieScore.score !== 0) {
-    if (cookieScore.score > 0) {
-      bonuses.push(`cookie_bonus(+${cookieScore.score})`);
-    } else {
-      penalties.push(`cookie_penalty(${cookieScore.score})`);
-    }
-  }
+ // COOKIE-BASED SCORING
+ const cookieScore = getCookieScore(stream, opts);
+ score += cookieScore.score;
+ if (cookieScore.score !== 0) {
+ if (cookieScore.score > 0) {
+ bonuses.push(`cookie_bonus(+${cookieScore.score})`);
+ } else {
+ penalties.push(`cookie_penalty(${cookieScore.score})`);
+ }
+ }
 
-  // STREAM QUALITY VALIDATION (for direct hosts)
-  const streamQualityScore = getStreamQualityScore(stream);
-  score += streamQualityScore.score;
-  if (streamQualityScore.score < 0) {
-    penalties.push(`stream_quality(${streamQualityScore.score})`);
-  } else if (streamQualityScore.score > 0) {
-    bonuses.push(`stream_quality(+${streamQualityScore.score})`);
-  }
+ // STREAM QUALITY VALIDATION (for direct hosts)
+ const streamQualityScore = getStreamQualityScore(stream);
+ score += streamQualityScore.score;
+ if (streamQualityScore.score < 0) {
+ penalties.push(`stream_quality(${streamQualityScore.score})`);
+ } else if (streamQualityScore.score > 0) {
+ bonuses.push(`stream_quality(+${streamQualityScore.score})`);
+ }
 
-  // CONNECTION QUALITY DETECTION  
-  const connectionScore = getConnectionScore(stream);
-  score += connectionScore.score;
-  if (connectionScore.score !== 0) {
-    if (connectionScore.score > 0) {
-      bonuses.push(`connection_bonus(+${connectionScore.score})`);
-    } else {
-      penalties.push(`connection_penalty(${connectionScore.score})`);
-    }
-  }
+ // CONNECTION QUALITY DETECTION 
+ const connectionScore = getConnectionScore(stream);
+ score += connectionScore.score;
+ if (connectionScore.score !== 0) {
+ if (connectionScore.score > 0) {
+ bonuses.push(`connection_bonus(+${connectionScore.score})`);
+ } else {
+ penalties.push(`connection_penalty(${connectionScore.score})`);
+ }
+ }
 
-  // STREAM TYPE BONUSES
-  const typeScore = getStreamTypeScore(stream);
-  score += typeScore.score;
-  if (typeScore.score > 0) {
-    bonuses.push(`type_bonus(+${typeScore.score})`);
-  }
+ // STREAM TYPE BONUSES
+ const typeScore = getStreamTypeScore(stream);
+ score += typeScore.score;
+ if (typeScore.score > 0) {
+ bonuses.push(`type_bonus(+${typeScore.score})`);
+ }
 
-  return {
-    score,
-    reason: 'scored',
-    penalties,
-    bonuses,
-    breakdown: {
-      reliability: { penalty: reliabilityPenalty },
-      quality: qualityScore,
-      cookie: cookieScore,
-      connection: connectionScore,
-      type: typeScore
-    }
-  };
+ return {
+ score,
+ reason: 'scored',
+ penalties,
+ bonuses,
+ breakdown: {
+ reliability: { penalty: reliabilityPenalty },
+ quality: qualityScore,
+ cookie: cookieScore,
+ connection: connectionScore,
+ type: typeScore
+ }
+ };
 }
 
 /**
@@ -153,156 +153,209 @@ function computeStreamScore(stream, req, opts = {}) {
  * Based on the working old version - same scoring for all devices
  */
 function getQualityScore(stream, req) {
-  const title = ((stream.title || '') + ' ' + (stream.name || '')).toLowerCase();
-  let score = 0;
-  const factors = [];
+ const title = ((stream.title || '') + ' ' + (stream.name || '')).toLowerCase();
+ let score = 0;
+ const factors = [];
 
-  // Base resolution scoring - increased 4K bonus to compete with seeder penalties
-  if (/\b(2160p|4k|uhd)\b/.test(title)) {
-    score += 60; // Increased from 30 to better compete with seeder penalties
-    factors.push('4k_base');
-  } else if (/\b(1080p|fhd)\b/.test(title)) {
-    score += 30; // Increased from 20
-    factors.push('1080p_base');
-  } else if (/\b(720p|hd)\b/.test(title)) {
-    score += 15; // Increased from 10
-    factors.push('720p_base');
-  } else if (/\b(480p|sd)\b/.test(title)) {
-    score += 5;
-    factors.push('480p_base');
-  }
+ // Base resolution scoring - increased 4K bonus to compete with seeder penalties
+ if (/\b(2160p|4k|uhd)\b/.test(title)) {
+ score += 60; // Increased from 30 to better compete with seeder penalties
+ factors.push('4k_base');
+ } else if (/\b(1080p|fhd)\b/.test(title)) {
+ score += 30; // Increased from 20
+ factors.push('1080p_base');
+ } else if (/\b(720p|hd)\b/.test(title)) {
+ score += 15; // Increased from 10
+ factors.push('720p_base');
+ } else if (/\b(480p|sd)\b/.test(title)) {
+ score += 5;
+ factors.push('480p_base');
+ }
 
-  // HDR/DV bonuses (significant quality improvement)
-  if (/\b(hdr10\+|dolby.?vision|dv)\b/.test(title)) {
-    score += 15;
-    factors.push('dolby_vision');
-  } else if (/\bhdr\b/.test(title)) {
-    score += 10;
-    factors.push('hdr');
-  }
+ // HDR/DV handling - device-aware (these require specific hardware)
+ const deviceType = detectDeviceType(req);
+ 
+ if (deviceType === 'tv') {
+ // On TV: HDR/DV can be risky if TV doesn't support it
+ // Apply smaller bonuses since not all TVs support these
+ if (/\b(dolby.?vision|dovi|dv)\b/i.test(title)) {
+ score += 5; // Reduced from 15 - DV requires specific hardware
+ factors.push('dolby_vision_tv');
+ } else if (/\bhdr10\+/i.test(title)) {
+ score += 3; // HDR10+ requires specific hardware
+ factors.push('hdr10plus_tv');
+ } else if (/\bhdr/i.test(title)) {
+ score += 5; // Basic HDR10 is more widely supported
+ factors.push('hdr_tv');
+ }
+ } else {
+ // On other devices: full HDR/DV bonuses
+ if (/\b(hdr10\+|dolby.?vision|dovi|dv)\b/i.test(title)) {
+ score += 15;
+ factors.push('dolby_vision');
+ } else if (/\bhdr\b/i.test(title)) {
+ score += 10;
+ factors.push('hdr');
+ }
+ }
 
-  // Device-aware codec preferences - critical for Android TV compatibility
-  const deviceType = detectDeviceType(req);
-  
-  if (/\b(x265|hevc|h\.?265)\b/.test(title)) {
-    if (deviceType === 'tv') {
-      // Android TV prefers x264 but x265 4K should still beat x264 1080p
-      score -= 5;
-      factors.push('x265_codec_tv_penalty');
-    } else {
-      // Other devices handle x265 well - small bonus for efficiency
-      score += 8;
-      factors.push('x265_codec');
-    }
-  } else if (/\b(x264|avc|h\.?264)\b/.test(title)) {
-    if (deviceType === 'tv') {
-      // Android TV handles x264 excellently - good bonus
-      score += 8;
-      factors.push('x264_codec_tv_bonus');
-    } else {
-      // Standard x264 bonus for other devices
-      score += 3;
-      factors.push('x264_codec');
-    }
-  }
-  
-  // Container format preferences - device-aware
-  if (deviceType === 'tv') {
-    // Android TV prefers MP4 containers over MKV for compatibility
-    if (/\.mp4\b/i.test(title) || /\bmp4\b/i.test(title)) {
-      score += 10;
-      factors.push('mp4_container_tv_bonus');
-    } else if (/\.mkv\b/i.test(title) || /\bmkv\b/i.test(title)) {
-      score -= 5;
-      factors.push('mkv_container_tv_penalty');
-    }
-  }
+ // ============================================================
+ // CODEC HANDLING - RISK-FACTOR BASED (not blanket penalties)
+ // ============================================================
+ // x265/HEVC itself is fine on modern TVs. The REAL issues are:
+ // - 10-bit color depth (requires Main 10 profile)
+ // - MKV container (some TVs struggle with demuxing)
+ // - Lossless audio (TrueHD/DTS-HD)
+ // - Very high bitrate REMUXes
+ // ============================================================
+ 
+ const isHEVC = /\b(x265|hevc|h\.?265)\b/i.test(title);
+ const isAVC = /\b(x264|avc|h\.?264)\b/i.test(title);
+ 
+ if (isHEVC) {
+ if (deviceType === 'tv') {
+ // BASE: x265 is neutral on TV (modern TVs handle it)
+ // Apply risk-factor penalties for problematic combinations
+ 
+ // 10-bit color depth - requires Main 10 profile hardware support
+ if (/\b(10bit|10-bit|hi10|hi10p|main\s*10)\b/i.test(title)) {
+ score -= 10;
+ factors.push('hevc_10bit_tv_risk');
+ }
+ 
+ // 4K REMUX - very high bitrate, may stutter
+ if (/\b(2160p|4k|uhd)\b/i.test(title) && /\bremux\b/i.test(title)) {
+ score -= 10;
+ factors.push('hevc_4k_remux_tv_risk');
+ }
+ 
+ // Safe x265: MP4 container or WEB-DL source = bonus
+ if (/\.mp4\b/i.test(title) || /\bmp4\b/i.test(title)) {
+ score += 5;
+ factors.push('hevc_mp4_safe');
+ } else if (/\bweb-?dl\b/i.test(title)) {
+ score += 3;
+ factors.push('hevc_webdl_safe');
+ }
+ } else {
+ // Non-TV devices handle x265 well - efficiency bonus
+ score += 8;
+ factors.push('x265_codec');
+ }
+ } else if (isAVC) {
+ if (deviceType === 'tv') {
+ // x264 is universally compatible - bonus on TV
+ score += 8;
+ factors.push('x264_codec_tv_bonus');
+ } else {
+ score += 3;
+ factors.push('x264_codec');
+ }
+ }
+ 
+ // CONTAINER FORMAT - Additional penalties (separate from codec)
+ if (deviceType === 'tv') {
+ if (/\.mkv\b/i.test(title) || /\bmkv\b/i.test(title)) {
+ // MKV penalty - but only if also HEVC (compound risk)
+ if (isHEVC) {
+ score -= 5;
+ factors.push('hevc_mkv_container_risk');
+ }
+ }
+ }
+ 
+ // PROBLEMATIC AUDIO - May fail on devices without proper passthrough
+ if (deviceType === 'tv') {
+ if (/\b(truehd|dts-?hd|dts\.hd|lpcm)\b/i.test(title)) {
+ score -= 5;
+ factors.push('lossless_audio_tv_risk');
+ }
+ }
 
-  // Audio quality bonuses
-  if (/\b(atmos|dts.?x)\b/.test(title)) {
-    score += 12;
-    factors.push('premium_audio');
-  } else if (/\b(truehd|dts.?hd|lpcm)\b/.test(title)) {
-    score += 8;
-    factors.push('high_quality_audio');
-  } else if (/\b(dd\+|eac3|ac3)\b/.test(title)) {
-    score += 4;
-    factors.push('standard_audio');
-  }
+ // Audio quality bonuses
+ if (/\b(atmos|dts.?x)\b/.test(title)) {
+ score += 12;
+ factors.push('premium_audio');
+ } else if (/\b(truehd|dts.?hd|lpcm)\b/.test(title)) {
+ score += 8;
+ factors.push('high_quality_audio');
+ } else if (/\b(dd\+|eac3|ac3)\b/.test(title)) {
+ score += 4;
+ factors.push('standard_audio');
+ }
 
-  // SUBTITLE DETECTION - bonus for streams with subtitles
-  // Many users need subtitles, so prefer streams that have them
-  if (/\b(subs?|subtitles?|subtitled|english\s*sub|multi\s*sub|multisub)\b/i.test(title)) {
-    score += 25;
-    factors.push('has_subtitles');
-  } else if (/\b(srt|vtt|ssa|ass|sub)\b/i.test(title)) {
-    score += 20;
-    factors.push('subtitle_format');
-  } else if (/\b(hardcoded|hardsub|hc)\b/i.test(title)) {
-    // Hardcoded subs are less desirable but still better than none
-    score += 10;
-    factors.push('hardcoded_subs');
-  }
-  
-  // Penalty for streams explicitly marked as having no subs
-  if (/\b(nosub|no[\s\-]?subs?|raw)\b/i.test(title)) {
-    score -= 15;
-    factors.push('no_subtitles_penalty');
-  }
+ // SUBTITLE DETECTION - minor bonus for streams with subtitles
+ // Stremio has OpenSubtitles integration, so subtitle scoring is just a tie-breaker
+ // Using conservative patterns to avoid false positives
+ // Note: [\s.\-_]* matches separators like space, dot, dash, underscore
+ if (/\b(subtitles?|subtitled|english[\s.\-_]*sub|multi[\s.\-_]*sub|multisub)\b/i.test(title)) {
+ score += 3;
+ factors.push('has_subtitles');
+ } else if (/\b(hardcoded|hardsub|hc)\b/i.test(title)) {
+ // Hardcoded subs are less desirable
+ score += 1;
+ factors.push('hardcoded_subs');
+ }
+ 
+ // Penalty for streams explicitly marked as having no subs
+ if (/\b(nosub|no[\s\-]?subs?|raw)\b/i.test(title)) {
+ score -= 5;
+ factors.push('no_subtitles_penalty');
+ }
 
-  // Release source quality (in order of preference)
-  if (/\b(bluray|bd|bdrip|brrip)\b/.test(title)) {
-    score += 10;
-    factors.push('bluray_source');
-  } else if (/\b(webrip|web.?dl)\b/.test(title)) {
-    score += 8;
-    factors.push('web_source');
-  } else if (/\b(hdtv|hdtvrip)\b/.test(title)) {
-    score += 6;
-    factors.push('hdtv_source');
-  }
+ // Release source quality (in order of preference)
+ if (/\b(bluray|bd|bdrip|brrip)\b/.test(title)) {
+ score += 10;
+ factors.push('bluray_source');
+ } else if (/\b(webrip|web.?dl)\b/.test(title)) {
+ score += 8;
+ factors.push('web_source');
+ } else if (/\b(hdtv|hdtvrip)\b/.test(title)) {
+ score += 6;
+ factors.push('hdtv_source');
+ }
 
-  // Reputable release groups (known for quality)
-  const premiumGroups = [
-    'yts', 'rarbg', 'ettv', 'eztv', 'torrentgalaxy', 'tgx',
-    'framestor', 'tigole', 'qxr', 'joy', 'ntg', 'flux'
-  ];
-  
-  if (premiumGroups.some(group => title.includes(`[${group}]`) || title.includes(`-${group}`))) {
-    score += 5;
-    factors.push('premium_group');
-  }
+ // Reputable release groups (known for quality)
+ const premiumGroups = [
+ 'yts', 'rarbg', 'ettv', 'eztv', 'torrentgalaxy', 'tgx',
+ 'framestor', 'tigole', 'qxr', 'joy', 'ntg', 'flux'
+ ];
+ 
+ if (premiumGroups.some(group => title.includes(`[${group}]`) || title.includes(`-${group}`))) {
+ score += 5;
+ factors.push('premium_group');
+ }
 
-  // File size indicators (detailed quality estimation based on resolution)
-  const sizeMatch = title.match(/(\d+(?:\.\d+)?)\s*gb?\b/);
-  if (sizeMatch) {
-    const sizeGB = parseFloat(sizeMatch[1]);
-    
-    // For 4K content (30+ score)
-    if (score >= 30) {
-      if (sizeGB >= 15) { score += 8; factors.push('optimal_4k_size'); }
-      else if (sizeGB >= 8) { score += 4; factors.push('good_4k_size'); }
-      else if (sizeGB < 3) { score -= 5; factors.push('small_4k_size'); }
-    }
-    // For 1080p content (20+ score)  
-    else if (score >= 20) {
-      if (sizeGB >= 8) { score += 6; factors.push('optimal_1080p_size'); }
-      else if (sizeGB >= 3) { score += 3; factors.push('good_1080p_size'); }
-      else if (sizeGB < 1.5) { score -= 3; factors.push('small_1080p_size'); }
-    }
-    // For 720p content (10+ score)
-    else if (score >= 10) {
-      if (sizeGB >= 4) { score += 4; factors.push('optimal_720p_size'); }
-      else if (sizeGB >= 1.5) { score += 2; factors.push('good_720p_size'); }
-      else if (sizeGB < 0.8) { score -= 2; factors.push('small_720p_size'); }
-    }
-  }
+ // File size indicators (detailed quality estimation based on resolution)
+ const sizeMatch = title.match(/(\d+(?:\.\d+)?)\s*gb?\b/);
+ if (sizeMatch) {
+ const sizeGB = parseFloat(sizeMatch[1]);
+ 
+ // For 4K content (30+ score)
+ if (score >= 30) {
+ if (sizeGB >= 15) { score += 8; factors.push('optimal_4k_size'); }
+ else if (sizeGB >= 8) { score += 4; factors.push('good_4k_size'); }
+ else if (sizeGB < 3) { score -= 5; factors.push('small_4k_size'); }
+ }
+ // For 1080p content (20+ score) 
+ else if (score >= 20) {
+ if (sizeGB >= 8) { score += 6; factors.push('optimal_1080p_size'); }
+ else if (sizeGB >= 3) { score += 3; factors.push('good_1080p_size'); }
+ else if (sizeGB < 1.5) { score -= 3; factors.push('small_1080p_size'); }
+ }
+ // For 720p content (10+ score)
+ else if (score >= 10) {
+ if (sizeGB >= 4) { score += 4; factors.push('optimal_720p_size'); }
+ else if (sizeGB >= 1.5) { score += 2; factors.push('good_720p_size'); }
+ else if (sizeGB < 0.8) { score -= 2; factors.push('small_720p_size'); }
+ }
+ }
 
-  return { 
-    score, 
-    reason: factors.length > 0 ? factors.join(',') : 'no_quality_detected',
-    factors 
-  };
+ return { 
+ score, 
+ reason: factors.length > 0 ? factors.join(',') : 'no_quality_detected',
+ factors 
+ };
 }
 
 /**
@@ -310,26 +363,26 @@ function getQualityScore(stream, req) {
  * Enhanced: Penalize Nuvio+ streams without valid cookies
  */
 function getCookieScore(stream, opts) {
-  const hasCookie = stream._usedCookie || 
-                    (stream.behaviorHints?.proxyHeaders?.Cookie);
-  const isNuvio = stream.autostreamOrigin === 'nuvio';
-  
-  if (!hasCookie) {
-    // Heavy penalty for Nuvio streams without cookies (they likely won't work)
-    if (isNuvio) {
-      return { score: -400, reason: 'nuvio_no_cookie' };
-    }
-    return { score: 0, reason: 'no_cookie' };
-  }
+ const hasCookie = stream._usedCookie || 
+ (stream.behaviorHints?.proxyHeaders?.Cookie);
+ const isNuvio = stream.autostreamOrigin === 'nuvio';
+ 
+ if (!hasCookie) {
+ // Heavy penalty for Nuvio streams without cookies (they likely won't work)
+ if (isNuvio) {
+ return { score: -400, reason: 'nuvio_no_cookie' };
+ }
+ return { score: 0, reason: 'no_cookie' };
+ }
 
-  // Cookie bonus for streams that actually have cookies
-  const cookieBonus = opts.conservativeCookie ? 1 : 3;
-  
-  return { 
-    score: cookieBonus, 
-    reason: 'cookie_stream',
-    conservative: opts.conservativeCookie 
-  };
+ // Cookie bonus for streams that actually have cookies
+ const cookieBonus = opts.conservativeCookie ? 1 : 3;
+ 
+ return { 
+ score: cookieBonus, 
+ reason: 'cookie_stream',
+ conservative: opts.conservativeCookie 
+ };
 }
 
 /**
@@ -337,139 +390,139 @@ function getCookieScore(stream, opts) {
  * Enhanced: Torrents get strong preference to ensure they rank above Nuvio+
  */
 function getConnectionScore(stream) {
-  const url = stream.url || '';
-  const hasInfoHash = !!(stream.infoHash);
-  const isMagnet = /^magnet:/i.test(url);
-  
-  // Torrents get strong preference (increased from 20 to 30)
-  if (hasInfoHash || isMagnet) {
-    return { score: 30, reason: 'torrent_to_debrid' };
-  }
-  
-  if (!url) return { score: 0, reason: 'no_url' };
+ const url = stream.url || '';
+ const hasInfoHash = !!(stream.infoHash);
+ const isMagnet = /^magnet:/i.test(url);
+ 
+ // Torrents get strong preference (increased from 20 to 30)
+ if (hasInfoHash || isMagnet) {
+ return { score: 30, reason: 'torrent_to_debrid' };
+ }
+ 
+ if (!url) return { score: 0, reason: 'no_url' };
 
-  try {
-    const { hostname } = new URL(url);
-    const host = hostname.toLowerCase();
-    
-    // Known high-quality hosts (bonus)
-    const premiumHosts = [
-      'drive.google.com',
-      'onedrive.live.com', 
-      'dropbox.com',
-      'mega.nz',
-      'archive.org'
-    ];
-    
-    if (premiumHosts.some(p => host.includes(p))) {
-      return { score: 25, reason: 'premium_host', host };
-    }
+ try {
+ const { hostname } = new URL(url);
+ const host = hostname.toLowerCase();
+ 
+ // Known high-quality hosts (bonus)
+ const premiumHosts = [
+ 'drive.google.com',
+ 'onedrive.live.com', 
+ 'dropbox.com',
+ 'mega.nz',
+ 'archive.org'
+ ];
+ 
+ if (premiumHosts.some(p => host.includes(p))) {
+ return { score: 25, reason: 'premium_host', host };
+ }
 
-    // CDN patterns (bonus)
-    const cdnPatterns = [
-      /\.cloudfront\.net$/,
-      /\.fastly\.com$/,
-      /\.amazonaws\.com$/,
-      /\.cloudflare\.com$/
-    ];
-    
-    if (cdnPatterns.some(pattern => pattern.test(host))) {
-      return { score: 15, reason: 'cdn_host', host };
-    }
+ // CDN patterns (bonus)
+ const cdnPatterns = [
+ /\.cloudfront\.net$/,
+ /\.fastly\.com$/,
+ /\.amazonaws\.com$/,
+ /\.cloudflare\.com$/
+ ];
+ 
+ if (cdnPatterns.some(pattern => pattern.test(host))) {
+ return { score: 15, reason: 'cdn_host', host };
+ }
 
-    // Direct HTTP streams get small bonus (reduced from 5 to 3)
-    if (url.startsWith('http')) {
-      return { score: 3, reason: 'direct_http' };
-    }
+ // Direct HTTP streams get small bonus (reduced from 5 to 3)
+ if (url.startsWith('http')) {
+ return { score: 3, reason: 'direct_http' };
+ }
 
-    // Known problematic patterns (penalty)
-    const problematicPatterns = [
-      /^(\d{1,3}\.){3}\d{1,3}$/, // Direct IP
-      /:\d{4,5}$/, // Non-standard ports  
-      /\.tk$|\.ml$|\.cf$|\.ga$/ // Free TLD domains
-    ];
-    
-    if (problematicPatterns.some(pattern => pattern.test(host))) {
-      return { score: -10, reason: 'problematic_host', host };
-    }
+ // Known problematic patterns (penalty)
+ const problematicPatterns = [
+ /^(\d{1,3}\.){3}\d{1,3}$/, // Direct IP
+ /:\d{4,5}$/, // Non-standard ports 
+ /\.tk$|\.ml$|\.cf$|\.ga$/ // Free TLD domains
+ ];
+ 
+ if (problematicPatterns.some(pattern => pattern.test(host))) {
+ return { score: -10, reason: 'problematic_host', host };
+ }
 
-    return { score: 0, reason: 'neutral_host', host };
-    
-  } catch (e) {
-    return { score: -5, reason: 'invalid_url' };
-  }
+ return { score: 0, reason: 'neutral_host', host };
+ 
+ } catch (e) {
+ return { score: -5, reason: 'invalid_url' };
+ }
 }
 
 /**
  * Stream type scoring
  */
 function getStreamTypeScore(stream) {
-  const url = stream.url || '';
-  
-  // Direct file extensions (bonus)
-  if (/\.(mp4|mkv|avi|mov|m4v)(\?|$)/i.test(url)) {
-    return { score: 10, reason: 'direct_video_file' };
-  }
+ const url = stream.url || '';
+ 
+ // Direct file extensions (bonus)
+ if (/\.(mp4|mkv|avi|mov|m4v)(\?|$)/i.test(url)) {
+ return { score: 10, reason: 'direct_video_file' };
+ }
 
-  // HLS/DASH streams (bonus)
-  if (/\.(m3u8|mpd)(\?|$)/i.test(url)) {
-    return { score: 15, reason: 'streaming_manifest' };
-  }
+ // HLS/DASH streams (bonus)
+ if (/\.(m3u8|mpd)(\?|$)/i.test(url)) {
+ return { score: 15, reason: 'streaming_manifest' };
+ }
 
-  // Magnet links (neutral)
-  if (url.startsWith('magnet:')) {
-    return { score: 0, reason: 'magnet_link' };
-  }
+ // Magnet links (neutral)
+ if (url.startsWith('magnet:')) {
+ return { score: 0, reason: 'magnet_link' };
+ }
 
-  return { score: 0, reason: 'unknown_type' };
+ return { score: 0, reason: 'unknown_type' };
 }
 
 /**
  * Filter and score streams with penalty-based system
  */
 function filterAndScoreStreams(streams, req, opts = {}) {
-  if (!Array.isArray(streams)) return [];
+ if (!Array.isArray(streams)) return [];
 
-  const results = streams.map(stream => {
-    const scoring = computeStreamScore(stream, req, opts);
-    return {
-      ...stream,
-      _scoring: scoring,
-      _score: scoring.score
-    };
-  });
+ const results = streams.map(stream => {
+ const scoring = computeStreamScore(stream, req, opts);
+ return {
+ ...stream,
+ _scoring: scoring,
+ _score: scoring.score
+ };
+ });
 
-  // Sort by score (highest first)
-  results.sort((a, b) => b._score - a._score);
+ // Sort by score (highest first)
+ results.sort((a, b) => b._score - a._score);
 
-  // Log scoring details in debug mode
-  if (opts.debug) {
-    console.log('\n🎯 Stream Scoring Results:');
-    results.slice(0, 5).forEach((stream, i) => {
-      const scoring = stream._scoring;
-      console.log(`${i + 1}. ${stream.name || 'Unnamed'} (Score: ${scoring.score})`);
-      if (scoring.bonuses?.length) console.log(`   Bonuses: ${scoring.bonuses.join(', ')}`);
-      if (scoring.penalties?.length) console.log(`   Penalties: ${scoring.penalties.join(', ')}`);
-    });
-  }
+ // Log scoring details in debug mode
+ if (opts.debug) {
+ console.log('\n[TARGET] Stream Scoring Results:');
+ results.slice(0, 5).forEach((stream, i) => {
+ const scoring = stream._scoring;
+ console.log(`${i + 1}. ${stream.name || 'Unnamed'} (Score: ${scoring.score})`);
+ if (scoring.bonuses?.length) console.log(` Bonuses: ${scoring.bonuses.join(', ')}`);
+ if (scoring.penalties?.length) console.log(` Penalties: ${scoring.penalties.join(', ')}`);
+ });
+ }
 
-  return results;
+ return results;
 }
 
 /**
  * Mark stream failure (adds penalty)
  */
 function markStreamFailure(req, url, failureType = 'timeout') {
-  penaltyReliability.markFail(url);
-  console.log(`❌ Stream failure: ${url} (${failureType})`);
+ penaltyReliability.markFail(url);
+ console.log(`[FAIL] Stream failure: ${url} (${failureType})`);
 }
 
 /**
  * Mark stream success (reduces penalty if any)
  */
 function markStreamSuccess(req, url) {
-  penaltyReliability.markOk(url);
-  console.log(`✅ Stream success: ${url}`);
+ penaltyReliability.markOk(url);
+ console.log(`[OK] Stream success: ${url}`);
 }
 
 /**
@@ -482,73 +535,77 @@ function markStreamSuccess(req, url) {
  * User's preference: "never not show streams unless CAM/480p"
  */
 function getSeederScore(stream) {
-  const url = stream.url || stream.externalUrl || '';
-  const title = stream.title || '';
-  
-  // Only check torrents/magnets or streams with seeder info in title
-  const hasInfoHash = !!(stream.infoHash);
-  const isMagnet = url && /^magnet:/i.test(url);
-  
-  // Skip if it's not a torrent-related stream
-  if (!isMagnet && !hasInfoHash) {
-    return { score: 0, reason: 'not_torrent' };
-  }
-  
-  // Try to extract seeder count from URL first, then from title
-  let seederText = '';
-  if (url) {
-    try {
-      seederText = decodeURIComponent(url);
-    } catch (e) {
-      seederText = url;
-    }
-  }
-  
-  // If no URL or no seeder info in URL, check title
-  if (!seederText || !seederText.includes('👤')) {
-    seederText = title;
-  }
-  
-  // Extract seeder count from text
-  // Format: "👤 1 💾" - match seeder emoji, number, then file size emoji
-  const match = seederText.match(/👤\s*(\d+)\s*💾/);
-  if (!match) {
-    return { score: 0, reason: 'no_seeder_info' };
-  }
+ const url = stream.url || stream.externalUrl || '';
+ const title = stream.title || '';
+ 
+ // Only check torrents/magnets or streams with seeder info in title
+ const hasInfoHash = !!(stream.infoHash);
+ const isMagnet = url && /^magnet:/i.test(url);
+ 
+ // Skip if it's not a torrent-related stream
+ if (!isMagnet && !hasInfoHash) {
+ return { score: 0, reason: 'not_torrent' };
+ }
+ 
+ // Try to extract seeder count from URL first, then from title
+ let seederText = '';
+ if (url) {
+ try {
+ seederText = decodeURIComponent(url);
+ } catch (e) {
+ seederText = url;
+ }
+ }
+ 
+ // If no URL or no seeder info in URL, check title
+ if (!seederText || !seederText.includes('')) {
+ seederText = title;
+ }
+ 
+ // Extract seeder count from text
+ // Format: " 1 [SAVE]" - match seeder emoji, number, then file size emoji
+ const match = seederText.match(/\s*(\d+)\s*[SAVE]/);
+ if (!match) {
+ return { score: 0, reason: 'no_seeder_info' };
+ }
 
-  const seeders = parseInt(match[1], 10);
-  
-  // VERY LENIENT penalties - streams should ALWAYS show, just rank differently
-  // A 4K stream with 1 seeder should still beat a 1080p stream with 100 seeders
-  // Quality bonuses: 4K=+60, 1080p=+30, so seeder penalties must be smaller
-  if (seeders === 0) {
-    // Zero seeders = likely dead, but might still work with debrid cache
-    // Penalty is significant but won't hide a 4K stream (-40 < +60)
-    return { score: -40, reason: 'zero_seeders' };
-  } else if (seeders === 1) {
-    // Single seeder = slow but works, small penalty
-    return { score: -15, reason: 'one_seeder' };
-  } else if (seeders < 3) {
-    // Very low but functional
-    return { score: -8, reason: 'very_low_seeders' };
-  } else if (seeders < 5) {
-    // Low but acceptable
-    return { score: -4, reason: 'low_seeders' };
-  } else if (seeders < 10) {
-    // Minimal penalty, just for sorting purposes
-    return { score: -2, reason: 'few_seeders' };
-  }
-  
-  // Good seeder counts get small bonus (for tie-breaking)
-  if (seeders >= 50) {
-    return { score: 8, reason: 'many_seeders' };
-  } else if (seeders >= 20) {
-    return { score: 5, reason: 'good_seeders' };
-  } else if (seeders >= 10) {
-    return { score: 2, reason: 'decent_seeders' };
-  }
-  
-  return { score: 0, reason: 'adequate_seeders' };
+ const seeders = parseInt(match[1], 10);
+ 
+ // GRADUAL SEEDER SCORING CURVE
+ // Philosophy: seeders matter for reliability but shouldn't dominate quality
+ // Quality bonuses: 4K=+60, 1080p=+30, 720p=+20
+ // Seeder range: -50 to +15 (never eliminates high quality streams)
+ 
+ if (seeders === 0) {
+ // Zero seeders = likely dead, but might work with debrid cache
+ // -50 is significant but won't eliminate 4K (+60-50=+10 still positive)
+ return { score: -50, reason: 'zero_seeders' };
+ } else if (seeders === 1) {
+ // Single seeder = could be fast uploader or slow peer
+ // -25 is moderate - 4K/1 seeder (+60-25=+35) still beats 1080p/10 seeders (+30+5=+35)
+ return { score: -25, reason: 'one_seeder' };
+ } else if (seeders === 2) {
+ // 2 seeders = minimal swarm
+ return { score: -15, reason: 'two_seeders' };
+ } else if (seeders < 5) {
+ // 3-4 seeders = small but functional swarm
+ return { score: -8, reason: 'few_seeders' };
+ } else if (seeders < 10) {
+ // 5-9 seeders = decent availability
+ return { score: -3, reason: 'low_seeders' };
+ } else if (seeders < 20) {
+ // 10-19 seeders = good availability
+ return { score: 0, reason: 'adequate_seeders' };
+ } else if (seeders < 50) {
+ // 20-49 seeders = healthy swarm
+ return { score: 5, reason: 'good_seeders' };
+ } else if (seeders < 100) {
+ // 50-99 seeders = popular torrent
+ return { score: 10, reason: 'many_seeders' };
+ }
+ 
+ // 100+ seeders = very popular, fast download guaranteed
+ return { score: 15, reason: 'excellent_seeders' };
 }
 
 /**
@@ -556,30 +613,30 @@ function getSeederScore(stream) {
  * Tests reachability, seekability, content type, size, and throughput
  */
 function getStreamQualityScore(stream) {
-  const url = stream.url || stream.externalUrl || '';
-  const origin = stream.autostreamOrigin;
-  
-  // Only validate direct HTTP streams (not torrents)
-  if (!url || !/^https?:/i.test(url) || origin !== 'nuvio') {
-    return { score: 0, reason: 'not_direct_stream' };
-  }
-  
-  // For now, return a placeholder - actual validation would be async
-  // This would need to be implemented as a separate validation service
-  // that runs probes and caches results with TTL
-  
-  // Check if this is a cookie stream without proper cookie
-  const hasCookie = stream.behaviorHints?.proxyHeaders?.Cookie;
-  const isNuvioPlus = stream.name?.includes('Nuvio+') || hasCookie;
-  
-  if (isNuvioPlus && !hasCookie) {
-    // Heavy penalty for Nuvio+ streams without valid cookies
-    return { score: -200, reason: 'nuvio_plus_no_cookie' };
-  }
-  
-  // Small penalty for all direct hosts compared to torrents
-  // (torrents with good seeders are generally more reliable)
-  return { score: -10, reason: 'direct_host_uncertainty' };
+ const url = stream.url || stream.externalUrl || '';
+ const origin = stream.autostreamOrigin;
+ 
+ // Only validate direct HTTP streams (not torrents)
+ if (!url || !/^https?:/i.test(url) || origin !== 'nuvio') {
+ return { score: 0, reason: 'not_direct_stream' };
+ }
+ 
+ // For now, return a placeholder - actual validation would be async
+ // This would need to be implemented as a separate validation service
+ // that runs probes and caches results with TTL
+ 
+ // Check if this is a cookie stream without proper cookie
+ const hasCookie = stream.behaviorHints?.proxyHeaders?.Cookie;
+ const isNuvioPlus = stream.name?.includes('Nuvio+') || hasCookie;
+ 
+ if (isNuvioPlus && !hasCookie) {
+ // Heavy penalty for Nuvio+ streams without valid cookies
+ return { score: -200, reason: 'nuvio_plus_no_cookie' };
+ }
+ 
+ // Small penalty for all direct hosts compared to torrents
+ // (torrents with good seeders are generally more reliable)
+ return { score: -10, reason: 'direct_host_uncertainty' };
 }
 
 /**
@@ -587,57 +644,57 @@ function getStreamQualityScore(stream) {
  * This would perform actual HTTP probes to validate stream quality
  */
 async function validateStreamQuality(streamUrl, quality = '1080p') {
-  // Implementation would include:
-  // 1. HEAD request to check reachability (200/206 good, 403/401/5xx bad)
-  // 2. Range request to test seekability (Range: bytes=0-1, expect 206)
-  // 3. Content-Type validation (video/* or application/octet-stream good)
-  // 4. Size validation (Content-Length check for quality expectations)
-  // 5. Throughput test (1-2MB range request with timing)
-  // 6. Latency measurement (TTFB)
-  // 7. Resume robustness (mid-file range request)
-  // 8. Cookie validation if present
-  
-  return {
-    reachable: true,
-    seekable: true,
-    contentType: 'video/mp4',
-    sizeMB: 1500,
-    throughputMbps: 12,
-    latencyMs: 300,
-    resumable: true,
-    score: 0 // Calculated based on above metrics
-  };
+ // Implementation would include:
+ // 1. HEAD request to check reachability (200/206 good, 403/401/5xx bad)
+ // 2. Range request to test seekability (Range: bytes=0-1, expect 206)
+ // 3. Content-Type validation (video/* or application/octet-stream good)
+ // 4. Size validation (Content-Length check for quality expectations)
+ // 5. Throughput test (1-2MB range request with timing)
+ // 6. Latency measurement (TTFB)
+ // 7. Resume robustness (mid-file range request)
+ // 8. Cookie validation if present
+ 
+ return {
+ reachable: true,
+ seekable: true,
+ contentType: 'video/mp4',
+ sizeMB: 1500,
+ throughputMbps: 12,
+ latencyMs: 300,
+ resumable: true,
+ score: 0 // Calculated based on above metrics
+ };
 }
 
 // Helper function to check if stream has Nuvio cookie
 function hasNuvioCookie(stream) {
-  if (!stream.behaviorHints || !stream.behaviorHints.proxyHeaders) {
-    return false;
-  }
-  return !!(stream.behaviorHints.proxyHeaders.Cookie);
+ if (!stream.behaviorHints || !stream.behaviorHints.proxyHeaders) {
+ return false;
+ }
+ return !!(stream.behaviorHints.proxyHeaders.Cookie);
 }
 
 /**
  * Get reliability statistics
  */
 function getReliabilityStats() {
-  return {
-    penaltySystem: penaltyReliability.getState(),
-    timestamp: Date.now()
-  };
+ return {
+ penaltySystem: penaltyReliability.getState(),
+ timestamp: Date.now()
+ };
 }
 
 module.exports = {
-  computeStreamScore,
-  filterAndScoreStreams,
-  markStreamFailure,
-  markStreamSuccess,
-  getReliabilityStats,
-  detectDeviceType,
-  
-  // Individual scoring functions for testing
-  getQualityScore,
-  getCookieScore,
-  getConnectionScore,
-  getStreamTypeScore
+ computeStreamScore,
+ filterAndScoreStreams,
+ markStreamFailure,
+ markStreamSuccess,
+ getReliabilityStats,
+ detectDeviceType,
+ 
+ // Individual scoring functions for testing
+ getQualityScore,
+ getCookieScore,
+ getConnectionScore,
+ getStreamTypeScore
 };

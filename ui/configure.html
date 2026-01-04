@@ -113,11 +113,17 @@
 
           <div>
             <div class="section-title">Additional Customisation</div>
-            <div id="toggleFallback" class="toggle-box" role="button" tabindex="0" aria-pressed="false">
-              <input id="fallback1080" type="checkbox" />
-              <div class="label">Include an additional stream option?</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--pill-gap);margin-bottom:10px">
+              <div id="toggleSecondBest" class="toggle-box" role="button" tabindex="0" aria-pressed="true">
+                <input id="secondBest" type="checkbox" checked />
+                <div class="label">2nd Best Stream</div>
+              </div>
+              <div id="toggleFallback" class="toggle-box" role="button" tabindex="0" aria-pressed="false">
+                <input id="fallback1080" type="checkbox" />
+                <div class="label">Lower Resolution Backup</div>
+              </div>
             </div>
-            <div class="help">If enabled, you will always see an additional stream alongside the “best” stream. Usually this will be 1080p and if 1080 is not available it will look for second best.</div>
+            <div class="help">If enabled, you will see the top 2 streams (2nd Best) plus a lower resolution backup. The backup always tries to find the best stream in a lower resolution as a safety option.</div>
           </div>
 
           <div>
@@ -142,7 +148,9 @@
           <div>
             <label>Debrid API Key</label>
             <input id="apikey" class="control" type="text" placeholder="Only required when a provider is selected." />
-            
+            <div class="help" id="apiKeyHelp">
+              <a id="apiKeyLink" href="#" target="_blank" style="color: var(--muted); text-decoration: underline;">Get your API key</a>
+            </div>
           </div>
 
           <div>
@@ -169,6 +177,13 @@
         <a id="installWeb" class="btn btn-outline" style="width:100%">Install to Web</a>
       </div>
 
+      <!-- Config Export/Import Section -->
+      <div style="margin-top: 16px; display: flex; gap: 12px; justify-content: center;">
+        <button id="exportConfig" class="btn btn-sm btn-outline" type="button">Export Config</button>
+        <button id="importConfig" class="btn btn-sm btn-outline" type="button">Import Config</button>
+        <input type="file" id="importFile" accept=".json" style="display: none;" />
+      </div>
+
       <div class="footline">
         <div class="manifest-container">
           <div class="manifest-label">Manifest URL:</div>
@@ -180,7 +195,7 @@
     <!-- Separate Blacklist Section -->
     <div class="card" style="margin-top: 32px;">
       <h2 style="font-weight: 700; font-size: 24px; margin: 0 0 8px; color: var(--fg);">Blacklist</h2>
-      <p style="margin: 0 0 16px; font-size: 14px; color: var(--muted); text-align: left;">Exclude streams containing these terms. Order doesn't matter - any matching stream will be filtered out. <span class="muted">(Max 10)</span></p>
+      <p style="margin: 0 0 16px; font-size: 14px; color: var(--muted); text-align: left;">Exclude streams containing these terms. Order doesn't matter - any matching stream will be filtered out.</p>
       
       <div id="blacklistSection">
         <div class="lang-controls">
