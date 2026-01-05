@@ -1582,13 +1582,14 @@ function startServer(port = PORT) {
  } : {};
 
  // fetch sources (no debrid here) - parallel execution with timeout for faster response
- // MediaFusion and Comet added as fallback sources that may work from cloud IPs
+ // NOTE: Torrentio, TPB, and MediaFusion disabled - they return 403 from cloud IPs
+ // Only Comet (with debrid) and Nuvio (with cookie) are active
  console.log(`[${requestId}] [LAUNCH] Fetching streams from sources...`);
  const sourcePromises = [
- (!onlySource || onlySource === 'torrentio') ? fetchTorrentioStreams(type, actualId, {}, (msg) => log('Torrentio: ' + msg, 'verbose')) : Promise.resolve([]),
- (!onlySource || onlySource === 'tpb') ? fetchTPBStreams(type, actualId, {}, (msg) => log('TPB+: ' + msg, 'verbose')) : Promise.resolve([]),
+ Promise.resolve([]), // Torrentio disabled - 403 from cloud IPs
+ Promise.resolve([]), // TPB disabled - 403 from cloud IPs  
  nuvioEnabled ? fetchNuvioStreams(type, actualId, { query: { direct: '1' }, cookie: nuvioCookie }, (msg) => log('Nuvio: ' + msg, 'verbose')) : Promise.resolve([]),
- (!onlySource || onlySource === 'mediafusion') ? fetchMediaFusionStreams(type, actualId, cometMfOptions, (msg) => log('MediaFusion: ' + msg, 'verbose')) : Promise.resolve([]),
+ Promise.resolve([]), // MediaFusion disabled - requires encrypted config
  (!onlySource || onlySource === 'comet') ? fetchCometStreams(type, actualId, cometMfOptions, (msg) => log('Comet: ' + msg, 'verbose')) : Promise.resolve([])
  ];
  
@@ -2290,15 +2291,35 @@ function startServer(port = PORT) {
  cacheTime = 300; // 5 minutes with penalties
  }
 
+ // CRITICAL: Clean up internal properties before sending to Stremio
+ // Stremio may ignore or fail on streams with unknown properties
+ const cleanedStreams = streams.map(s => {
+ if (!s) return s;
+ // Only keep Stremio-compatible properties
+ const clean = {
+  name: s.name,
+  title: s.title,
+  url: s.url,
+  behaviorHints: s.behaviorHints
+ };
+ // Only include optional properties if they have valid values
+ if (s.infoHash) clean.infoHash = s.infoHash;
+ if (s.fileIdx !== undefined && s.fileIdx !== null) clean.fileIdx = s.fileIdx;
+ if (Array.isArray(s.sources) && s.sources.length > 0) clean.sources = s.sources;
+ if (s.description) clean.description = s.description;
+ if (s.subtitles) clean.subtitles = s.subtitles;
+ return clean;
+ }).filter(Boolean);
+
  // Send final response with streams
- console.log(`[${requestId}] � Sending ${streams.length} stream(s) to Stremio (cache: ${cacheTime}s)`);
+ console.log(`[${requestId}] ◆ Sending ${cleanedStreams.length} stream(s) to Stremio (cache: ${cacheTime}s)`);
  
- if (streams.length === 0) {
+ if (cleanedStreams.length === 0) {
  console.log(`[${requestId}] [FAIL] NO STREAMS - this will cause infinite loading in Stremio!`);
  }
  
  res.setHeader('Cache-Control', `max-age=${cacheTime}`);
- writeJson(res, { streams });
+ writeJson(res, { streams: cleanedStreams });
  
  log(`[OK] [${requestId}] ===== STREAM REQUEST COMPLETE =====\n`);
  

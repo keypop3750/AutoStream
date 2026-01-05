@@ -407,6 +407,9 @@ async function fetchCometStreams(type, id, options = {}, log = ()=>{}) {
  const preservedStreams = arr.map(stream => {
  const preserved = preserveStreamMetadata(stream, 'comet');
  preserved.autostreamOrigin = 'comet';
+ // Mark Comet streams as debrid since they come pre-resolved from Comet's debrid service
+ preserved._isDebrid = true;
+ preserved._debrid = true;
  return preserved;
  });
  
