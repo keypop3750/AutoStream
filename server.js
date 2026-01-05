@@ -1361,14 +1361,44 @@ function startServer(port = PORT) {
  return writeJson(res, manifest, 200);
  }
 
+ // ==== PATH-BASED CONFIGURATION FOR STREAM ROUTES (Torrentio-style) ====
+ // Handle both /stream/:type/:id.json AND /:config/stream/:type/:id.json
+ let type, id;
+ 
+ // Try path-based config first: /:configuration/stream/:type/:id.json
+ const pathBasedStreamMatch = pathname.match(/^\/([^\/]+)\/stream\/(movie|series)\/(.+)\.json$/);
+ if (pathBasedStreamMatch) {
+ const configurationPath = pathBasedStreamMatch[1];
+ type = pathBasedStreamMatch[2];
+ id = decodeURIComponent(pathBasedStreamMatch[3]);
+ 
+ console.log('[INFO] PATH-BASED STREAM: Configuration path:', configurationPath);
+ 
+ // Parse config from path and merge with query params (path takes precedence)
+ try {
+ const pathParams = parsePathConfiguration(configurationPath);
+ console.log('[DEBUG] PATH-BASED STREAM: Parsed params:', Object.keys(pathParams));
+ 
+ // Merge path params into query params (path params take precedence)
+ for (const [key, value] of Object.entries(pathParams)) {
+ if (!q.has(key)) {
+ q.set(key, value);
+ }
+ }
+ } catch (error) {
+ console.error('[ERROR] PATH-BASED STREAM: Config parsing failed:', error.message);
+ }
+ } else {
+ // Standard route: /stream/:type/:id.json
  if (!/^\/stream\//.test(pathname)) {
  res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
  return res.end('Not found');
  }
  const m = pathname.match(/^\/stream\/(movie|series)\/(.+)\.json$/);
  if (!m) { res.writeHead(404, {'Content-Type':'text/plain'}); return res.end('Not found'); }
- const type = m[1];
- const id = decodeURIComponent(m[2]);
+ type = m[1];
+ id = decodeURIComponent(m[2]);
+ }
 
  // ============ TV DEBUGGING: DETAILED REQUEST LOGGING ============
  const requestId = Math.random().toString(36).substr(2, 9);
