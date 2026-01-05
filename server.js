@@ -245,8 +245,10 @@ let MANIFEST_DEFAULTS = Object.create(null);
 const REMEMBER_KEYS = new Set([
  'cookie','nuvio_cookie','dcookie',
  'include_nuvio','nuvio','dhosts','nuvio_base',
- 'label_origin','lang_prio','max_size','additionalstream','secondBest','fallback','blacklist'
- // SECURITY: API keys removed from remember list to prevent global caching
+ 'label_origin','lang_prio','max_size','additionalstream','secondBest','fallback','blacklist',
+ // Debrid API keys - MUST be included so Stremio can pass them to stream requests
+ 'alldebrid', 'ad', 'realdebrid', 'rd', 'premiumize', 'pm', 'torbox', 'tb', 'offcloud', 'oc',
+ 'easydebrid', 'ed', 'debridlink', 'dl', 'putio', 'pu', 'apikey', 'ad_apikey'
 ]);
 
 // Cache for debrid API key validation with size limit
@@ -946,10 +948,12 @@ async function createManifestFromConfig(configParams, baseUrl) {
  const primaryProvider = workingProviders.length > 0 ? workingProviders[0] : null;
  const tag = primaryProvider ? primaryProvider.provider.shortName : null;
  
- // Create query string for resource URL (same as existing logic)
+ // Create query string for resource URL
+ // IMPORTANT: Must include debrid credentials so Stremio can fetch streams with them
  const queryParts = [];
  for (const [k, v] of Object.entries(configParams)) {
- if (!isSensitiveParam(k) && v) {
+ // Include ALL parameters including debrid keys - they're needed for stream fetching
+ if (v) {
  queryParts.push(`${k}=${encodeURIComponent(v)}`);
  }
  }
