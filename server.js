@@ -2298,19 +2298,10 @@ function startServer(port = PORT) {
  ? beautifiedTitle.replace(finalMeta.name, `${finalMeta.name} (${year})`)
  : beautifiedTitle;
  
- // Create beautified description: Title line + technical details
- // Keep original description for technical details but add beautified title as first line
- const originalDesc = s.description || '';
+ // Set beautified title as the description (no technical details)
  s._beautifiedTitle = titleWithYear;
- s.title = titleWithYear; // Keep for internal use
- 
- // For Stremio: description should be the beautified title + technical details
- // Format: "Movie Name (2025) - 4K\n📄 filename.mkv\n..."
- if (originalDesc && !originalDesc.startsWith(titleWithYear)) {
-  s.description = titleWithYear + '\n' + originalDesc;
- } else {
-  s.description = titleWithYear + (originalDesc ? '\n' + originalDesc : '');
- }
+ s.title = titleWithYear;
+ s.description = titleWithYear; // Only the beautified title, no technical details
  }
  });
 
