@@ -613,9 +613,10 @@ function buildComprehensiveBehaviorHints(originalMetadata, deviceType, stream) {
  behaviorHints.filename = originalMetadata.filename;
  }
  
- // Preserve bingeGroup if present (Torrentio compatibility)
+ // Replace bingeGroup prefix to use autostream instead of source addon name
  if (originalMetadata.bingeGroup) {
- behaviorHints.bingeGroup = originalMetadata.bingeGroup;
+ // Replace torrentio|, tpb|, nuvio| etc with autostream|
+ behaviorHints.bingeGroup = originalMetadata.bingeGroup.replace(/^[^|]+\|/, 'autostream|');
  }
  
  // Video metadata for TV buffering decisions
@@ -1040,6 +1041,33 @@ function startServer(port = PORT) {
  port: PORT
  }
  }, 200);
+ }
+ 
+ // Debug endpoint to test upstream source connectivity
+ if (pathname === '/debug/sources') {
+ const testType = q.get('type') || 'movie';
+ const testId = q.get('id') || 'tt0111161';
+ const results = { torrentio: null, tpb: null, nuvio: null, errors: [] };
+ 
+ try {
+ const start = Date.now();
+ const torr = await fetchTorrentioStreams(testType, testId, {}, (m,...a) => results.errors.push(['torrentio', m, ...a]));
+ results.torrentio = { count: torr.length, time: Date.now() - start, sample: torr[0]?.title?.substring(0,50) };
+ } catch (e) { results.torrentio = { error: e.message }; }
+ 
+ try {
+ const start = Date.now();
+ const tpb = await fetchTPBStreams(testType, testId, {}, (m,...a) => results.errors.push(['tpb', m, ...a]));
+ results.tpb = { count: tpb.length, time: Date.now() - start, sample: tpb[0]?.title?.substring(0,50) };
+ } catch (e) { results.tpb = { error: e.message }; }
+ 
+ try {
+ const start = Date.now();
+ const nuvio = await fetchNuvioStreams(testType, testId, { query: { direct: '1' } }, (m,...a) => results.errors.push(['nuvio', m, ...a]));
+ results.nuvio = { count: nuvio.length, time: Date.now() - start, sample: nuvio[0]?.title?.substring(0,50) };
+ } catch (e) { results.nuvio = { error: e.message }; }
+ 
+ return writeJson(res, results, 200);
  }
  
  // Additional compatibility endpoints for mobile Stremio
