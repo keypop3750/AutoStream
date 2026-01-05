@@ -1514,8 +1514,11 @@ function startServer(port = PORT) {
  const maxSizeStr = getQ(q, 'max_size') || MANIFEST_DEFAULTS.max_size || '';
  const maxSizeBytes = maxSizeStr ? parseFloat(maxSizeStr) * (1024 ** 3) : 0; // Convert GB to bytes
  const additionalStreamEnabled = getQ(q, 'additionalstream') === '1' || getQ(q, 'fallback') === '1' || MANIFEST_DEFAULTS.additionalstream === '1' || MANIFEST_DEFAULTS.fallback === '1';
- const secondBestEnabled = getQ(q, 'secondBest') === '1' || MANIFEST_DEFAULTS.secondBest === '1';
+ const secondBestEnabled = getQ(q, 'secondBest') === '1' || getQ(q, 'secondbest') === '1' || MANIFEST_DEFAULTS.secondBest === '1';
  const conserveCookie = getQ(q, 'conserve_cookie') !== '0'; // Default to true unless explicitly disabled
+ 
+ // Debug logging for 2ndBest
+ console.log(`[${requestId}] [DEBUG] secondBest query: "${getQ(q, 'secondBest')}", default: "${MANIFEST_DEFAULTS.secondBest}", enabled: ${secondBestEnabled}`);
  
  const blacklistStr = getQ(q, 'blacklist') || MANIFEST_DEFAULTS.blacklist || '';
  // Sanitize and validate blacklist terms
@@ -1697,7 +1700,8 @@ function startServer(port = PORT) {
  (cookieStreams.length > 0 ? `Nuvio(${regularNuvio}), Nuvio+(${cookieStreams.length})` : `Nuvio(${fromNuvio.length})`) :
  'Nuvio(0)';
  
- console.log(`[${requestId}] [STATS] Sources: Torrentio(${fromTorr.length}), TPB+(${fromTPB.length}), ${nuvioDisplay}, MediaFusion(${fromMediaFusion.length}), Comet(${fromComet.length})`);
+ // Only show active sources (Nuvio and Comet are the only active ones now)
+ console.log(`[${requestId}] [STATS] Active Sources: ${nuvioDisplay}, Comet(${fromComet.length})`);
 
  function tag(list, origin) {
  return (list || []).map(s => {
@@ -2293,21 +2297,32 @@ function startServer(port = PORT) {
 
  // CRITICAL: Clean up internal properties before sending to Stremio
  // Stremio may ignore or fail on streams with unknown properties
- const cleanedStreams = streams.map(s => {
- if (!s) return s;
- // Only keep Stremio-compatible properties
+ // IMPORTANT: Match Comet/Torrentio exact format - no 'title' field, use 'description' for details
+ console.log(`[${requestId}] [DEBUG] Cleaning ${streams.length} streams for Stremio...`);
+ 
+ const cleanedStreams = streams.map((s, idx) => {
+ if (!s) {
+  console.log(`[${requestId}] [DEBUG] Stream ${idx}: NULL`);
+  return null;
+ }
+ 
+ // Match Comet's exact format: name, description, url, behaviorHints
+ // Stremio uses 'description' for the detailed info display, NOT 'title'
  const clean = {
   name: s.name,
-  title: s.title,
+  description: s.description || s.title || 'Stream', // Use description for details
   url: s.url,
-  behaviorHints: s.behaviorHints
+  behaviorHints: s.behaviorHints || {}
  };
+ 
  // Only include optional properties if they have valid values
  if (s.infoHash) clean.infoHash = s.infoHash;
  if (s.fileIdx !== undefined && s.fileIdx !== null) clean.fileIdx = s.fileIdx;
  if (Array.isArray(s.sources) && s.sources.length > 0) clean.sources = s.sources;
- if (s.description) clean.description = s.description;
  if (s.subtitles) clean.subtitles = s.subtitles;
+ 
+ console.log(`[${requestId}] [DEBUG] Stream ${idx}: name="${clean.name}", url=${clean.url ? 'YES' : 'NO'}, desc=${clean.description ? clean.description.substring(0, 40) + '...' : 'NO'}`);
+ 
  return clean;
  }).filter(Boolean);
 
