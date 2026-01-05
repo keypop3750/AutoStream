@@ -59,6 +59,11 @@ function detectDeviceType(req) {
  * @param {Object} opts - Scoring options
  */
 function computeStreamScore(stream, req, opts = {}) {
+ // Use specialized Comet scoring for Comet streams
+ if (stream.autostreamOrigin === 'comet') {
+ return computeCometStreamScore(stream, req, opts);
+ }
+ 
  const url = stream.url || stream.externalUrl || '';
  const hasInfoHash = !!(stream.infoHash);
  const isMagnet = /^magnet:/i.test(url);
@@ -146,6 +151,358 @@ function computeStreamScore(stream, req, opts = {}) {
  type: typeScore
  }
  };
+}
+
+/**
+ * ============================================================================
+ * COMET-SPECIFIC SCORING SYSTEM
+ * ============================================================================
+ * Comet returns pre-resolved debrid streams with rich metadata in description.
+ * This scoring system extracts and scores based on:
+ * - Resolution (from name/filename)
+ * - Audio quality (Atmos, TrueHD, DTS-X, etc.)
+ * - Video codec (HEVC, HDR, DV)
+ * - Source type (BluRay REMUX > WEB-DL > WEBRip > HDRip)
+ * - File size (larger = better quality, with diminishing returns)
+ * - Release group reputation
+ * - Language availability
+ */
+function computeCometStreamScore(stream, req, opts = {}) {
+ const url = stream.url || '';
+ if (!url) {
+ return { score: 0, reason: 'no_url', breakdown: {} };
+ }
+
+ let score = 850; // Higher base for Comet (pre-resolved debrid)
+ let penalties = [];
+ let bonuses = [];
+ const breakdown = {};
+
+ // Extract all text for analysis
+ const filename = stream.behaviorHints?.filename || '';
+ const description = stream.description || '';
+ const name = stream.name || '';
+ const allText = `${filename} ${description} ${name}`.toLowerCase();
+
+ // === RESOLUTION SCORING (0-80 points) ===
+ const resolutionScore = getCometResolutionScore(name, filename, allText);
+ score += resolutionScore.score;
+ breakdown.resolution = resolutionScore;
+ if (resolutionScore.score > 0) bonuses.push(`resolution(+${resolutionScore.score})`);
+
+ // === VIDEO QUALITY SCORING (0-50 points) ===
+ const videoScore = getCometVideoScore(allText);
+ score += videoScore.score;
+ breakdown.video = videoScore;
+ if (videoScore.score > 0) bonuses.push(`video(+${videoScore.score})`);
+ if (videoScore.score < 0) penalties.push(`video(${videoScore.score})`);
+
+ // === AUDIO QUALITY SCORING (0-40 points) ===
+ const audioScore = getCometAudioScore(allText, description);
+ score += audioScore.score;
+ breakdown.audio = audioScore;
+ if (audioScore.score > 0) bonuses.push(`audio(+${audioScore.score})`);
+
+ // === SOURCE TYPE SCORING (0-60 points) ===
+ const sourceScore = getCometSourceScore(allText);
+ score += sourceScore.score;
+ breakdown.source = sourceScore;
+ if (sourceScore.score > 0) bonuses.push(`source(+${sourceScore.score})`);
+ if (sourceScore.score < 0) penalties.push(`source(${sourceScore.score})`);
+
+ // === FILE SIZE SCORING (0-30 points) ===
+ const sizeScore = getCometSizeScore(stream.behaviorHints?.videoSize, allText);
+ score += sizeScore.score;
+ breakdown.size = sizeScore;
+ if (sizeScore.score > 0) bonuses.push(`size(+${sizeScore.score})`);
+ if (sizeScore.score < 0) penalties.push(`size(${sizeScore.score})`);
+
+ // === RELEASE GROUP SCORING (-20 to +25 points) ===
+ const groupScore = getCometReleaseGroupScore(filename);
+ score += groupScore.score;
+ breakdown.group = groupScore;
+ if (groupScore.score > 0) bonuses.push(`group(+${groupScore.score})`);
+ if (groupScore.score < 0) penalties.push(`group(${groupScore.score})`);
+
+ // === LANGUAGE SCORING (0-15 points) ===
+ const langScore = getCometLanguageScore(allText, description, opts);
+ score += langScore.score;
+ breakdown.language = langScore;
+ if (langScore.score > 0) bonuses.push(`language(+${langScore.score})`);
+
+ // === DEBRID PROVIDER BONUS (always +35 for Comet) ===
+ score += 35;
+ bonuses.push('debrid_resolved(+35)');
+ breakdown.debrid = { score: 35, reason: 'comet_debrid' };
+
+ return {
+ score,
+ reason: 'comet_scored',
+ penalties,
+ bonuses,
+ breakdown
+ };
+}
+
+/**
+ * Comet Resolution Scoring
+ */
+function getCometResolutionScore(name, filename, allText) {
+ // Check name first (e.g., "[AD⚡] Comet 2160p")
+ if (/2160p|4k|uhd/i.test(name) || /2160p|4k|uhd/i.test(filename)) {
+ return { score: 80, reason: '4k', source: 'name/filename' };
+ }
+ if (/1080p|fhd/i.test(name) || /1080p|fhd/i.test(filename)) {
+ return { score: 50, reason: '1080p', source: 'name/filename' };
+ }
+ if (/720p|hd(?!r)/i.test(name) || /720p/i.test(filename)) {
+ return { score: 25, reason: '720p', source: 'name/filename' };
+ }
+ if (/480p|sd/i.test(allText)) {
+ return { score: 5, reason: '480p', source: 'text' };
+ }
+ // Fallback: check all text
+ if (/2160p|4k|uhd/i.test(allText)) return { score: 80, reason: '4k', source: 'text' };
+ if (/1080p/i.test(allText)) return { score: 50, reason: '1080p', source: 'text' };
+ if (/720p/i.test(allText)) return { score: 25, reason: '720p', source: 'text' };
+ 
+ return { score: 0, reason: 'unknown' };
+}
+
+/**
+ * Comet Video Quality Scoring (HDR, DV, codec)
+ */
+function getCometVideoScore(allText) {
+ let score = 0;
+ const factors = [];
+
+ // HDR formats (cumulative)
+ if (/dolby.?vision|dovi|\bdv\b/i.test(allText)) {
+ score += 25;
+ factors.push('dolby_vision');
+ }
+ if (/hdr10\+/i.test(allText)) {
+ score += 20;
+ factors.push('hdr10+');
+ } else if (/\bhdr\b/i.test(allText)) {
+ score += 15;
+ factors.push('hdr');
+ }
+
+ // Bit depth
+ if (/10.?bit/i.test(allText)) {
+ score += 5;
+ factors.push('10bit');
+ }
+
+ // Codec (HEVC preferred for efficiency, but not penalized)
+ if (/hevc|h\.?265|x265/i.test(allText)) {
+ score += 5;
+ factors.push('hevc');
+ } else if (/avc|h\.?264|x264/i.test(allText)) {
+ score += 0; // Neutral
+ factors.push('avc');
+ }
+
+ // Hybrid releases (combined DV+HDR)
+ if (/hybrid/i.test(allText)) {
+ score += 5;
+ factors.push('hybrid');
+ }
+
+ return { score, reason: factors.join('+') || 'standard', factors };
+}
+
+/**
+ * Comet Audio Quality Scoring
+ */
+function getCometAudioScore(allText, description) {
+ let score = 0;
+ const factors = [];
+
+ // Premium audio formats
+ if (/atmos/i.test(allText)) {
+ score += 40;
+ factors.push('atmos');
+ } else if (/truehd/i.test(allText)) {
+ score += 35;
+ factors.push('truehd');
+ } else if (/dts[-.]?x/i.test(allText)) {
+ score += 35;
+ factors.push('dts-x');
+ } else if (/dts[-.]?hd/i.test(allText)) {
+ score += 30;
+ factors.push('dts-hd');
+ } else if (/flac|lpcm/i.test(allText)) {
+ score += 25;
+ factors.push('lossless');
+ } else if (/eac3|ddp|dd\+|dolby.?digital.?plus/i.test(allText)) {
+ score += 20;
+ factors.push('ddp');
+ } else if (/dts(?![-.]?hd|[-.]?x)/i.test(allText)) {
+ score += 15;
+ factors.push('dts');
+ } else if (/ac3|dolby.?digital/i.test(allText)) {
+ score += 10;
+ factors.push('ac3');
+ } else if (/aac/i.test(allText)) {
+ score += 5;
+ factors.push('aac');
+ }
+
+ // Channel count bonus
+ if (/7\.1/i.test(allText)) {
+ score += 5;
+ factors.push('7.1ch');
+ } else if (/5\.1/i.test(allText)) {
+ score += 3;
+ factors.push('5.1ch');
+ }
+
+ return { score, reason: factors.join('+') || 'standard', factors };
+}
+
+/**
+ * Comet Source Type Scoring
+ */
+function getCometSourceScore(allText) {
+ // Premium sources (highest quality)
+ if (/remux/i.test(allText)) {
+ return { score: 60, reason: 'remux' };
+ }
+ if (/blu[-.]?ray|bdremux|bdrip/i.test(allText) && !/remux/i.test(allText)) {
+ return { score: 45, reason: 'bluray' };
+ }
+ 
+ // WEB sources (common for new releases)
+ if (/web[-.]?dl/i.test(allText)) {
+ return { score: 35, reason: 'web-dl' };
+ }
+ if (/\bweb\b/i.test(allText) && !/webrip/i.test(allText)) {
+ return { score: 30, reason: 'web' };
+ }
+ if (/webrip/i.test(allText)) {
+ return { score: 25, reason: 'webrip' };
+ }
+ 
+ // TV sources
+ if (/hdtv/i.test(allText)) {
+ return { score: 15, reason: 'hdtv' };
+ }
+ 
+ // Low quality sources (penalty)
+ if (/hdcam|cam|ts|telesync|telecine|scr|screener|dvdscr/i.test(allText)) {
+ return { score: -50, reason: 'cam/screener' };
+ }
+ if (/hdrip|hd[-.]?rip/i.test(allText)) {
+ return { score: 10, reason: 'hdrip' };
+ }
+
+ return { score: 0, reason: 'unknown' };
+}
+
+/**
+ * Comet File Size Scoring
+ * Larger files generally = better quality, with diminishing returns
+ */
+function getCometSizeScore(videoSize, allText) {
+ if (!videoSize || videoSize <= 0) {
+ // Try to extract from description (e.g., "💾 22.8 GB")
+ const sizeMatch = allText.match(/(\d+(?:\.\d+)?)\s*(gb|mb|tb)/i);
+ if (sizeMatch) {
+ const size = parseFloat(sizeMatch[1]);
+ const unit = sizeMatch[2].toLowerCase();
+ if (unit === 'tb') videoSize = size * 1024 * 1024 * 1024 * 1024;
+ else if (unit === 'gb') videoSize = size * 1024 * 1024 * 1024;
+ else if (unit === 'mb') videoSize = size * 1024 * 1024;
+ }
+ }
+ 
+ if (!videoSize || videoSize <= 0) {
+ return { score: 0, reason: 'unknown_size' };
+ }
+
+ const sizeGB = videoSize / (1024 * 1024 * 1024);
+ 
+ // Scoring based on file size (for movies)
+ if (sizeGB >= 50) return { score: 30, reason: 'massive', sizeGB: sizeGB.toFixed(1) };
+ if (sizeGB >= 30) return { score: 25, reason: 'very_large', sizeGB: sizeGB.toFixed(1) };
+ if (sizeGB >= 15) return { score: 20, reason: 'large', sizeGB: sizeGB.toFixed(1) };
+ if (sizeGB >= 8) return { score: 15, reason: 'medium_large', sizeGB: sizeGB.toFixed(1) };
+ if (sizeGB >= 4) return { score: 10, reason: 'medium', sizeGB: sizeGB.toFixed(1) };
+ if (sizeGB >= 2) return { score: 5, reason: 'small', sizeGB: sizeGB.toFixed(1) };
+ if (sizeGB >= 1) return { score: 0, reason: 'very_small', sizeGB: sizeGB.toFixed(1) };
+ 
+ // Very small files are likely low quality
+ return { score: -10, reason: 'tiny', sizeGB: sizeGB.toFixed(1) };
+}
+
+/**
+ * Comet Release Group Scoring
+ * Trusted groups get bonus, known bad groups get penalty
+ */
+function getCometReleaseGroupScore(filename) {
+ // Extract release group (typically at end before extension)
+ const groupMatch = filename.match(/[-.]([A-Za-z0-9]+)(?:\.[a-z]{2,4})?$/i);
+ const group = groupMatch ? groupMatch[1].toUpperCase() : '';
+ 
+ // Premium/trusted release groups
+ const premiumGroups = [
+ 'SPARKS', 'GECKOS', 'TERMINAL', 'FLUX', 'CMRG', 'EVO', 'RARBG',
+ 'FRAMESTOR', 'EPSILON', 'NAHOM', 'TEPES', 'PLAYREADY', 'HIFI',
+ 'DON', 'BMF', 'W4NK3R', 'EDPH', 'TayTo', 'REMUX', 'FGT'
+ ];
+ 
+ // Good groups
+ const goodGroups = [
+ 'YIFY', 'YTS', 'AOC', 'SYNCOPY', 'NTRODUCTION', 'FW', 'AMZN',
+ 'NTG', 'SiGMA', 'ETHEL', 'MZABI', 'NTb', 'STRIFE', 'RUMOUR'
+ ];
+ 
+ // Problematic groups (cam, low quality)
+ const badGroups = [
+ 'BONE', 'PTNK', 'EXT', 'BLURRY', 'KIRA', 'ARTIFACT'
+ ];
+
+ if (premiumGroups.includes(group)) {
+ return { score: 25, reason: 'premium_group', group };
+ }
+ if (goodGroups.includes(group)) {
+ return { score: 10, reason: 'good_group', group };
+ }
+ if (badGroups.includes(group)) {
+ return { score: -20, reason: 'bad_group', group };
+ }
+ 
+ return { score: 0, reason: 'unknown_group', group };
+}
+
+/**
+ * Comet Language Scoring
+ * Bonus for multi-language, user's preferred language
+ */
+function getCometLanguageScore(allText, description, opts) {
+ let score = 0;
+ const factors = [];
+ 
+ // Multi-language bonus
+ if (/multi/i.test(allText) || /dual/i.test(allText)) {
+ score += 10;
+ factors.push('multi_language');
+ }
+ 
+ // Check for subtitles
+ if (/\bsub\b/i.test(allText) || /subtitle/i.test(allText)) {
+ score += 5;
+ factors.push('has_subtitles');
+ }
+ 
+ // Language flags in description (🇬🇧/🇮🇹 etc)
+ if (/🇬🇧|🇺🇸|english|\ben\b/i.test(description)) {
+ factors.push('english');
+ }
+ 
+ return { score, reason: factors.join('+') || 'standard', factors };
 }
 
 /**
@@ -387,16 +744,22 @@ function getCookieScore(stream, opts) {
 
 /**
  * Connection quality scoring based on host patterns
- * Enhanced: Torrents get strong preference to ensure they rank above Nuvio+
+ * Enhanced: Torrents and debrid-resolved streams get preference
  */
 function getConnectionScore(stream) {
  const url = stream.url || '';
  const hasInfoHash = !!(stream.infoHash);
  const isMagnet = /^magnet:/i.test(url);
  
- // Torrents get strong preference (increased from 20 to 30)
+ // Torrents get strong preference (they'll be resolved via debrid)
  if (hasInfoHash || isMagnet) {
  return { score: 30, reason: 'torrent_to_debrid' };
+ }
+ 
+ // Comet/debrid-resolved streams get strong preference (already resolved HTTP from debrid)
+ const isDebridResolved = stream._isDebrid || stream._debrid || stream.autostreamOrigin === 'comet';
+ if (isDebridResolved && url.startsWith('http')) {
+ return { score: 35, reason: 'debrid_resolved_http' };
  }
  
  if (!url) return { score: 0, reason: 'no_url' };
