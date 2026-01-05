@@ -391,11 +391,11 @@ const sourcesMod = (() => {
  return mod;
  }
  catch (e2) { 
- return { fetchTorrentioStreams: async()=>[], fetchTPBStreams: async()=>[], fetchNuvioStreams: async()=>[] }; 
+ return { fetchTorrentioStreams: async()=>[], fetchTPBStreams: async()=>[], fetchNuvioStreams: async()=>[], fetchMediaFusionStreams: async()=>[], fetchCometStreams: async()=>[] }; 
  } 
  }
 })();
-const { fetchTorrentioStreams, fetchTPBStreams, fetchNuvioStreams } = sourcesMod;
+const { fetchTorrentioStreams, fetchTPBStreams, fetchNuvioStreams, fetchMediaFusionStreams, fetchCometStreams } = sourcesMod;
 
 const scoringMod = (() => {
  try { return require('./core/scoring_v6'); }
@@ -1054,12 +1054,20 @@ function startServer(port = PORT) {
  if (pathname === '/debug/sources') {
  const testType = q.get('type') || 'movie';
  const testId = q.get('id') || 'tt0111161';
+ // Allow testing with debrid credentials for Comet/MediaFusion
+ const testDebridProvider = q.get('debrid_provider') || q.get('provider') || '';
+ const testDebridApiKey = q.get('debrid_apikey') || q.get('apikey') || '';
+ const testOptions = testDebridApiKey ? { debridProvider: testDebridProvider || 'realdebrid', debridApiKey: testDebridApiKey } : {};
+ 
  const results = { 
  cfProxy: CF_PROXY_URL ? 'enabled' : 'disabled',
  cfProxyUrl: CF_PROXY_URL || null,
+ debridConfigured: !!testDebridApiKey,
  torrentio: null, 
  tpb: null, 
- nuvio: null, 
+ nuvio: null,
+ mediafusion: null,
+ comet: null,
  errors: [] 
  };
  
@@ -1080,6 +1088,18 @@ function startServer(port = PORT) {
  const nuvio = await fetchNuvioStreams(testType, testId, { query: { direct: '1' } }, (m,...a) => results.errors.push(['nuvio', m, ...a]));
  results.nuvio = { count: nuvio.length, time: Date.now() - start, sample: nuvio[0]?.title?.substring(0,50) };
  } catch (e) { results.nuvio = { error: e.message }; }
+ 
+ try {
+ const start = Date.now();
+ const mf = await fetchMediaFusionStreams(testType, testId, testOptions, (m,...a) => results.errors.push(['mediafusion', m, ...a]));
+ results.mediafusion = { count: mf.length, time: Date.now() - start, sample: mf[0]?.title?.substring(0,50) };
+ } catch (e) { results.mediafusion = { error: e.message }; }
+ 
+ try {
+ const start = Date.now();
+ const comet = await fetchCometStreams(testType, testId, testOptions, (m,...a) => results.errors.push(['comet', m, ...a]));
+ results.comet = { count: comet.length, time: Date.now() - start, sample: comet[0]?.title?.substring(0,50) };
+ } catch (e) { results.comet = { error: e.message }; }
  
  return writeJson(res, results, 200);
  }
@@ -1503,25 +1523,60 @@ function startServer(port = PORT) {
  const nuvioEnabled = dhosts.includes('nuvio') || q.get('nuvio') === '1' || q.get('include_nuvio') === '1' || MANIFEST_DEFAULTS.nuvio === '1' || MANIFEST_DEFAULTS.include_nuvio === '1' || onlySource === 'nuvio' || 
  (!onlySource && dhosts.length === 0); // Enable by default when no specific sources requested
 
+ // Extract debrid credentials early for Comet/MediaFusion (they need it for config)
+ // This is a preliminary extraction - full validation happens later in the debrid section
+ const providerKeysEarly = getProviderKeys();
+ let earlyDebridProvider = null;
+ let earlyDebridApiKey = null;
+ for (const key of providerKeysEarly) {
+  const value = getQ(q, key) || '';
+  if (value) {
+   earlyDebridProvider = key;
+   earlyDebridApiKey = value;
+   break;
+  }
+ }
+ // Also check legacy AllDebrid params
+ if (!earlyDebridApiKey) {
+  const legacyAd = getQ(q,'ad') || getQ(q,'apikey') || getQ(q,'alldebrid') || getQ(q,'ad_apikey') || '';
+  if (legacyAd) {
+   earlyDebridProvider = 'alldebrid';
+   earlyDebridApiKey = legacyAd;
+  }
+ }
+ 
+ // Build source options with debrid config for Comet/MediaFusion
+ const cometMfOptions = earlyDebridApiKey ? {
+  debridProvider: earlyDebridProvider,
+  debridApiKey: earlyDebridApiKey
+ } : {};
+
  // fetch sources (no debrid here) - parallel execution with timeout for faster response
+ // MediaFusion and Comet added as fallback sources that may work from cloud IPs
  console.log(`[${requestId}] [LAUNCH] Fetching streams from sources...`);
  const sourcePromises = [
  (!onlySource || onlySource === 'torrentio') ? fetchTorrentioStreams(type, actualId, {}, (msg) => log('Torrentio: ' + msg, 'verbose')) : Promise.resolve([]),
  (!onlySource || onlySource === 'tpb') ? fetchTPBStreams(type, actualId, {}, (msg) => log('TPB+: ' + msg, 'verbose')) : Promise.resolve([]),
- nuvioEnabled ? fetchNuvioStreams(type, actualId, { query: { direct: '1' }, cookie: nuvioCookie }, (msg) => log('Nuvio: ' + msg, 'verbose')) : Promise.resolve([])
+ nuvioEnabled ? fetchNuvioStreams(type, actualId, { query: { direct: '1' }, cookie: nuvioCookie }, (msg) => log('Nuvio: ' + msg, 'verbose')) : Promise.resolve([]),
+ (!onlySource || onlySource === 'mediafusion') ? fetchMediaFusionStreams(type, actualId, cometMfOptions, (msg) => log('MediaFusion: ' + msg, 'verbose')) : Promise.resolve([]),
+ (!onlySource || onlySource === 'comet') ? fetchCometStreams(type, actualId, cometMfOptions, (msg) => log('Comet: ' + msg, 'verbose')) : Promise.resolve([])
  ];
  
  // Use Promise.allSettled() with timeout for sources
- const [torrentioResult, tpbResult, nuvioResult] = await Promise.allSettled(sourcePromises);
+ const [torrentioResult, tpbResult, nuvioResult, mediafusionResult, cometResult] = await Promise.allSettled(sourcePromises);
  
  // Extract results with graceful fallback - failed sources return empty arrays
  const fromTorr = torrentioResult.status === 'fulfilled' ? (torrentioResult.value || []) : [];
  const fromTPB = tpbResult.status === 'fulfilled' ? (tpbResult.value || []) : [];
  const fromNuvio = nuvioResult.status === 'fulfilled' ? (nuvioResult.value || []) : [];
+ const fromMediaFusion = mediafusionResult.status === 'fulfilled' ? (mediafusionResult.value || []) : [];
+ const fromComet = cometResult.status === 'fulfilled' ? (cometResult.value || []) : [];
  
  if (torrentioResult.status === 'rejected') console.log(`[${requestId}] [FAIL] Torrentio failed: ${torrentioResult.reason}`);
  if (tpbResult.status === 'rejected') console.log(`[${requestId}] [FAIL] TPB+ failed: ${tpbResult.reason}`);
  if (nuvioResult.status === 'rejected') console.log(`[${requestId}] [FAIL] Nuvio failed: ${nuvioResult.reason}`);
+ if (mediafusionResult.status === 'rejected') console.log(`[${requestId}] [FAIL] MediaFusion failed: ${mediafusionResult.reason}`);
+ if (cometResult.status === 'rejected') console.log(`[${requestId}] [FAIL] Comet failed: ${cometResult.reason}`);
  
  // Try to get meta quickly, but don't wait long
  let finalMeta;
@@ -1541,7 +1596,7 @@ function startServer(port = PORT) {
  if (finalMeta && (finalMeta.name === 'TIMEOUT_FALLBACK' || finalMeta.name === 'Content' || finalMeta.name?.startsWith('Content ') || finalMeta.name?.startsWith('Title ') || !finalMeta.name || finalMeta.name === actualId || finalMeta.name.startsWith('tt'))) {
  
  // For series, try to get the base show name from any stream
- const allStreams = [...fromTorrentio, ...fromTPB, ...fromNuvio];
+ const allStreams = [...fromTorr, ...fromTPB, ...fromNuvio, ...fromMediaFusion, ...fromComet];
  if (allStreams.length > 0 && type === 'series') {
  // Look for common patterns in stream names to extract show title
  const streamTitles = allStreams.slice(0, 5).map(s => s.title || s.name || '').filter(Boolean);
@@ -1611,12 +1666,12 @@ function startServer(port = PORT) {
  (cookieStreams.length > 0 ? `Nuvio(${regularNuvio}), Nuvio+(${cookieStreams.length})` : `Nuvio(${fromNuvio.length})`) :
  'Nuvio(0)';
  
- console.log(`[${requestId}] [STATS] Sources: Torrentio(${fromTorr.length}), TPB+(${fromTPB.length}), ${nuvioDisplay}`);
+ console.log(`[${requestId}] [STATS] Sources: Torrentio(${fromTorr.length}), TPB+(${fromTPB.length}), ${nuvioDisplay}, MediaFusion(${fromMediaFusion.length}), Comet(${fromComet.length})`);
 
  function tag(list, origin) {
  return (list || []).map(s => {
  s.autostreamOrigin = origin;
- s.name = s.name || (origin === 'nuvio' ? 'Nuvio' : origin === 'torrentio' ? 'Torrentio' : 'TPB+');
+ s.name = s.name || (origin === 'nuvio' ? 'Nuvio' : origin === 'torrentio' ? 'Torrentio' : origin === 'mediafusion' ? 'MediaFusion' : origin === 'comet' ? 'Comet' : 'TPB+');
  return s;
  });
  }
@@ -1624,7 +1679,9 @@ function startServer(port = PORT) {
  let combined = []
  .concat(tag(fromTorr, 'torrentio'))
  .concat(tag(fromTPB, 'tpb'))
- .concat(tag(fromNuvio, 'nuvio'));
+ .concat(tag(fromNuvio, 'nuvio'))
+ .concat(tag(fromMediaFusion, 'mediafusion'))
+ .concat(tag(fromComet, 'comet'));
 
  let beforeFilterCount = combined.length; // Track for cache decision later
 
@@ -2116,20 +2173,26 @@ function startServer(port = PORT) {
  seriesCache.preloadNextEpisode(type, id, async (t, i) => {
  try {
  // Use Promise.allSettled for resilient background preloading
- const [nextTorrResult, nextTPBResult, nextNuvioResult] = await Promise.allSettled([
+ const [nextTorrResult, nextTPBResult, nextNuvioResult, nextMFResult, nextCometResult] = await Promise.allSettled([
  (!onlySource || onlySource === 'torrentio') ? fetchTorrentioStreams(t, i, {}, ()=>{}) : Promise.resolve([]),
  (!onlySource || onlySource === 'tpb') ? fetchTPBStreams(t, i, {}, ()=>{}) : Promise.resolve([]),
- nuvioEnabled ? fetchNuvioStreams(t, i, { query: { direct: '1' }, cookie: nuvioCookie }, ()=>{}) : Promise.resolve([])
+ nuvioEnabled ? fetchNuvioStreams(t, i, { query: { direct: '1' }, cookie: nuvioCookie }, ()=>{}) : Promise.resolve([]),
+ (!onlySource || onlySource === 'mediafusion') ? fetchMediaFusionStreams(t, i, {}, ()=>{}) : Promise.resolve([]),
+ (!onlySource || onlySource === 'comet') ? fetchCometStreams(t, i, {}, ()=>{}) : Promise.resolve([])
  ]);
  
  const nextTorr = nextTorrResult.status === 'fulfilled' ? (nextTorrResult.value || []) : [];
  const nextTPB = nextTPBResult.status === 'fulfilled' ? (nextTPBResult.value || []) : [];
  const nextNuvio = nextNuvioResult.status === 'fulfilled' ? (nextNuvioResult.value || []) : [];
+ const nextMF = nextMFResult.status === 'fulfilled' ? (nextMFResult.value || []) : [];
+ const nextComet = nextCometResult.status === 'fulfilled' ? (nextCometResult.value || []) : [];
  
  let rawStreams = [].concat(
  tag(nextTorr, 'torrentio'),
  tag(nextTPB, 'tpb'), 
- tag(nextNuvio, 'nuvio')
+ tag(nextNuvio, 'nuvio'),
+ tag(nextMF, 'mediafusion'),
+ tag(nextComet, 'comet')
  );
  
  // Apply same processing as main request: scoring + filtering + selection

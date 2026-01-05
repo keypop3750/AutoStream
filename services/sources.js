@@ -1,15 +1,102 @@
 'use strict';
 const { TTLCache } = require('../utils/cache');
 const { fetchWithTimeout } = require('../utils/http');
-const { BASE_TORRENTIO, BASE_TPB, BASE_NUVIO, CF_PROXY_URL } = require('../constants');
+const { 
+ BASE_TORRENTIO, 
+ BASE_TPB, 
+ BASE_NUVIO, 
+ BASE_MEDIAFUSION, 
+ BASE_COMET, 
+ COMET_DEFAULT_CONFIG,
+ MEDIAFUSION_DEFAULT_CONFIG,
+ CF_PROXY_URL 
+} = require('../constants');
 
 const torrentioCache = new TTLCache({ max: 500, ttlMs: 60 * 60 * 1000 });
 const tpbCache = new TTLCache({ max: 300, ttlMs: 60 * 60 * 1000 });
 const nuvioCache = new TTLCache({ max: 500, ttlMs: 12 * 60 * 1000 });
+const mediafusionCache = new TTLCache({ max: 500, ttlMs: 60 * 60 * 1000 });
+const cometCache = new TTLCache({ max: 500, ttlMs: 60 * 60 * 1000 });
 
+/**
+ * Build standard Stremio stream URL (for Torrentio, TPB, Nuvio)
+ */
 function buildUrl(base, type, id, query) {
  const qs = new URLSearchParams(query || {}).toString();
  return `${base.replace(/\/+$/, '')}/stream/${type}/${encodeURIComponent(id)}.json${qs ? ('?' + qs) : ''}`;
+}
+
+/**
+ * Build MediaFusion stream URL with config path
+ * MediaFusion uses: /{secret_str}/stream/{type}/{id}.json
+ * For public access without debrid: /D-/stream/{type}/{id}.json
+ */
+function buildMediaFusionUrl(base, type, id, config) {
+ const configPath = config || MEDIAFUSION_DEFAULT_CONFIG;
+ return `${base.replace(/\/+$/, '')}/${configPath}/stream/${type}/${encodeURIComponent(id)}.json`;
+}
+
+/**
+ * Build Comet stream URL with config path
+ * Comet uses: /{b64config}/stream/{type}/{id}.json
+ * Config is base64-encoded JSON
+ */
+function buildCometUrl(base, type, id, config) {
+ const configPath = config || COMET_DEFAULT_CONFIG;
+ return `${base.replace(/\/+$/, '')}/${configPath}/stream/${type}/${encodeURIComponent(id)}.json`;
+}
+
+/**
+ * Build Comet configuration string for a debrid provider
+ * Comet uses base64-encoded JSON config
+ * @param {string} debridProvider - Provider key (realdebrid, alldebrid, premiumize, torbox, etc.)
+ * @param {string} apiKey - The debrid API key
+ * @returns {string} Base64-encoded configuration string
+ */
+function buildCometConfig(debridProvider, apiKey) {
+ // Map AutoStream provider keys to Comet's debridService names
+ const providerMapping = {
+  'realdebrid': 'realdebrid',
+  'rd': 'realdebrid',
+  'alldebrid': 'alldebrid',
+  'ad': 'alldebrid',
+  'premiumize': 'premiumize',
+  'pm': 'premiumize',
+  'torbox': 'torbox',
+  'tb': 'torbox',
+  'debridlink': 'debridlink',
+  'dl': 'debridlink',
+  'offcloud': 'offcloud',
+  'easydebrid': 'easydebrid'
+ };
+
+ const debridService = providerMapping[debridProvider?.toLowerCase()] || 'torrent';
+ 
+ const config = {
+  debridService: debridService,
+  debridApiKey: apiKey || '',
+  maxResultsPerResolution: 0,
+  maxSize: 0,
+  resultFormat: ['all']
+ };
+ 
+ return Buffer.from(JSON.stringify(config)).toString('base64');
+}
+
+/**
+ * Build MediaFusion configuration string for a debrid provider
+ * MediaFusion uses encrypted user data, but we can try the public mode with streaming provider
+ * Note: For now, we'll use the streaming without debrid as a fallback
+ * @param {string} debridProvider - Provider key
+ * @param {string} apiKey - The debrid API key
+ * @returns {string} Configuration path (currently just D- for direct mode)
+ */
+function buildMediaFusionConfig(debridProvider, apiKey) {
+ // MediaFusion requires server-side encryption of user data
+ // For now, we can't easily build a config client-side without access to their secret key
+ // The public instance at ElfHosted requires debrid, but the config must be generated via their UI
+ // We'll return the default which may work for cached results or if they enable non-debrid mode
+ return MEDIAFUSION_DEFAULT_CONFIG;
 }
 
 /**
@@ -226,4 +313,106 @@ async function fetchNuvioStreams(type, id, options = {}, log = ()=>{}) {
  nuvioCache.set(cacheKey, streams);
  return streams;
 }
-module.exports = { fetchTorrentioStreams, fetchTPBStreams, fetchNuvioStreams };
+
+/**
+ * Fetch streams from MediaFusion (ElfHosted instance)
+ * MediaFusion is an alternative to Torrentio that may not block cloud IPs
+ * Uses /{config}/stream/{type}/{id}.json format
+ * @param {string} type - 'movie' or 'series'
+ * @param {string} id - IMDB ID (tt0111161) or series with season/episode (tt0903747:1:1)
+ * @param {Object} options - { debridProvider, debridApiKey, mediafusionConfig }
+ * @param {Function} log - Logging function
+ */
+async function fetchMediaFusionStreams(type, id, options = {}, log = ()=>{}) {
+ // Build config - MediaFusion requires encrypted user data via their API
+ // For now, we use the default which may only return cached results
+ const config = options.mediafusionConfig || 
+   buildMediaFusionConfig(options.debridProvider, options.debridApiKey);
+ const url = buildMediaFusionUrl(BASE_MEDIAFUSION, type, id, config);
+ const cached = mediafusionCache.get(url);
+ if (cached) return cached;
+ 
+ log('mediafusion', 'Fetching from:', url);
+ 
+ // MediaFusion doesn't need proxy - ElfHosted generally allows cloud IPs
+ const result = await fetchJson(url, 15000, (m,...a)=>log('mediafusion',m,...a), false);
+ const j = result.ok ? result.data : null;
+ let arr = Array.isArray(j) ? j : (j && Array.isArray(j.streams) ? j.streams : []);
+ arr = Array.isArray(arr) ? arr : [];
+ 
+ // Filter out error/info streams (invalid config messages, etc.)
+ arr = arr.filter(stream => {
+  if (!stream || !stream.name) return false;
+  // Filter out error streams that contain warning messages
+  const name = stream.name.toLowerCase();
+  const desc = (stream.description || '').toLowerCase();
+  if (name.includes('invalid') || desc.includes('invalid')) return false;
+  if (name.includes('error') || desc.includes('delete the invalid')) return false;
+  if (name.includes('disabled') || desc.includes('non-debrid')) return false;
+  return true;
+ });
+ 
+ const preservedStreams = arr.map(stream => {
+ const preserved = preserveStreamMetadata(stream, 'mediafusion');
+ preserved.autostreamOrigin = 'mediafusion';
+ return preserved;
+ });
+ 
+ log('mediafusion', `Found ${preservedStreams.length} streams`);
+ mediafusionCache.set(url, preservedStreams);
+ return preservedStreams;
+}
+
+/**
+ * Fetch streams from Comet (ElfHosted instance)
+ * Comet is an alternative to Torrentio that may not block cloud IPs
+ * Uses /{b64config}/stream/{type}/{id}.json format
+ * @param {string} type - 'movie' or 'series'
+ * @param {string} id - IMDB ID (tt0111161) or series with season/episode (tt0903747:1:1)
+ * @param {Object} options - { debridProvider, debridApiKey, cometConfig }
+ * @param {Function} log - Logging function
+ */
+async function fetchCometStreams(type, id, options = {}, log = ()=>{}) {
+ // Build config with debrid credentials if provided
+ let config = options.cometConfig;
+ if (!config && options.debridProvider && options.debridApiKey) {
+  config = buildCometConfig(options.debridProvider, options.debridApiKey);
+ }
+ config = config || COMET_DEFAULT_CONFIG;
+ 
+ const url = buildCometUrl(BASE_COMET, type, id, config);
+ const cached = cometCache.get(url);
+ if (cached) return cached;
+ 
+ log('comet', 'Fetching from:', url);
+ 
+ // Comet doesn't need proxy - ElfHosted generally allows cloud IPs
+ const result = await fetchJson(url, 15000, (m,...a)=>log('comet',m,...a), false);
+ const j = result.ok ? result.data : null;
+ let arr = Array.isArray(j) ? j : (j && Array.isArray(j.streams) ? j.streams : []);
+ arr = Array.isArray(arr) ? arr : [];
+ 
+ // Filter out error/info streams (non-debrid disabled messages, etc.)
+ arr = arr.filter(stream => {
+  if (!stream || !stream.name) return false;
+  // Filter out error streams that contain warning messages
+  const name = stream.name.toLowerCase();
+  const desc = (stream.description || '').toLowerCase();
+  if (name.includes('⚠') || name.includes('❌') || name.includes('🚫')) return false;
+  if (desc.includes('non-debrid') || desc.includes('disabled')) return false;
+  if (desc.includes('obsolete') || desc.includes('reconfigure')) return false;
+  return true;
+ });
+ 
+ const preservedStreams = arr.map(stream => {
+ const preserved = preserveStreamMetadata(stream, 'comet');
+ preserved.autostreamOrigin = 'comet';
+ return preserved;
+ });
+ 
+ log('comet', `Found ${preservedStreams.length} streams`);
+ cometCache.set(url, preservedStreams);
+ return preservedStreams;
+}
+
+module.exports = { fetchTorrentioStreams, fetchTPBStreams, fetchNuvioStreams, fetchMediaFusionStreams, fetchCometStreams };
