@@ -1925,16 +1925,19 @@ function startServer(port = PORT) {
  }
  });
  
- // Step 2: Enhanced scoring with permanent blacklist integration
+ // Step 2: Enhanced scoring with permanent blacklist integration and content validation
  const scoringOptions = {
  preferredLanguages,
  maxSizeBytes,
  conservativeCookie: conserveCookie,
  blacklistTerms,
- debug: false // Standard debug setting
+ debug: VERBOSE_LOGGING,
+ expectedTitle: finalMeta?.name || '', // Pass movie/show title for content validation
+ metaName: finalMeta?.name || '',
+ requestId: requestId
  };
  
- // Use new enhanced scoring system with penalty filtering
+ // Use new enhanced scoring system with penalty filtering and content validation
  let allScoredStreams = scoring.filterAndScoreStreams(combined, req, scoringOptions);
  
  if (allScoredStreams.length === 0) {
@@ -2286,8 +2289,28 @@ function startServer(port = PORT) {
  debridProvider 
  });
  
- // Set content title with resolution (e.g., "Gen V S1E1 - 4K")
- s.title = buildContentTitle(finalMeta.name, s, { type, id: actualId });
+ // Build beautified title line: "Movie Name (Year) - 4K"
+ const beautifiedTitle = buildContentTitle(finalMeta.name, s, { type, id: actualId });
+ 
+ // Extract year from meta if available
+ const year = finalMeta.year || finalMeta.releaseInfo?.match(/\d{4}/)?.[0] || '';
+ const titleWithYear = year && !beautifiedTitle.includes(year) 
+ ? beautifiedTitle.replace(finalMeta.name, `${finalMeta.name} (${year})`)
+ : beautifiedTitle;
+ 
+ // Create beautified description: Title line + technical details
+ // Keep original description for technical details but add beautified title as first line
+ const originalDesc = s.description || '';
+ s._beautifiedTitle = titleWithYear;
+ s.title = titleWithYear; // Keep for internal use
+ 
+ // For Stremio: description should be the beautified title + technical details
+ // Format: "Movie Name (2025) - 4K\n📄 filename.mkv\n..."
+ if (originalDesc && !originalDesc.startsWith(titleWithYear)) {
+  s.description = titleWithYear + '\n' + originalDesc;
+ } else {
+  s.description = titleWithYear + (originalDesc ? '\n' + originalDesc : '');
+ }
  }
  });
 

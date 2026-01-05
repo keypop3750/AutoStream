@@ -842,31 +842,68 @@ function getStreamTypeScore(stream) {
 
 /**
  * Filter and score streams with penalty-based system
+ * Enhanced with content validation and verbose logging
  */
 function filterAndScoreStreams(streams, req, opts = {}) {
  if (!Array.isArray(streams)) return [];
+ 
+ const verboseLogging = process.env.VERBOSE_LOGGING === 'true' || opts.debug;
+ const expectedTitle = opts.expectedTitle || opts.metaName || '';
+ const requestId = opts.requestId || 'unknown';
+ 
+ // Step 1: Content validation - filter out streams that don't match the expected content
+ let validStreams = streams;
+ if (expectedTitle && expectedTitle.length > 2) {
+ const titleWords = expectedTitle.toLowerCase()
+  .replace(/[^a-z0-9\s]/g, '') // Remove special chars
+  .split(/\s+/)
+  .filter(w => w.length > 2); // Only meaningful words
+ 
+ validStreams = streams.filter(stream => {
+  const streamText = `${stream.behaviorHints?.filename || ''} ${stream.description || ''} ${stream.title || ''} ${stream.name || ''}`.toLowerCase();
+  
+  // Check if at least 50% of title words are present in the stream
+  const matchingWords = titleWords.filter(word => streamText.includes(word));
+  const matchRatio = titleWords.length > 0 ? matchingWords.length / titleWords.length : 1;
+  
+  if (matchRatio < 0.5) {
+  if (verboseLogging) {
+   console.log(`[${requestId}] [FILTER] Rejected: "${stream.behaviorHints?.filename?.substring(0, 50) || 'unknown'}..." (match: ${(matchRatio * 100).toFixed(0)}%, expected: "${expectedTitle}")`);
+  }
+  return false;
+  }
+  return true;
+ });
+ 
+ if (verboseLogging && validStreams.length < streams.length) {
+  console.log(`[${requestId}] [FILTER] Content validation: ${streams.length} → ${validStreams.length} streams (filtered ${streams.length - validStreams.length} non-matching)`);
+ }
+ }
 
- const results = streams.map(stream => {
+ const results = validStreams.map(stream => {
  const scoring = computeStreamScore(stream, req, opts);
  return {
- ...stream,
- _scoring: scoring,
- _score: scoring.score
+  ...stream,
+  _scoring: scoring,
+  _score: scoring.score
  };
  });
 
  // Sort by score (highest first)
  results.sort((a, b) => b._score - a._score);
 
- // Log scoring details in debug mode
- if (opts.debug) {
- console.log('\n[TARGET] Stream Scoring Results:');
+ // Log scoring details in debug/verbose mode
+ if (verboseLogging || opts.debug) {
+ console.log(`\n[${requestId}] [SCORING] Top 5 Stream Results:`);
  results.slice(0, 5).forEach((stream, i) => {
- const scoring = stream._scoring;
- console.log(`${i + 1}. ${stream.name || 'Unnamed'} (Score: ${scoring.score})`);
- if (scoring.bonuses?.length) console.log(` Bonuses: ${scoring.bonuses.join(', ')}`);
- if (scoring.penalties?.length) console.log(` Penalties: ${scoring.penalties.join(', ')}`);
+  const scoring = stream._scoring;
+  const filename = stream.behaviorHints?.filename || stream.title || stream.name || 'Unnamed';
+  const shortName = filename.length > 60 ? filename.substring(0, 60) + '...' : filename;
+  console.log(`  ${i + 1}. [${scoring.score}pts] ${shortName}`);
+  if (scoring.bonuses?.length) console.log(`     ✓ ${scoring.bonuses.join(', ')}`);
+  if (scoring.penalties?.length) console.log(`     ✗ ${scoring.penalties.join(', ')}`);
  });
+ console.log('');
  }
 
  return results;
