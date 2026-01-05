@@ -220,10 +220,17 @@ const penaltyReliability = require('./services/penaltyReliability');
 
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 7010;
 
+// Cloudflare Worker proxy URL - set in Render environment to bypass IP blocks
+const CF_PROXY_URL = process.env.CF_PROXY_URL || '';
+
 // Security: Force secure mode on Render
 const FORCE_SECURE_MODE = process.env.FORCE_SECURE_MODE === 'true' || process.env.NODE_ENV === 'production';
 const BLOCK_ENV_CREDENTIALS = process.env.BLOCK_ENV_CREDENTIALS !== 'false'; // Default to blocking
 const EMERGENCY_DISABLE_DEBRID = process.env.EMERGENCY_DISABLE_DEBRID === 'true';
+
+if (CF_PROXY_URL) {
+ console.log('[PROXY] Using Cloudflare Worker proxy:', CF_PROXY_URL);
+}
 
 if (FORCE_SECURE_MODE) {
  console.log('[LOCKED] SECURE MODE: Environment credential fallbacks disabled');
@@ -1047,7 +1054,14 @@ function startServer(port = PORT) {
  if (pathname === '/debug/sources') {
  const testType = q.get('type') || 'movie';
  const testId = q.get('id') || 'tt0111161';
- const results = { torrentio: null, tpb: null, nuvio: null, errors: [] };
+ const results = { 
+ cfProxy: CF_PROXY_URL ? 'enabled' : 'disabled',
+ cfProxyUrl: CF_PROXY_URL || null,
+ torrentio: null, 
+ tpb: null, 
+ nuvio: null, 
+ errors: [] 
+ };
  
  try {
  const start = Date.now();

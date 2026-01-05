@@ -1,7 +1,7 @@
 'use strict';
 const { TTLCache } = require('../utils/cache');
 const { fetchWithTimeout } = require('../utils/http');
-const { BASE_TORRENTIO, BASE_TPB, BASE_NUVIO } = require('../constants');
+const { BASE_TORRENTIO, BASE_TPB, BASE_NUVIO, CF_PROXY_URL } = require('../constants');
 
 const torrentioCache = new TTLCache({ max: 500, ttlMs: 60 * 60 * 1000 });
 const tpbCache = new TTLCache({ max: 300, ttlMs: 60 * 60 * 1000 });
@@ -10,6 +10,14 @@ const nuvioCache = new TTLCache({ max: 500, ttlMs: 12 * 60 * 1000 });
 function buildUrl(base, type, id, query) {
  const qs = new URLSearchParams(query || {}).toString();
  return `${base.replace(/\/+$/, '')}/stream/${type}/${encodeURIComponent(id)}.json${qs ? ('?' + qs) : ''}`;
+}
+
+/**
+ * Wrap URL with Cloudflare proxy if CF_PROXY_URL is set
+ */
+function proxyUrl(url) {
+ if (!CF_PROXY_URL) return url;
+ return `${CF_PROXY_URL}?url=${encodeURIComponent(url)}`;
 }
 
 /**
@@ -94,9 +102,11 @@ function preserveStreamMetadata(stream, source = 'unknown') {
  
  return preservedStream;
 }
-async function fetchJson(url, timeoutMs, log = ()=>{}) {
+async function fetchJson(url, timeoutMs, log = ()=>{}, useProxy = true) {
  try {
- const r = await fetchWithTimeout(url, { redirect: 'follow' }, timeoutMs || 12000);
+ // Use CF proxy for Torrentio/TPB to bypass IP blocks on Render
+ const fetchUrl = useProxy ? proxyUrl(url) : url;
+ const r = await fetchWithTimeout(fetchUrl, { redirect: 'follow' }, timeoutMs || 12000);
  if (!r || !r.ok) { 
  log('status', r && r.status, url); 
  return { ok: false, data: null, error: `HTTP ${r ? r.status : 'unknown'}` }; 
