@@ -622,10 +622,40 @@ function buildComprehensiveBehaviorHints(originalMetadata, deviceType, stream) {
  behaviorHints.filename = originalMetadata.filename;
  }
  
- // Replace bingeGroup prefix to use autostream instead of source addon name
- if (originalMetadata.bingeGroup) {
- // Replace torrentio|, tpb|, nuvio| etc with autostream|
- behaviorHints.bingeGroup = originalMetadata.bingeGroup.replace(/^[^|]+\|/, 'autostream|');
+ // Generate bingeGroup for auto-play functionality
+ // Uses "matching file" method - streams with same resolution/codec/source/group will auto-play together
+ // This enables seamless episode transitions when user has auto-play enabled in Stremio
+ 
+ // Check if source provides a detailed bingeGroup (more than just source|hash)
+ const sourceBingeGroup = originalMetadata.bingeGroup || '';
+ const bingeGroupParts = sourceBingeGroup.split('|');
+ const hasDetailedBingeGroup = bingeGroupParts.length > 2 || 
+ (bingeGroupParts.length === 2 && !/^[a-f0-9]{16,}$/i.test(bingeGroupParts[1]));
+ 
+ if (hasDetailedBingeGroup) {
+ // If source addon provided detailed bingeGroup, normalize prefix to autostream|
+ behaviorHints.bingeGroup = sourceBingeGroup.replace(/^[^|]+\\|/, 'autostream|');
+ } else {
+ // Generate our own bingeGroup using buildBingeGroup from format.js
+ // Create a stream-like object with all original metadata for accurate extraction
+ try {
+ const { buildBingeGroup } = require('./core/format');
+ const streamWithMeta = {
+  title: originalMetadata.originalTitle || stream.title || '',
+  name: originalMetadata.originalName || stream.name || '',
+  description: originalMetadata.originalDescription || stream.description || '',
+  behaviorHints: {
+  filename: originalMetadata.filename || stream.behaviorHints?.filename || ''
+  },
+  infoHash: stream.infoHash,
+  _originalMetadata: originalMetadata
+ };
+ behaviorHints.bingeGroup = buildBingeGroup(streamWithMeta);
+ } catch (e) {
+ // Fallback: simple resolution-based bingeGroup
+ const resolution = stream.title?.match(/\\b(2160p|1080p|720p|480p|4k)\\b/i)?.[1] || 'auto';
+ behaviorHints.bingeGroup = `autostream|${resolution}`;
+ }
  }
  
  // Video metadata for TV buffering decisions

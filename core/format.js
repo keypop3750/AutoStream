@@ -70,6 +70,127 @@ function extractQualityTags(stream) {
  return tags;
 }
 
+/**
+ * Extract video codec from stream metadata
+ * @param {Object} stream - Stream object
+ * @returns {string} Codec identifier (HEVC, x264, AV1, etc.) or empty string
+ */
+function extractCodec(stream) {
+ const title = stream.title || '';
+ const name = stream.name || '';
+ const filename = stream.behaviorHints?.filename || stream._originalMetadata?.filename || '';
+ const desc = stream.description || stream._originalMetadata?.originalDescription || '';
+ const text = `${title} ${name} ${filename} ${desc}`.toLowerCase();
+ 
+ // Check for specific codecs (order matters - more specific first)
+ if (/\b(x265|h\.?265|hevc)\b/i.test(text)) return 'HEVC';
+ if (/\b(x264|h\.?264|avc)\b/i.test(text)) return 'x264';
+ if (/\bav1\b/i.test(text)) return 'AV1';
+ if (/\bvp9\b/i.test(text)) return 'VP9';
+ if (/\bxvid\b/i.test(text)) return 'XviD';
+ if (/\bdivx\b/i.test(text)) return 'DivX';
+ 
+ return '';
+}
+
+/**
+ * Extract source quality type (WEB-DL, BluRay, etc.)
+ * @param {Object} stream - Stream object
+ * @returns {string} Source quality type or empty string
+ */
+function extractSourceQuality(stream) {
+ const title = stream.title || '';
+ const name = stream.name || '';
+ const filename = stream.behaviorHints?.filename || stream._originalMetadata?.filename || '';
+ const desc = stream.description || stream._originalMetadata?.originalDescription || '';
+ const text = `${title} ${name} ${filename} ${desc}`;
+ 
+ // Check for source quality markers
+ if (/\b(web-?dl)\b/i.test(text)) return 'WEB-DL';
+ if (/\b(webrip)\b/i.test(text)) return 'WEBRip';
+ if (/\b(blu-?ray|bdrip|brrip)\b/i.test(text)) return 'BluRay';
+ if (/\b(hdtv)\b/i.test(text)) return 'HDTV';
+ if (/\b(dvdrip)\b/i.test(text)) return 'DVDRip';
+ if (/\b(cam|hdcam|ts|telesync)\b/i.test(text)) return 'CAM';
+ 
+ return '';
+}
+
+/**
+ * Extract release group from stream metadata
+ * @param {Object} stream - Stream object
+ * @returns {string} Release group name or empty string
+ */
+function extractReleaseGroup(stream) {
+ const title = stream.title || '';
+ const name = stream.name || '';
+ const filename = stream.behaviorHints?.filename || stream._originalMetadata?.filename || '';
+ const desc = stream.description || stream._originalMetadata?.originalDescription || '';
+ const text = `${title} ${name} ${filename} ${desc}`;
+ 
+ // Common release group pattern: -GroupName at end of filename (before extension)
+ // Match patterns like: -FLUX, -YIFY, -RARBG, -NTG, -EVO, -SPARKS
+ const groupMatch = text.match(/[-\s](FLUX|YIFY|RARBG|NTG|EVO|SPARKS|CMRG|FGT|AMZN|NF|ATVP|DSNP|HMAX|PCOK|IMAX|ION10|SMURF|TEPES|GalaxyRG|NOGRP|LAMA|JFF|APEX|MIXED)[\s\]\)\.,]|[-\s](FLUX|YIFY|RARBG|NTG|EVO|SPARKS|CMRG|FGT|AMZN|NF|ATVP|DSNP|HMAX|PCOK|IMAX|ION10|SMURF|TEPES|GalaxyRG|NOGRP|LAMA|JFF|APEX|MIXED)$/i);
+ if (groupMatch) {
+ return (groupMatch[1] || groupMatch[2]).toUpperCase();
+ }
+ 
+ // Fallback: try to extract from -GROUP pattern at end
+ const fallbackMatch = text.match(/-([A-Za-z0-9]{2,12})(?:\.[a-z]{2,4})?$/i);
+ if (fallbackMatch && !/^(mkv|mp4|avi|mov|wmv|flv|webm|m4v|1080p|720p|480p|2160p)$/i.test(fallbackMatch[1])) {
+ return fallbackMatch[1].toUpperCase();
+ }
+ 
+ return '';
+}
+
+/**
+ * Build bingeGroup for Stremio auto-play functionality
+ * Uses "matching file" method - same resolution/codec/source/group will auto-play together
+ * @param {Object} stream - Stream object with metadata
+ * @returns {string} bingeGroup string like "autostream|1080p|HEVC|WEB-DL|FLUX"
+ */
+function buildBingeGroup(stream) {
+ const parts = ['autostream'];
+ 
+ // Create a virtual stream with all original metadata for accurate extraction
+ // This ensures we capture resolution/codec from original torrent names before beautification
+ const originalMeta = stream._originalMetadata || {};
+ const virtualStream = {
+ title: originalMeta.originalTitle || stream.title || '',
+ name: originalMeta.originalName || stream.name || '',
+ description: originalMeta.originalDescription || stream.description || '',
+ behaviorHints: {
+ filename: originalMeta.filename || stream.behaviorHints?.filename || ''
+ },
+ infoHash: stream.infoHash
+ };
+ 
+ // Resolution (most important for matching)
+ const resolution = extractResolution(virtualStream);
+ if (resolution) parts.push(resolution);
+ 
+ // Codec (HEVC vs x264 matters for device compatibility)
+ const codec = extractCodec(virtualStream);
+ if (codec) parts.push(codec);
+ 
+ // Source quality (WEB-DL, BluRay, etc.)
+ const sourceQuality = extractSourceQuality(virtualStream);
+ if (sourceQuality) parts.push(sourceQuality);
+ 
+ // Release group (same group = consistent quality/encoding)
+ const releaseGroup = extractReleaseGroup(virtualStream);
+ if (releaseGroup) parts.push(releaseGroup);
+ 
+ // If we only have "autostream" (no attributes found), use infoHash as fallback
+ // This still allows auto-play if the same torrent is used across episodes
+ if (parts.length === 1 && stream.infoHash) {
+ parts.push(stream.infoHash.substring(0, 16)); // Use more chars for uniqueness
+ }
+ 
+ return parts.join('|');
+}
+
 function detectContentInfo(type, id) {
  // For series, try to extract season/episode info from ID
  if (type === 'series') {
@@ -264,5 +385,9 @@ module.exports = {
  shouldShowOriginTags,
  extractResolution,
  extractQualityTags,
- detectContentInfo
+ detectContentInfo,
+ extractCodec,
+ extractSourceQuality,
+ extractReleaseGroup,
+ buildBingeGroup
 };
