@@ -22,10 +22,12 @@ function normaliseQuality(quality) {
 
 function extractResolution(stream) {
  // Check multiple places for resolution info
- const title = stream.title || '';
- const name = stream.name || '';
- const description = stream.description || '';
- const filename = stream.behaviorHints?.filename || stream.filename || '';
+ // IMPORTANT: Check _originalMetadata first as beautification may strip resolution from current fields
+ const originalMeta = stream._originalMetadata || {};
+ const title = originalMeta.originalTitle || stream.title || '';
+ const name = originalMeta.originalName || stream.name || '';
+ const description = originalMeta.originalDescription || stream.description || '';
+ const filename = stream.behaviorHints?.filename || originalMeta.filename || stream.filename || '';
  const tag = stream.tag || '';
  
  const text = `${title} ${name} ${description} ${filename} ${tag}`.toLowerCase();

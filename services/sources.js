@@ -17,6 +17,7 @@ const tpbCache = new TTLCache({ max: 300, ttlMs: 60 * 60 * 1000 });
 const nuvioCache = new TTLCache({ max: 500, ttlMs: 60 * 60 * 1000 }); // Increased from 12 min to 60 min
 const mediafusionCache = new TTLCache({ max: 500, ttlMs: 60 * 60 * 1000 });
 const cometCache = new TTLCache({ max: 500, ttlMs: 60 * 60 * 1000 });
+const mediafusionConfigCache = new TTLCache({ max: 50, ttlMs: 24 * 60 * 60 * 1000 }); // 24 hour cache for encrypted configs
 
 /**
  * Build standard Stremio stream URL (for Torrentio, TPB, Nuvio)
@@ -24,6 +25,49 @@ const cometCache = new TTLCache({ max: 500, ttlMs: 60 * 60 * 1000 });
 function buildUrl(base, type, id, query) {
  const qs = new URLSearchParams(query || {}).toString();
  return `${base.replace(/\/+$/, '')}/stream/${type}/${encodeURIComponent(id)}.json${qs ? ('?' + qs) : ''}`;
+}
+
+/**
+ * Build Torrentio configuration string for a debrid provider
+ * Torrentio uses pipe-separated config: provider=apikey|setting=value
+ * @param {string} debridProvider - Provider key (realdebrid, alldebrid, premiumize, torbox, etc.)
+ * @param {string} apiKey - The debrid API key
+ * @returns {string} Configuration string for Torrentio URL path
+ */
+function buildTorrentioConfig(debridProvider, apiKey) {
+ if (!debridProvider || !apiKey) return '';
+ 
+ // Map AutoStream provider keys to Torrentio's provider names
+ const providerMapping = {
+  'realdebrid': 'realdebrid',
+  'rd': 'realdebrid',
+  'alldebrid': 'alldebrid',
+  'ad': 'alldebrid',
+  'premiumize': 'premiumize',
+  'pm': 'premiumize',
+  'torbox': 'torbox',
+  'tb': 'torbox',
+  'debridlink': 'debridlink',
+  'dl': 'debridlink',
+  'offcloud': 'offcloud',
+  'easydebrid': 'easydebrid',
+  'putio': 'putio'
+ };
+
+ const provider = providerMapping[debridProvider?.toLowerCase()];
+ if (!provider) return '';
+ 
+ // Torrentio config format: provider=apikey
+ return `${provider}=${apiKey}`;
+}
+
+/**
+ * Build Torrentio stream URL with optional debrid config
+ * Torrentio uses: /{config}/stream/{type}/{id}.json or /stream/{type}/{id}.json
+ */
+function buildTorrentioUrl(base, type, id, config) {
+ const configPath = config ? `/${config}` : '';
+ return `${base.replace(/\/+$/, '')}${configPath}/stream/${type}/${encodeURIComponent(id)}.json`;
 }
 
 /**
@@ -84,19 +128,107 @@ function buildCometConfig(debridProvider, apiKey) {
 }
 
 /**
- * Build MediaFusion configuration string for a debrid provider
- * MediaFusion uses encrypted user data, but we can try the public mode with streaming provider
- * Note: For now, we'll use the streaming without debrid as a fallback
+ * Build MediaFusion configuration via their /encrypt-user-data API
+ * MediaFusion requires encrypted user data which must be generated server-side
+ * @param {string} debridProvider - Provider key (realdebrid, alldebrid, premiumize, torbox, etc.)
+ * @param {string} apiKey - The debrid API key
+ * @returns {Promise<string>} Encrypted configuration string (e.g., "D-abc123...")
+ */
+async function buildMediaFusionConfigViaAPI(debridProvider, apiKey) {
+ if (!debridProvider || !apiKey) {
+  return MEDIAFUSION_DEFAULT_CONFIG;
+ }
+ 
+ // Check cache first (keyed by provider + first/last 4 chars of key for privacy)
+ const cacheKey = `${debridProvider}:${apiKey.slice(0, 4)}...${apiKey.slice(-4)}`;
+ const cached = mediafusionConfigCache.get(cacheKey);
+ if (cached) {
+  return cached;
+ }
+ 
+ // Map AutoStream provider keys to MediaFusion's streaming_provider.service names
+ const providerMapping = {
+  'realdebrid': 'realdebrid',
+  'rd': 'realdebrid',
+  'alldebrid': 'alldebrid',
+  'ad': 'alldebrid',
+  'premiumize': 'premiumize',
+  'pm': 'premiumize',
+  'torbox': 'torbox',
+  'tb': 'torbox',
+  'debridlink': 'debridlink',
+  'dl': 'debridlink',
+  'offcloud': 'offcloud',
+  'easydebrid': 'easydebrid',
+  'putio': 'pikpak' // MediaFusion uses 'pikpak' for put.io-like services
+ };
+ 
+ const service = providerMapping[debridProvider?.toLowerCase()];
+ if (!service) {
+  console.log('[MediaFusion] Unknown debrid provider:', debridProvider);
+  return MEDIAFUSION_DEFAULT_CONFIG;
+ }
+ 
+ const userData = {
+  streaming_provider: {
+   service: service,
+   token: apiKey
+  },
+  selected_resolutions: ['4k', '2160p', '1080p', '720p', '480p'],
+  max_streams_per_resolution: 10,
+  enable_catalogs: false, // We only want streams, not catalogs
+  show_full_torrent_name: true
+ };
+ 
+ try {
+  const response = await fetchWithTimeout(`${BASE_MEDIAFUSION}/encrypt-user-data`, {
+   method: 'POST',
+   headers: { 'Content-Type': 'application/json' },
+   body: JSON.stringify(userData),
+   timeout: 10000
+  });
+  
+  if (!response.ok) {
+   console.log('[MediaFusion] Config API returned status:', response.status);
+   return null;
+  }
+  
+  const data = await response.json();
+  if (data && data.encrypted_str) {
+   console.log('[MediaFusion] Successfully got encrypted config');
+   mediafusionConfigCache.set(cacheKey, data.encrypted_str);
+   return data.encrypted_str;
+  }
+  
+  // MediaFusion validates debrid credentials - if invalid, it returns error
+  if (data && data.status === 'error') {
+   console.log('[MediaFusion] Config API validation error:', data.message);
+   return null;
+  }
+  
+  console.log('[MediaFusion] Config API returned unexpected data:', Object.keys(data));
+  return null;
+ } catch (error) {
+  console.log('[MediaFusion] Config API error:', error.message);
+  return null;
+ }
+}
+
+/**
+ * Build MediaFusion configuration string for a debrid provider (sync wrapper)
+ * MediaFusion uses encrypted user data generated via their API
  * @param {string} debridProvider - Provider key
  * @param {string} apiKey - The debrid API key
- * @returns {string} Configuration path (currently just D- for direct mode)
+ * @returns {string} Configuration path (D- for direct mode if no debrid)
  */
 function buildMediaFusionConfig(debridProvider, apiKey) {
- // MediaFusion requires server-side encryption of user data
- // For now, we can't easily build a config client-side without access to their secret key
- // The public instance at ElfHosted requires debrid, but the config must be generated via their UI
- // We'll return the default which may work for cached results or if they enable non-debrid mode
- return MEDIAFUSION_DEFAULT_CONFIG;
+ // This is a sync function for backwards compatibility
+ // The actual config fetching is done async in fetchMediaFusionStreams
+ if (!debridProvider || !apiKey) {
+  return MEDIAFUSION_DEFAULT_CONFIG;
+ }
+ // Return a placeholder - the actual config will be fetched async
+ return null; // Signal that async config fetch is needed
 }
 
 /**
@@ -206,8 +338,16 @@ async function fetchJson(url, timeoutMs, log = ()=>{}, useProxy = true) {
  return { ok: false, data: null, error: e && e.message || String(e) }; 
  }
 }
-async function fetchTorrentioStreams(type, id, query, log = ()=>{}) {
- const url = buildUrl(BASE_TORRENTIO, type, id, query);
+async function fetchTorrentioStreams(type, id, options = {}, log = ()=>{}) {
+ // Build debrid config if credentials provided
+ const debridConfig = options.debridProvider && options.debridApiKey 
+  ? buildTorrentioConfig(options.debridProvider, options.debridApiKey)
+  : '';
+ 
+ const url = debridConfig 
+  ? buildTorrentioUrl(BASE_TORRENTIO, type, id, debridConfig)
+  : buildUrl(BASE_TORRENTIO, type, id, options.query);
+ 
  const cached = torrentioCache.get(url); 
  if (cached) return cached;
  
@@ -223,13 +363,20 @@ async function fetchTorrentioStreams(type, id, query, log = ()=>{}) {
  streams = streams.map(stream => {
  const preserved = preserveStreamMetadata(stream, 'torrentio');
  preserved.autostreamOrigin = 'torrentio'; // Set origin for downstream processing
+ // Mark as debrid if debrid config was used
+ if (debridConfig) {
+  preserved._isDebrid = true;
+  preserved._debrid = true;
+ }
  return preserved;
  });
  
  // Step 2: If no streams and this is a series episode, try season pack format
  if (streams.length === 0 && type === 'series' && id.includes(':')) {
  const seasonId = id.split(':')[0]; // Extract just the IMDB ID
- const seasonUrl = buildUrl(BASE_TORRENTIO, type, seasonId, query);
+ const seasonUrl = debridConfig
+  ? buildTorrentioUrl(BASE_TORRENTIO, type, seasonId, debridConfig)
+  : buildUrl(BASE_TORRENTIO, type, seasonId, options.query);
  
  log('torrentio', `Episode format returned 0 streams, trying season pack: ${seasonId}`);
  
@@ -247,6 +394,11 @@ async function fetchTorrentioStreams(type, id, query, log = ()=>{}) {
  preserved.name = (preserved.name || 'Stream') + ' (Season Pack)';
  // Update metadata to reflect season pack status
  preserved._originalMetadata.isSeasonPack = true;
+ // Mark as debrid if debrid config was used
+ if (debridConfig) {
+  preserved._isDebrid = true;
+  preserved._debrid = true;
+ }
  return preserved;
  });
  
@@ -326,9 +478,22 @@ async function fetchNuvioStreams(type, id, options = {}, log = ()=>{}) {
  */
 async function fetchMediaFusionStreams(type, id, options = {}, log = ()=>{}) {
  // Build config - MediaFusion requires encrypted user data via their API
- // For now, we use the default which may only return cached results
- const config = options.mediafusionConfig || 
-   buildMediaFusionConfig(options.debridProvider, options.debridApiKey);
+ let config = options.mediafusionConfig;
+ 
+ log('mediafusion', `Starting fetch with options: provider=${options.debridProvider}, hasKey=${!!options.debridApiKey}`);
+ 
+ // If no pre-built config and we have debrid credentials, fetch via API
+ if (!config && options.debridProvider && options.debridApiKey) {
+  config = await buildMediaFusionConfigViaAPI(options.debridProvider, options.debridApiKey);
+  log('mediafusion', `Got config from API: ${config ? config.substring(0, 30) + '...' : 'null'}`);
+ }
+ 
+ // If still no valid config, MediaFusion won't work (P2P disabled on ElfHosted)
+ if (!config || config === MEDIAFUSION_DEFAULT_CONFIG) {
+  log('mediafusion', 'No valid config available - skipping (P2P disabled on ElfHosted)');
+  return [];
+ }
+ 
  const url = buildMediaFusionUrl(BASE_MEDIAFUSION, type, id, config);
  const cached = mediafusionCache.get(url);
  if (cached) return cached;

@@ -1656,14 +1656,16 @@ function startServer(port = PORT) {
 
 
  // fetch sources (no debrid here) - parallel execution with timeout for faster response
- // NOTE: Torrentio, TPB, and MediaFusion disabled - they return 403 from cloud IPs
- // Only Comet (with debrid) and Nuvio (with cookie) are active
+ // Torrentio, Comet, and MediaFusion now use debrid credentials when available
+ // TPB disabled - 403 from cloud IPs
  console.log(`[${requestId}] [LAUNCH] Fetching streams from sources...`);
  const sourcePromises = [
- Promise.resolve([]), // Torrentio disabled - 403 from cloud IPs
+ // Torrentio: Enable with debrid credentials via CF proxy (may still get 403 on cloud IPs)
+ earlyDebridApiKey ? fetchTorrentioStreams(type, actualId, cometMfOptions, (msg) => log('Torrentio: ' + msg, 'verbose')) : Promise.resolve([]),
  Promise.resolve([]), // TPB disabled - 403 from cloud IPs  
  nuvioEnabled ? fetchNuvioStreams(type, actualId, { query: { direct: '1' }, cookie: nuvioCookie }, (msg) => log('Nuvio: ' + msg, 'verbose')) : Promise.resolve([]),
- Promise.resolve([]), // MediaFusion disabled - requires encrypted config
+ // MediaFusion: Enabled with debrid credentials via /encrypt-user-data API
+ earlyDebridApiKey ? fetchMediaFusionStreams(type, actualId, cometMfOptions, (msg) => log('MediaFusion: ' + msg, 'verbose')) : Promise.resolve([]),
  (!onlySource || onlySource === 'comet') ? fetchCometStreams(type, actualId, cometMfOptions, (msg) => log('Comet: ' + msg, 'verbose')) : Promise.resolve([])
  ];
  
@@ -1771,8 +1773,10 @@ function startServer(port = PORT) {
  (cookieStreams.length > 0 ? `Nuvio(${regularNuvio}), Nuvio+(${cookieStreams.length})` : `Nuvio(${fromNuvio.length})`) :
  'Nuvio(0)';
  
- // Only show active sources (Nuvio and Comet are the only active ones now)
- console.log(`[${requestId}] [STATS] Active Sources: ${nuvioDisplay}, Comet(${fromComet.length})`);
+ // Show all active sources including Torrentio and MediaFusion when debrid configured
+ const torrentioDisplay = fromTorr.length > 0 ? `Torrentio(${fromTorr.length}), ` : '';
+ const mediafusionDisplay = fromMediaFusion.length > 0 ? `, MediaFusion(${fromMediaFusion.length})` : '';
+ console.log(`[${requestId}] [STATS] Active Sources: ${torrentioDisplay}${nuvioDisplay}, Comet(${fromComet.length})${mediafusionDisplay}`);
 
  function tag(list, origin) {
  return (list || []).map(s => {
@@ -2377,12 +2381,34 @@ function startServer(port = PORT) {
  debridProvider 
  });
  
- // Build beautified title line: "Movie Name (Year) - 4K"
+ // Build beautified title line: "Movie Name - 4K" or "Movie Name (Year) - 4K" for ambiguous titles
  const beautifiedTitle = buildContentTitle(finalMeta.name, s, { type, id: actualId });
  
  // Extract year from meta if available
  const year = finalMeta.year || finalMeta.releaseInfo?.match(/\d{4}/)?.[0] || '';
- const titleWithYear = year && !beautifiedTitle.includes(year) 
+ 
+ // Only add year for potentially ambiguous titles (common remakes, reboots, etc.)
+ // These are titles where knowing the year is essential to identify the correct version
+ const ambiguousTitles = [
+  'superman', 'batman', 'spider-man', 'spiderman', 'dune', 'godzilla', 'king kong',
+  'the mummy', 'robocop', 'ghostbusters', 'terminator', 'jumanji', 'tomb raider',
+  'charlie and the chocolate factory', 'charlie\'s angels', 'planet of the apes',
+  'the karate kid', 'footloose', 'poltergeist', 'total recall', 'point break',
+  'evil dead', 'carrie', 'firestarter', 'pet sematary', 'it', 'the fly',
+  'the thing', 'invasion of the body snatchers', 'suspiria', 'hellboy',
+  'clash of the titans', 'judge dredd', 'the omen', 'halloween', 'a star is born',
+  'ocean\'s eleven', 'true grit', 'scarface', 'the manchurian candidate',
+  'miracle on 34th street', 'cape fear', 'west side story', 'little women',
+  'dolittle', 'doctor dolittle', 'the invisible man', 'the lighthouse',
+  'lion king', 'the lion king', 'aladdin', 'mulan', 'beauty and the beast',
+  'cinderella', 'pinocchio', 'dumbo', 'fantasia', 'jungle book', 'the jungle book',
+  'blade runner', 'mad max', 'star trek', 'alien', 'predator', 'child\'s play'
+ ];
+ 
+ const titleLower = (finalMeta.name || '').toLowerCase().trim();
+ const isAmbiguous = ambiguousTitles.some(t => titleLower === t || titleLower.startsWith(t + ' ') || titleLower.startsWith('the ' + t));
+ 
+ const titleWithYear = year && isAmbiguous && !beautifiedTitle.includes(year) 
  ? beautifiedTitle.replace(finalMeta.name, `${finalMeta.name} (${year})`)
  : beautifiedTitle;
  

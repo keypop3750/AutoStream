@@ -59,8 +59,8 @@ function detectDeviceType(req) {
  * @param {Object} opts - Scoring options
  */
 function computeStreamScore(stream, req, opts = {}) {
- // Use specialized Comet scoring for Comet streams
- if (stream.autostreamOrigin === 'comet') {
+ // Use specialized Comet scoring for Comet and MediaFusion streams (both are debrid-resolved)
+ if (stream.autostreamOrigin === 'comet' || stream.autostreamOrigin === 'mediafusion') {
  return computeCometStreamScore(stream, req, opts);
  }
  
@@ -771,8 +771,8 @@ function getConnectionScore(stream) {
  return { score: 30, reason: 'torrent_to_debrid' };
  }
  
- // Comet/debrid-resolved streams get strong preference (already resolved HTTP from debrid)
- const isDebridResolved = stream._isDebrid || stream._debrid || stream.autostreamOrigin === 'comet';
+ // Comet/MediaFusion/debrid-resolved streams get strong preference (already resolved HTTP from debrid)
+ const isDebridResolved = stream._isDebrid || stream._debrid || stream.autostreamOrigin === 'comet' || stream.autostreamOrigin === 'mediafusion';
  if (isDebridResolved && url.startsWith('http')) {
  return { score: 35, reason: 'debrid_resolved_http' };
  }

@@ -46,6 +46,7 @@
   .btn-outline{background:transparent;border-color:var(--primary);color:var(--fg)}
   .btn-outline:hover{background:rgba(57,38,166,.08)}
   .btn-sm{min-width:auto;padding:8px 14px;border-radius:12px;border-width:1px;height:40px}
+  .btn-disabled{opacity:0.5;cursor:not-allowed;pointer-events:none;background:#444 !important;border-color:#444 !important}
   .toggle-box{display:flex;align-items:center;gap:12px;background:var(--box);border:1px solid transparent;border-radius:16px;padding:12px 16px;height:var(--ctl-h);cursor:pointer;user-select:none}
   .toggle-box:hover{border-color:transparent}
   /* Penalty UI improvements */
@@ -82,15 +83,15 @@
   <div class="wrap">
     <div class="card">
       <h1>AutoStream Configuration</h1>
-      <p class="subtle">Choose preferences and click <b>Install</b>. Debrid optional. Nuvio optional.</p>
+      <p class="subtle">Choose preferences and click <b>Install</b>. Debrid <b>required</b>. Nuvio optional.</p>
 
       <div class="columns">
         <!-- LEFT COLUMN -->
         <div class="stack">
           <div>
-            <label>Debrid Provider (Optional)</label>
+            <label>Debrid Provider <span style="color:#f44336">*</span></label>
             <select id="provider" class="control">
-              <option value="">None</option>
+              <option value="" disabled selected>Select a debrid provider...</option>
               <option value="realdebrid">RealDebrid (RD)</option>
               <option value="alldebrid">AllDebrid (AD)</option>
               <option value="premiumize">Premiumize (PM)</option>
@@ -100,6 +101,7 @@
               <option value="offcloud">Offcloud (OC)</option>
               <option value="putio">Put.io (Putio)</option>
             </select>
+            <div class="help">A debrid service is required. <a href="https://real-debrid.com/?id=10990707" target="_blank" style="color:var(--primary)">Get RealDebrid</a> or <a href="https://alldebrid.com/?uid=3wvyo&lang=en" target="_blank" style="color:var(--primary)">Get AllDebrid</a></div>
           </div>
 
           <div>

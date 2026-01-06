@@ -523,6 +523,9 @@ function rerender(){
  const queryBasedUrl = buildUrl();
  let manifestUrl;
  
+ // Check if debrid is properly configured (both provider and API key required)
+ const hasDebrid = state.provider && state.apiKey && state.apiKey.trim().length > 0;
+ 
  if (configPath) {
  manifestUrl = `${originHost}/${configPath}/manifest.json`;
  } else {
@@ -531,18 +534,35 @@ function rerender(){
  
  // Display URL without protocol
  const displayUrl = manifestUrl.replace(/^https?:\/\//, '');
- manifestEl.textContent = displayUrl;
+ manifestEl.textContent = hasDebrid ? displayUrl : 'Please select a debrid provider and enter your API key';
  
- // Install links - set href directly like HentaiStream does
+ // Install links - only enable when debrid is configured
+ if (hasDebrid) {
+ // Enable buttons
+ appBtn.classList.remove('btn-disabled');
+ webBtn.classList.remove('btn-disabled');
+ appBtn.removeAttribute('aria-disabled');
+ webBtn.removeAttribute('aria-disabled');
+ 
  if (configPath) {
- appBtn.href = `stremio://${window.location.host}/${configPath}/manifest.json`;
+  appBtn.href = `stremio://${window.location.host}/${configPath}/manifest.json`;
  } else {
- appBtn.href = `stremio://${window.location.host}/manifest.json`;
+  appBtn.href = `stremio://${window.location.host}/manifest.json`;
  }
  webBtn.href = `https://web.stremio.com/#/addons?addon=${encodeURIComponent(queryBasedUrl)}`;
- 
  appBtn.textContent = 'Install to Stremio';
  webBtn.textContent = 'Install to Web';
+ } else {
+ // Disable buttons - debrid is required
+ appBtn.classList.add('btn-disabled');
+ webBtn.classList.add('btn-disabled');
+ appBtn.setAttribute('aria-disabled', 'true');
+ webBtn.setAttribute('aria-disabled', 'true');
+ appBtn.removeAttribute('href');
+ webBtn.removeAttribute('href');
+ appBtn.textContent = 'Debrid Required';
+ webBtn.textContent = 'Debrid Required';
+ }
  
  // Update API key documentation link based on selected provider
  const apiKeyLink = document.getElementById('apiKeyLink');
