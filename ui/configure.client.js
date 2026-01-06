@@ -11,10 +11,17 @@
  const hostNoScheme = window.location.host;
 
  const LANG_OPTIONS = [
- ['EN','English'], ['ES','Spanish'], ['LT','Lithuanian'], ['RU','Russian'],
+ ['EN','English'], ['ES','Spanish'], ['HI','Hindi'], ['RU','Russian'],
  ['DE','German'], ['IT','Italian'], ['FR','French'], ['PL','Polish'],
  ['TR','Turkish'], ['PT-PT','Portuguese (PT)'], ['PT-BR','Portuguese (BR)'],
- ['AR','Arabic'], ['JA','Japanese'], ['KO','Korean'], ['ZH','Chinese']
+ ['AR','Arabic'], ['JA','Japanese'], ['KO','Korean'], ['ZH','Chinese'],
+ ['NL','Dutch'], ['SV','Swedish'], ['DA','Danish'], ['NO','Norwegian'],
+ ['FI','Finnish'], ['EL','Greek'], ['HU','Hungarian'], ['CS','Czech'],
+ ['RO','Romanian'], ['TH','Thai'], ['ID','Indonesian'], ['VI','Vietnamese'],
+ ['UK','Ukrainian'], ['BG','Bulgarian'], ['HR','Croatian'], ['SK','Slovak'],
+ ['TA','Tamil'], ['TE','Telugu'], ['BN','Bengali'], ['MR','Marathi'],
+ ['ML','Malayalam'], ['KN','Kannada'], ['PA','Punjabi'], ['GU','Gujarati'],
+ ['LT','Lithuanian'], ['HE','Hebrew'], ['FA','Persian'], ['MS','Malay']
  ];
  const NAME_BY_CODE = Object.fromEntries(LANG_OPTIONS);
 
@@ -30,7 +37,7 @@
  [String(20 * BYTES_IN_GB), '20 GB']
  ];
 
- const MAX_LANGS = 6;
+ const MAX_LANGS = 10;
  const MAX_BLACKLIST = 100;
 
  // API Key documentation links for each provider
