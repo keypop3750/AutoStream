@@ -1,87 +1,97 @@
-Self-ping successful (200) - 59ms
-Self-ping successful (200) - 60ms
-Self-ping successful (200) - 61ms
-Self-ping successful (200) - 63ms
-[INFO] PATH-BASED: Processing configuration: secondBest=1&alldebrid=oEvvPkMgD2Z9aDfNoAMc&fallback=1&include_nuvio=1
-[DEBUG] PATH-BASED: Parsed params: {
-  secondbest: '1',
-  alldebrid: 'oEvvPkMgD2Z9aDfNoAMc',
-  fallback: '1',
-  include_nuvio: '1'
-}
-[SEARCH] Validating AllDebrid API key...
-[OK] AllDebrid API key validated successfully
-[INFO] PATH-BASED STREAM: Configuration path: secondBest=1&alldebrid=oEvvPkMgD2Z9aDfNoAMc&fallback=1&include_nuvio=1
-[DEBUG] PATH-BASED STREAM: Parsed params: [ 'secondbest', 'alldebrid', 'fallback', 'include_nuvio' ]
-[PLAY] [u2ihhnq0m] ===== STREAM REQUEST START =====
-[u2ihhnq0m] [TV] Type: movie, ID: tt31193180
-[u2ihhnq0m] [DEVICE] Device Type: web
-[u2ihhnq0m] [WEB] User Agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36 Edg/143.0.0.0"
-[u2ihhnq0m] [LINK] Full URL: undefined
-[u2ihhnq0m] [STATS] Query Params: {
+[PLAY] [ea22il7uk] ===== STREAM REQUEST START =====
+[ea22il7uk] [TV] Type: movie, ID: tt14364480
+[ea22il7uk] [DEVICE] Device Type: web
+[ea22il7uk] [WEB] User Agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36 Edg/143.0.0.0"
+[ea22il7uk] [LINK] Full URL: undefined
+[ea22il7uk] [STATS] Query Params: {
   secondbest: '1',
   alldebrid: '****oAMc',
   fallback: '1',
   include_nuvio: '1'
 }
-[u2ihhnq0m] [SEARCH] Validating IMDB ID: tt31193180
-[u2ihhnq0m] [LOCATION] Stream request: movie/tt31193180
-[u2ihhnq0m] [DEBUG] secondBest query: "", default: "undefined", enabled: true
-[SEARCH] Validating IMDB ID: tt31193180
-[u2ihhnq0m] [LAUNCH] Fetching streams from sources...
-[WARN] Suspicious metadata for tt31193180: empty or generic data
-[u2ihhnq0m] [CONFIG] Metadata result: name="Sinners", timeout=false
-[u2ihhnq0m] [STATS] Active Sources: Nuvio(29), Comet(382)
-[SEARCH] Validating AllDebrid API key...
-[OK] AllDebrid API key validated successfully
-[u2ihhnq0m] � Debrid mode: selected top stream for processing, 407 total available for additional stream selection
-[u2ihhnq0m] [SECOND] Found 2nd best stream: [AD⬇️] Comet 2160p...
-[u2ihhnq0m] [SEARCH] Looking for backup stream: primary is 2160p, seeking 1080p
-[u2ihhnq0m] [OK] Found backup stream: [AD⬇️] Comet 1080p...
-[u2ihhnq0m] [TARGET] Processed 3 streams total (1 primary + 2 additional)
-[u2ihhnq0m] [CONTROL] Showing 3 streams (2ndBest=true, Additional=true)
-[u2ihhnq0m] [DEBUG] Cleaning 3 streams for Stremio...
-[u2ihhnq0m] [DEBUG] Stream 0: name="AutoStream (AD)", url=YES, desc=Sinners (2025) - 4K...
-[u2ihhnq0m] [DEBUG] Stream 1: name="AutoStream (AD)", url=YES, desc=Sinners (2025) - 4K...
-[u2ihhnq0m] [DEBUG] Stream 2: name="AutoStream (AD)", url=YES, desc=Sinners (2025) - 4K...
-[u2ihhnq0m] ◆ Sending 3 stream(s) to Stremio (cache: 3600s)
+[ea22il7uk] [SEARCH] Validating IMDB ID: tt14364480
+[ea22il7uk] [LOCATION] Stream request: movie/tt14364480
+[ea22il7uk] [DEBUG] secondBest query: "", default: "undefined", enabled: true
+[SEARCH] Validating IMDB ID: tt14364480
+[ea22il7uk] [LAUNCH] Fetching streams from sources...
+[WARN] Suspicious metadata for tt14364480: empty or generic data
+[ea22il7uk] [CONFIG] Metadata result: name="Wake Up Dead Man", timeout=false
+[ea22il7uk] [STATS] Active Sources: Nuvio(29), Comet(161)
+[ea22il7uk] [PERF] Using cached validation for [object Object] (no API call)
+[ea22il7uk] � Debrid mode: selected top stream for processing, 189 total available for additional stream selection
+[ea22il7uk] [SECOND] Found 2nd best stream: [AD⚡] Comet 2160p...
+[ea22il7uk] [SEARCH] Looking for backup stream: primary is 2160p, seeking 1080p
+[ea22il7uk] [OK] Found backup stream: [AD⚡] Comet 1080p...
+[ea22il7uk] [TARGET] Processed 3 streams total (1 primary + 2 additional)
+[ea22il7uk] [CONTROL] Showing 3 streams (2ndBest=true, Additional=true)
+[ea22il7uk] [DEBUG] Cleaning 3 streams for Stremio...
+[ea22il7uk] [DEBUG] Stream 0: name="AutoStream (AD)", url=YES, desc=Wake Up Dead Man (2025) - 4K...
+[ea22il7uk] [DEBUG] Stream 1: name="AutoStream (AD)", url=YES, desc=Wake Up Dead Man (2025) - 4K...
+[ea22il7uk] [DEBUG] Stream 2: name="AutoStream (AD)", url=YES, desc=Wake Up Dead Man (2025) - 1080p...
+[ea22il7uk] ◆ Sending 3 stream(s) to Stremio (cache: 3600s)
 [INFO] PATH-BASED STREAM: Configuration path: secondBest=1&alldebrid=oEvvPkMgD2Z9aDfNoAMc&fallback=1&include_nuvio=1
 [DEBUG] PATH-BASED STREAM: Parsed params: [ 'secondbest', 'alldebrid', 'fallback', 'include_nuvio' ]
-[PLAY] [eqw7mew9q] ===== STREAM REQUEST START =====
-[eqw7mew9q] [TV] Type: series, ID: tt13303478:1:16
-[eqw7mew9q] [DEVICE] Device Type: web
-[eqw7mew9q] [WEB] User Agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36 Edg/143.0.0.0"
-[eqw7mew9q] [LINK] Full URL: undefined
-[eqw7mew9q] [STATS] Query Params: {
+[PLAY] [8nperzaky] ===== STREAM REQUEST START =====
+[8nperzaky] [TV] Type: movie, ID: tt12300742
+[8nperzaky] [DEVICE] Device Type: web
+[8nperzaky] [WEB] User Agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36 Edg/143.0.0.0"
+[8nperzaky] [LINK] Full URL: undefined
+[8nperzaky] [STATS] Query Params: {
   secondbest: '1',
   alldebrid: '****oAMc',
   fallback: '1',
   include_nuvio: '1'
 }
-[eqw7mew9q] [SEARCH] Validating IMDB ID: tt13303478:1:16
-[eqw7mew9q] [LOCATION] Stream request: series/tt13303478:1:16
-[eqw7mew9q] [DEBUG] secondBest query: "", default: "undefined", enabled: true
-[SEARCH] Validating IMDB ID: tt13303478
-[eqw7mew9q] [LAUNCH] Fetching streams from sources...
-[OK] Valid metadata: "We Baby Bears" (undefined)
-[eqw7mew9q] [CONFIG] Metadata result: name="We Baby Bears", timeout=false
-[eqw7mew9q] [STATS] Active Sources: Nuvio(0), Comet(27)
+[8nperzaky] [SEARCH] Validating IMDB ID: tt12300742
+[8nperzaky] [LOCATION] Stream request: movie/tt12300742
+[8nperzaky] [DEBUG] secondBest query: "", default: "undefined", enabled: true
+[SEARCH] Validating IMDB ID: tt12300742
+[8nperzaky] [LAUNCH] Fetching streams from sources...
+[WARN] Suspicious metadata for tt12300742: empty or generic data
+[8nperzaky] [CONFIG] Metadata result: name="Bugonia", timeout=false
+[8nperzaky] [STATS] Active Sources: Nuvio(23), Comet(207)
+[8nperzaky] [PERF] Using cached validation for [object Object] (no API call)
+[8nperzaky] � Debrid mode: selected top stream for processing, 227 total available for additional stream selection
+[8nperzaky] [SECOND] Found 2nd best stream: [AD⚡] Comet 2160p...
+[8nperzaky] [SEARCH] Looking for backup stream: primary is 2160p, seeking 1080p
+[8nperzaky] [OK] Found backup stream: [AD⚡] Comet 1080p...
+[8nperzaky] [TARGET] Processed 3 streams total (1 primary + 2 additional)
+[8nperzaky] [CONTROL] Showing 3 streams (2ndBest=true, Additional=true)
+[8nperzaky] [DEBUG] Cleaning 3 streams for Stremio...
+[8nperzaky] [DEBUG] Stream 0: name="AutoStream (AD)", url=YES, desc=Bugonia (2025) - 4K...
+[8nperzaky] [DEBUG] Stream 1: name="AutoStream (AD)", url=YES, desc=Bugonia (2025) - 4K...
+[8nperzaky] [DEBUG] Stream 2: name="AutoStream (AD)", url=YES, desc=Bugonia (2025) - 1080p...
+[8nperzaky] ◆ Sending 3 stream(s) to Stremio (cache: 3600s)
 [INFO] PATH-BASED STREAM: Configuration path: secondBest=1&alldebrid=oEvvPkMgD2Z9aDfNoAMc&fallback=1&include_nuvio=1
 [DEBUG] PATH-BASED STREAM: Parsed params: [ 'secondbest', 'alldebrid', 'fallback', 'include_nuvio' ]
-[PLAY] [mmmolaa7o] ===== STREAM REQUEST START =====
-[mmmolaa7o] [TV] Type: series, ID: tt13303478:1:17
-[mmmolaa7o] [DEVICE] Device Type: web
-[mmmolaa7o] [WEB] User Agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36 Edg/143.0.0.0"
-[mmmolaa7o] [LINK] Full URL: undefined
-[mmmolaa7o] [STATS] Query Params: {
+[PLAY] [n7d7odz7t] ===== STREAM REQUEST START =====
+[n7d7odz7t] [TV] Type: movie, ID: tt5950044
+[n7d7odz7t] [DEVICE] Device Type: web
+[n7d7odz7t] [WEB] User Agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36 Edg/143.0.0.0"
+[n7d7odz7t] [LINK] Full URL: undefined
+[n7d7odz7t] [STATS] Query Params: {
   secondbest: '1',
   alldebrid: '****oAMc',
   fallback: '1',
   include_nuvio: '1'
 }
-[mmmolaa7o] [SEARCH] Validating IMDB ID: tt13303478:1:17
-[mmmolaa7o] [LOCATION] Stream request: series/tt13303478:1:17
-[mmmolaa7o] [DEBUG] secondBest query: "", default: "undefined", enabled: true
-[mmmolaa7o] [LAUNCH] Fetching streams from sources...
-[mmmolaa7o] [CONFIG] Metadata result: name="We Baby Bears", timeout=false
-[mmmolaa7o] [STATS] Active Sources: Nuvio(0), Comet(28)
+[n7d7odz7t] [SEARCH] Validating IMDB ID: tt5950044
+[n7d7odz7t] [LOCATION] Stream request: movie/tt5950044
+[n7d7odz7t] [DEBUG] secondBest query: "", default: "undefined", enabled: true
+[SEARCH] Validating IMDB ID: tt5950044
+[n7d7odz7t] [LAUNCH] Fetching streams from sources...
+[WARN] Suspicious metadata for tt5950044: empty or generic data
+[n7d7odz7t] [CONFIG] Metadata result: name="Superman", timeout=false
+[n7d7odz7t] [STATS] Active Sources: Nuvio(34), Comet(635)
+[n7d7odz7t] [PERF] Using cached validation for [object Object] (no API call)
+[n7d7odz7t] � Debrid mode: selected top stream for processing, 664 total available for additional stream selection
+[n7d7odz7t] [SECOND] Found 2nd best stream: [AD⚡] Comet 2160p...
+[n7d7odz7t] [SEARCH] Looking for backup stream: primary is 2160p, seeking 1080p
+[n7d7odz7t] [OK] Found backup stream: [AD⬇️] Comet 1080p...
+[n7d7odz7t] [TARGET] Processed 3 streams total (1 primary + 2 additional)
+[n7d7odz7t] [CONTROL] Showing 3 streams (2ndBest=true, Additional=true)
+[n7d7odz7t] [DEBUG] Cleaning 3 streams for Stremio...
+[n7d7odz7t] [DEBUG] Stream 0: name="AutoStream (AD)", url=YES, desc=Superman (2025) - 4K...
+[n7d7odz7t] [DEBUG] Stream 1: name="AutoStream (AD)", url=YES, desc=Superman (2025) - 4K...
+[n7d7odz7t] [DEBUG] Stream 2: name="AutoStream (AD)", url=YES, desc=Superman (2025) - 4K...
+[n7d7odz7t] ◆ Sending 3 stream(s) to Stremio (cache: 3600s)

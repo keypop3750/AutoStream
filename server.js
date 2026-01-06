@@ -858,7 +858,10 @@ function getQ(q, k){
  return (q && typeof q.get==='function' && q.get(k)) || MANIFEST_DEFAULTS[k] || ''; 
 }
 function resOf(s) {
- const t = ((s?.title||'') + ' ' + (s?.name||'') + ' ' + (s?.tag||'')).toLowerCase();
+ // Include ALL sources of resolution info: title, name, tag, description, filename, and preserved metadata
+ const desc = s?.description || s?._originalMetadata?.originalDescription || '';
+ const filename = s?.behaviorHints?.filename || s?._originalMetadata?.filename || '';
+ const t = ((s?.title||'') + ' ' + (s?.name||'') + ' ' + (s?.tag||'') + ' ' + desc + ' ' + filename).toLowerCase();
  // Use same patterns as extractResolution() for consistency
  if (/\b(2160p|2160|4k|uhd)\b/.test(t)) return 2160;
  if (/\b(1440p|1440|2k|qhd)\b/.test(t)) return 1440;

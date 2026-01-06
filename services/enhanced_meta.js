@@ -94,7 +94,7 @@ async function fetchJson(url, timeout = 15000) {
  }
 }
 
-async function validateAndCorrectIMDBID(id, expectedTitle = null) {
+async function validateAndCorrectIMDBID(id, expectedTitle = null, type = 'series') {
  console.log(`[SEARCH] Validating IMDB ID: ${id}`);
  
  // Step 1: Check if this ID needs correction
@@ -112,27 +112,37 @@ async function validateAndCorrectIMDBID(id, expectedTitle = null) {
  metaId = id.split(':')[0]; // Get base IMDB ID for series
  }
  
- const metaUrl = `https://v3-cinemeta.strem.io/meta/series/${metaId}.json`;
+ // Use correct endpoint based on type (series vs movie)
+ const metaType = type === 'movie' ? 'movie' : 'series';
+ const metaUrl = `https://v3-cinemeta.strem.io/meta/${metaType}/${metaId}.json`;
  const result = await fetchJson(metaUrl, 10000);
  
  if (result.error) {
+ // For movies, try the other endpoint as fallback
+ if (type === 'movie') {
+ const seriesUrl = `https://v3-cinemeta.strem.io/meta/series/${metaId}.json`;
+ const seriesResult = await fetchJson(seriesUrl, 10000);
+ if (seriesResult.meta?.name) {
+ console.log(`[OK] Found as series: "${seriesResult.meta.name}"`);
+ return { id, meta: seriesResult.meta, metaUrl: seriesUrl };
+ }
+ }
  console.log(`[FAIL] Metadata validation failed: ${result.error} (using base ID: ${metaId})`);
  return { id }; // Return original if validation fails
  }
  
  const meta = result.meta;
  
- // Check if metadata looks suspicious (empty or generic)
- if (!meta?.name || meta.name === 'Unknown' || !meta.imdb_id) {
- console.log(`[WARN] Suspicious metadata for ${id}: empty or generic data`);
- 
- // If we have an expected title, try to find alternatives
+ // Only warn when truly suspicious - not just for every request
+ // A response IS valid if it has a name (even without imdb_id in response)
+ if (!meta?.name || meta.name === 'Unknown') {
+ // Silent handling - this is expected for some content
+ // Don't log a warning for every movie/series
  if (expectedTitle) {
  console.log(`[SEARCH] Searching for alternative ID for "${expectedTitle}"`);
- // Future: Could implement title-based search here
  }
  } else {
- console.log(`[OK] Valid metadata: "${meta.name}" (${meta.year})`);
+ console.log(`[OK] Valid metadata: "${meta.name}" (${meta.year || 'N/A'})`);
  // Return both the ID and the fetched metadata to avoid duplicate fetches
  return { id, meta, metaUrl };
  }
@@ -156,8 +166,8 @@ async function fetchEnhancedMeta(type, originalId, log = () => {}) {
  }
  
  try {
- // Step 1: Validate and potentially correct the ID
- const validationResult = await validateAndCorrectIMDBID(originalId);
+ // Step 1: Validate and potentially correct the ID (pass type for correct endpoint)
+ const validationResult = await validateAndCorrectIMDBID(originalId, null, type);
  const validatedId = validationResult.id;
  const validatedMeta = validationResult.meta; // Get the already-fetched metadata
  const idChanged = validatedId !== originalId;
