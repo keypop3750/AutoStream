@@ -476,7 +476,7 @@ const seriesCache = (() => {
 function isNuvio(s){ return !!(s && (s.autostreamOrigin === 'nuvio' || /\bNuvio\b/i.test(String(s?.name||'')))); }
 function isTorrent(s){ const o = s && s.autostreamOrigin; const n = String(s?.name||''); return !!(o==='torrentio'||o==='tpb'||/\b(Torrentio|TPB\+?)\b/i.test(n)); }
 function hasNuvioCookie(s){ return !!(s?.behaviorHints?.proxyHeaders?.Cookie) || !!s?._usedCookie; }
-function isDebridStream(s){ return !!(s && (s._debrid || s._isDebrid || /\b(?:AllDebrid|Real-?Debrid|Premiumize|TorBox|Offcloud|Debrid)\b/i.test(String(s?.name||'')))); }
+function isDebridStream(s){ return !!(s && (s._debrid || s._isDebrid || s.autostreamOrigin === 'comet' || s.autostreamOrigin === 'mediafusion' || /\b(?:AllDebrid|Real-?Debrid|Premiumize|TorBox|Offcloud|Debrid)\b/i.test(String(s?.name||'')))); }
 function badgeName(s){
  let name = String(s?.name || '');
  name = name.replace(/\s*\[(?:Nuvio|Torrentio|Debrid)(?:[^\]]*)\]\s*/gi, ' ').replace(/\s{2,}/g,' ').trim();
@@ -2205,6 +2205,19 @@ function startServer(port = PORT) {
  }
  }
  }
+ 
+ // FALLBACK 3: If still no backup found, use 3rd best stream at any resolution (as long as different from primary/2nd)
+ if (!backupStream) {
+ log(`[SEARCH] No lower resolution found, selecting 3rd best stream as backup`);
+ for (const candidate of allScoredStreams.slice(1)) {
+ const candidateId = candidate.infoHash || candidate.url;
+ if (candidateId !== primaryId && candidateId !== secondBestId) {
+ backupStream = { ...candidate };
+ log(`[OK] Using 3rd best stream as backup: ${candidate.title?.substring(0, 50) || candidate.name?.substring(0, 50) || 'Unknown'}...`);
+ break;
+ }
+ }
+ }
  }
  }
  
@@ -2212,7 +2225,13 @@ function startServer(port = PORT) {
  const additionalStreams = [];
  
  if (secondBest) {
- // Process 2nd best stream
+ // Process 2nd best stream - mark Comet/MediaFusion as debrid (they're already resolved)
+ if (hasDebridConfigured && (secondBest.autostreamOrigin === 'comet' || secondBest.autostreamOrigin === 'mediafusion')) {
+ secondBest._debrid = true;
+ secondBest._isDebrid = true;
+ }
+ 
+ // Process torrent 2nd best streams
  if (hasDebridConfigured && (secondBest.autostreamOrigin === 'torrentio' || secondBest.autostreamOrigin === 'tpb') && secondBest.infoHash) {
  secondBest._debrid = true;
  secondBest._isDebrid = true;
@@ -2250,7 +2269,13 @@ function startServer(port = PORT) {
  }
  
  if (backupStream) {
- // Process backup stream
+ // Process backup stream - mark Comet/MediaFusion as debrid (they're already resolved)
+ if (hasDebridConfigured && (backupStream.autostreamOrigin === 'comet' || backupStream.autostreamOrigin === 'mediafusion')) {
+ backupStream._debrid = true;
+ backupStream._isDebrid = true;
+ }
+ 
+ // Process torrent backup streams
  if (hasDebridConfigured && (backupStream.autostreamOrigin === 'torrentio' || backupStream.autostreamOrigin === 'tpb') && backupStream.infoHash) {
  backupStream._debrid = true;
  backupStream._isDebrid = true;

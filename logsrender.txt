@@ -1,97 +1,222 @@
-[PLAY] [ea22il7uk] ===== STREAM REQUEST START =====
-[ea22il7uk] [TV] Type: movie, ID: tt14364480
-[ea22il7uk] [DEVICE] Device Type: web
-[ea22il7uk] [WEB] User Agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36 Edg/143.0.0.0"
-[ea22il7uk] [LINK] Full URL: undefined
-[ea22il7uk] [STATS] Query Params: {
+==> Your service is live 🎉
+==> 
+==> ///////////////////////////////////////////////////////////
+==> 
+==> Available at your primary URL https://autostreamtest.onrender.com
+==> 
+==> ///////////////////////////////////////////////////////////
+Performing initial self-ping...
+[INFO] PATH-BASED: Processing configuration: secondBest=1&alldebrid=oEvvPkMgD2Z9aDfNoAMc&fallback=1&include_nuvio=1
+[DEBUG] PATH-BASED: Parsed params: {
   secondbest: '1',
-  alldebrid: '****oAMc',
+  alldebrid: 'oEvvPkMgD2Z9aDfNoAMc',
   fallback: '1',
   include_nuvio: '1'
 }
-[ea22il7uk] [SEARCH] Validating IMDB ID: tt14364480
-[ea22il7uk] [LOCATION] Stream request: movie/tt14364480
-[ea22il7uk] [DEBUG] secondBest query: "", default: "undefined", enabled: true
-[SEARCH] Validating IMDB ID: tt14364480
-[ea22il7uk] [LAUNCH] Fetching streams from sources...
-[WARN] Suspicious metadata for tt14364480: empty or generic data
-[ea22il7uk] [CONFIG] Metadata result: name="Wake Up Dead Man", timeout=false
-[ea22il7uk] [STATS] Active Sources: Nuvio(29), Comet(161)
-[ea22il7uk] [PERF] Using cached validation for [object Object] (no API call)
-[ea22il7uk] � Debrid mode: selected top stream for processing, 189 total available for additional stream selection
-[ea22il7uk] [SECOND] Found 2nd best stream: [AD⚡] Comet 2160p...
-[ea22il7uk] [SEARCH] Looking for backup stream: primary is 2160p, seeking 1080p
-[ea22il7uk] [OK] Found backup stream: [AD⚡] Comet 1080p...
-[ea22il7uk] [TARGET] Processed 3 streams total (1 primary + 2 additional)
-[ea22il7uk] [CONTROL] Showing 3 streams (2ndBest=true, Additional=true)
-[ea22il7uk] [DEBUG] Cleaning 3 streams for Stremio...
-[ea22il7uk] [DEBUG] Stream 0: name="AutoStream (AD)", url=YES, desc=Wake Up Dead Man (2025) - 4K...
-[ea22il7uk] [DEBUG] Stream 1: name="AutoStream (AD)", url=YES, desc=Wake Up Dead Man (2025) - 4K...
-[ea22il7uk] [DEBUG] Stream 2: name="AutoStream (AD)", url=YES, desc=Wake Up Dead Man (2025) - 1080p...
-[ea22il7uk] ◆ Sending 3 stream(s) to Stremio (cache: 3600s)
+[SEARCH] Validating AllDebrid API key...
+[OK] AllDebrid API key validated successfully
 [INFO] PATH-BASED STREAM: Configuration path: secondBest=1&alldebrid=oEvvPkMgD2Z9aDfNoAMc&fallback=1&include_nuvio=1
 [DEBUG] PATH-BASED STREAM: Parsed params: [ 'secondbest', 'alldebrid', 'fallback', 'include_nuvio' ]
-[PLAY] [8nperzaky] ===== STREAM REQUEST START =====
-[8nperzaky] [TV] Type: movie, ID: tt12300742
-[8nperzaky] [DEVICE] Device Type: web
-[8nperzaky] [WEB] User Agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36 Edg/143.0.0.0"
-[8nperzaky] [LINK] Full URL: undefined
-[8nperzaky] [STATS] Query Params: {
+[PLAY] [dji28essd] ===== STREAM REQUEST START =====
+[dji28essd] [TV] Type: series, ID: tt0437005:12:16
+[dji28essd] [DEVICE] Device Type: web
+[dji28essd] [WEB] User Agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36 Edg/143.0.0.0"
+[dji28essd] [LINK] Full URL: undefined
+[dji28essd] [STATS] Query Params: {
   secondbest: '1',
   alldebrid: '****oAMc',
   fallback: '1',
   include_nuvio: '1'
 }
-[8nperzaky] [SEARCH] Validating IMDB ID: tt12300742
-[8nperzaky] [LOCATION] Stream request: movie/tt12300742
-[8nperzaky] [DEBUG] secondBest query: "", default: "undefined", enabled: true
-[SEARCH] Validating IMDB ID: tt12300742
-[8nperzaky] [LAUNCH] Fetching streams from sources...
-[WARN] Suspicious metadata for tt12300742: empty or generic data
-[8nperzaky] [CONFIG] Metadata result: name="Bugonia", timeout=false
-[8nperzaky] [STATS] Active Sources: Nuvio(23), Comet(207)
-[8nperzaky] [PERF] Using cached validation for [object Object] (no API call)
-[8nperzaky] � Debrid mode: selected top stream for processing, 227 total available for additional stream selection
-[8nperzaky] [SECOND] Found 2nd best stream: [AD⚡] Comet 2160p...
-[8nperzaky] [SEARCH] Looking for backup stream: primary is 2160p, seeking 1080p
-[8nperzaky] [OK] Found backup stream: [AD⚡] Comet 1080p...
-[8nperzaky] [TARGET] Processed 3 streams total (1 primary + 2 additional)
-[8nperzaky] [CONTROL] Showing 3 streams (2ndBest=true, Additional=true)
-[8nperzaky] [DEBUG] Cleaning 3 streams for Stremio...
-[8nperzaky] [DEBUG] Stream 0: name="AutoStream (AD)", url=YES, desc=Bugonia (2025) - 4K...
-[8nperzaky] [DEBUG] Stream 1: name="AutoStream (AD)", url=YES, desc=Bugonia (2025) - 4K...
-[8nperzaky] [DEBUG] Stream 2: name="AutoStream (AD)", url=YES, desc=Bugonia (2025) - 1080p...
-[8nperzaky] ◆ Sending 3 stream(s) to Stremio (cache: 3600s)
+[dji28essd] [SEARCH] Validating IMDB ID: tt0437005:12:16
+[dji28essd] [OK] ID validated: "Hell's Kitchen" (2005–)
+[dji28essd] [LOCATION] Stream request: series/tt0437005:12:16
+[dji28essd] [DEBUG] secondBest query: "", default: "undefined", enabled: true
+[dji28essd] [LAUNCH] Fetching streams from sources...
+[MediaFusion] Successfully got encrypted config
+[dji28essd] [CONFIG] Metadata result: name="Hell's Kitchen", timeout=false
+[dji28essd] [STATS] Active Sources: Nuvio(1), Comet(6), MediaFusion(1)
+[dji28essd] [PERF] Using cached validation for [object Object] (no API call)
+[dji28essd] � Debrid mode: selected top stream for processing, 5 total available for additional stream selection
+[dji28essd] [SECOND] Found 2nd best stream: [AD⬇️] Comet unknown...
+[dji28essd] [SEARCH] Looking for backup stream: primary is 1080p, seeking 720p
+[dji28essd] [TARGET] Processed 2 streams total (1 primary + 1 additional)
+Preloading next episode: tt0437005:12:17
+[dji28essd] [CONTROL] Showing 2 streams (2ndBest=true, Additional=true)
+[dji28essd] [DEBUG] Cleaning 2 streams for Stremio...
+[dji28essd] [DEBUG] Stream 0: name="AutoStream (AD)", url=YES, desc=Hell's Kitchen S12E16 - 1080p...
+[dji28essd] [DEBUG] Stream 1: name="AutoStream (AD)", url=YES, desc=Hell's Kitchen S12E16...
+[dji28essd] ◆ Sending 2 stream(s) to Stremio (cache: 3600s)
+[OK] Episode S12E17 exists for series tt0437005, attempting preload of tt0437005:12:17
+Cached 1 streams for episode tt0437005:12:17
 [INFO] PATH-BASED STREAM: Configuration path: secondBest=1&alldebrid=oEvvPkMgD2Z9aDfNoAMc&fallback=1&include_nuvio=1
 [DEBUG] PATH-BASED STREAM: Parsed params: [ 'secondbest', 'alldebrid', 'fallback', 'include_nuvio' ]
-[PLAY] [n7d7odz7t] ===== STREAM REQUEST START =====
-[n7d7odz7t] [TV] Type: movie, ID: tt5950044
-[n7d7odz7t] [DEVICE] Device Type: web
-[n7d7odz7t] [WEB] User Agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36 Edg/143.0.0.0"
-[n7d7odz7t] [LINK] Full URL: undefined
-[n7d7odz7t] [STATS] Query Params: {
+[PLAY] [xmrwllonn] ===== STREAM REQUEST START =====
+[xmrwllonn] [TV] Type: series, ID: tt0437005:12:17
+[xmrwllonn] [DEVICE] Device Type: web
+[xmrwllonn] [WEB] User Agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36 Edg/143.0.0.0"
+[xmrwllonn] [LINK] Full URL: undefined
+[xmrwllonn] [STATS] Query Params: {
   secondbest: '1',
   alldebrid: '****oAMc',
   fallback: '1',
   include_nuvio: '1'
 }
-[n7d7odz7t] [SEARCH] Validating IMDB ID: tt5950044
-[n7d7odz7t] [LOCATION] Stream request: movie/tt5950044
-[n7d7odz7t] [DEBUG] secondBest query: "", default: "undefined", enabled: true
-[SEARCH] Validating IMDB ID: tt5950044
-[n7d7odz7t] [LAUNCH] Fetching streams from sources...
-[WARN] Suspicious metadata for tt5950044: empty or generic data
-[n7d7odz7t] [CONFIG] Metadata result: name="Superman", timeout=false
-[n7d7odz7t] [STATS] Active Sources: Nuvio(34), Comet(635)
-[n7d7odz7t] [PERF] Using cached validation for [object Object] (no API call)
-[n7d7odz7t] � Debrid mode: selected top stream for processing, 664 total available for additional stream selection
-[n7d7odz7t] [SECOND] Found 2nd best stream: [AD⚡] Comet 2160p...
-[n7d7odz7t] [SEARCH] Looking for backup stream: primary is 2160p, seeking 1080p
-[n7d7odz7t] [OK] Found backup stream: [AD⬇️] Comet 1080p...
-[n7d7odz7t] [TARGET] Processed 3 streams total (1 primary + 2 additional)
-[n7d7odz7t] [CONTROL] Showing 3 streams (2ndBest=true, Additional=true)
-[n7d7odz7t] [DEBUG] Cleaning 3 streams for Stremio...
-[n7d7odz7t] [DEBUG] Stream 0: name="AutoStream (AD)", url=YES, desc=Superman (2025) - 4K...
-[n7d7odz7t] [DEBUG] Stream 1: name="AutoStream (AD)", url=YES, desc=Superman (2025) - 4K...
-[n7d7odz7t] [DEBUG] Stream 2: name="AutoStream (AD)", url=YES, desc=Superman (2025) - 4K...
-[n7d7odz7t] ◆ Sending 3 stream(s) to Stremio (cache: 3600s)
+[xmrwllonn] [SEARCH] Validating IMDB ID: tt0437005:12:17
+[xmrwllonn] [OK] ID validated: "Hell's Kitchen" (2005–)
+[xmrwllonn] [LOCATION] Stream request: series/tt0437005:12:17
+[xmrwllonn] [DEBUG] secondBest query: "", default: "undefined", enabled: true
+[xmrwllonn] [LAUNCH] Fetching streams from sources...
+[xmrwllonn] [CONFIG] Metadata result: name="Hell's Kitchen", timeout=false
+[xmrwllonn] [STATS] Active Sources: Nuvio(1), Comet(6), MediaFusion(1)
+[xmrwllonn] [PERF] Using cached validation for [object Object] (no API call)
+[xmrwllonn] � Debrid mode: selected top stream for processing, 5 total available for additional stream selection
+[xmrwllonn] [SECOND] Found 2nd best stream: [AD⬇️] Comet unknown...
+[xmrwllonn] [SEARCH] Looking for backup stream: primary is 1080p, seeking 720p
+[xmrwllonn] [TARGET] Processed 2 streams total (1 primary + 1 additional)
+Preloading next episode: tt0437005:12:18
+[xmrwllonn] [CONTROL] Showing 2 streams (2ndBest=true, Additional=true)
+[xmrwllonn] [DEBUG] Cleaning 2 streams for Stremio...
+[xmrwllonn] [DEBUG] Stream 0: name="AutoStream (AD)", url=YES, desc=Hell's Kitchen S12E17 - 1080p...
+[xmrwllonn] [DEBUG] Stream 1: name="AutoStream (AD)", url=YES, desc=Hell's Kitchen S12E17...
+[xmrwllonn] ◆ Sending 2 stream(s) to Stremio (cache: 3600s)
+[OK] Episode S12E18 exists for series tt0437005, attempting preload of tt0437005:12:18
+Cached 1 streams for episode tt0437005:12:18
+[INFO] PATH-BASED STREAM: Configuration path: secondBest=1&alldebrid=oEvvPkMgD2Z9aDfNoAMc&fallback=1&include_nuvio=1
+[DEBUG] PATH-BASED STREAM: Parsed params: [ 'secondbest', 'alldebrid', 'fallback', 'include_nuvio' ]
+[PLAY] [6sjz802yk] ===== STREAM REQUEST START =====
+[6sjz802yk] [TV] Type: series, ID: tt0437005:12:18
+[6sjz802yk] [DEVICE] Device Type: web
+[6sjz802yk] [WEB] User Agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36 Edg/143.0.0.0"
+[6sjz802yk] [LINK] Full URL: undefined
+[6sjz802yk] [STATS] Query Params: {
+  secondbest: '1',
+  alldebrid: '****oAMc',
+  fallback: '1',
+  include_nuvio: '1'
+}
+[6sjz802yk] [SEARCH] Validating IMDB ID: tt0437005:12:18
+[6sjz802yk] [OK] ID validated: "Hell's Kitchen" (2005–)
+[6sjz802yk] [LOCATION] Stream request: series/tt0437005:12:18
+[6sjz802yk] [DEBUG] secondBest query: "", default: "undefined", enabled: true
+[6sjz802yk] [LAUNCH] Fetching streams from sources...
+[6sjz802yk] [CONFIG] Metadata result: name="Hell's Kitchen", timeout=false
+[6sjz802yk] [STATS] Active Sources: Nuvio(1), Comet(6), MediaFusion(1)
+[6sjz802yk] [PERF] Using cached validation for [object Object] (no API call)
+[6sjz802yk] � Debrid mode: selected top stream for processing, 5 total available for additional stream selection
+[6sjz802yk] [SECOND] Found 2nd best stream: [AD⬇️] Comet unknown...
+[6sjz802yk] [SEARCH] Looking for backup stream: primary is 1080p, seeking 720p
+[6sjz802yk] [TARGET] Processed 2 streams total (1 primary + 1 additional)
+Preloading next episode: tt0437005:12:19
+[6sjz802yk] [CONTROL] Showing 2 streams (2ndBest=true, Additional=true)
+[6sjz802yk] [DEBUG] Cleaning 2 streams for Stremio...
+[6sjz802yk] [DEBUG] Stream 0: name="AutoStream (AD)", url=YES, desc=Hell's Kitchen S12E18 - 1080p...
+[6sjz802yk] [DEBUG] Stream 1: name="AutoStream (AD)", url=YES, desc=Hell's Kitchen S12E18...
+[6sjz802yk] ◆ Sending 2 stream(s) to Stremio (cache: 3600s)
+[OK] Episode S12E19 exists for series tt0437005, attempting preload of tt0437005:12:19
+==> Detected service running on port 10000
+==> Docs on specifying a port: https://render.com/docs/web-services#port-binding
+[INFO] PATH-BASED STREAM: Configuration path: secondBest=1&alldebrid=oEvvPkMgD2Z9aDfNoAMc&fallback=1&include_nuvio=1
+[DEBUG] PATH-BASED STREAM: Parsed params: [ 'secondbest', 'alldebrid', 'fallback', 'include_nuvio' ]
+[PLAY] [a17339etx] ===== STREAM REQUEST START =====
+[a17339etx] [TV] Type: series, ID: tt13303478:1:10
+[a17339etx] [DEVICE] Device Type: web
+[a17339etx] [WEB] User Agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36 Edg/143.0.0.0"
+[a17339etx] [LINK] Full URL: undefined
+[a17339etx] [STATS] Query Params: {
+  secondbest: '1',
+  alldebrid: '****oAMc',
+  fallback: '1',
+  include_nuvio: '1'
+}
+[a17339etx] [SEARCH] Validating IMDB ID: tt13303478:1:10
+[a17339etx] [LOCATION] Stream request: series/tt13303478:1:10
+[a17339etx] [DEBUG] secondBest query: "", default: "undefined", enabled: true
+[SEARCH] Validating IMDB ID: tt13303478
+[a17339etx] [LAUNCH] Fetching streams from sources...
+[OK] Valid metadata: "We Baby Bears" (N/A)
+[a17339etx] [CONFIG] Metadata result: name="We Baby Bears", timeout=false
+[a17339etx] [STATS] Active Sources: Nuvio(1), Comet(28), MediaFusion(7)
+[a17339etx] [PERF] Using cached validation for [object Object] (no API call)
+[a17339etx] � Debrid mode: selected top stream for processing, 20 total available for additional stream selection
+[a17339etx] [SECOND] Found 2nd best stream: [AD⚡] Comet 1080p...
+[a17339etx] [SEARCH] Looking for backup stream: primary is 1080p, seeking 720p
+[a17339etx] [OK] Found backup stream: MediaFusion | ElfHosted AD 720P ⏳...
+[a17339etx] [TARGET] Processed 3 streams total (1 primary + 2 additional)
+Preloading next episode: tt13303478:1:11
+[a17339etx] [CONTROL] Showing 3 streams (2ndBest=true, Additional=true)
+[a17339etx] [DEBUG] Cleaning 3 streams for Stremio...
+[a17339etx] [DEBUG] Stream 0: name="AutoStream (AD)", url=YES, desc=We Baby Bears S1E10 - 1080p...
+[a17339etx] [DEBUG] Stream 1: name="AutoStream (AD)", url=YES, desc=We Baby Bears S1E10 - 1080p...
+[a17339etx] [DEBUG] Stream 2: name="AutoStream", url=YES, desc=We Baby Bears S1E10 - 720p...
+[a17339etx] ◆ Sending 3 stream(s) to Stremio (cache: 3600s)
+[OK] Episode S1E11 exists for series tt13303478, attempting preload of tt13303478:1:11
+Cached 1 streams for episode tt13303478:1:11
+[INFO] PATH-BASED STREAM: Configuration path: secondBest=1&alldebrid=oEvvPkMgD2Z9aDfNoAMc&fallback=1&include_nuvio=1
+[DEBUG] PATH-BASED STREAM: Parsed params: [ 'secondbest', 'alldebrid', 'fallback', 'include_nuvio' ]
+[PLAY] [rrrtja7ts] ===== STREAM REQUEST START =====
+[rrrtja7ts] [TV] Type: series, ID: tt13303478:1:11
+[rrrtja7ts] [DEVICE] Device Type: web
+[rrrtja7ts] [WEB] User Agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36 Edg/143.0.0.0"
+[rrrtja7ts] [LINK] Full URL: undefined
+[rrrtja7ts] [STATS] Query Params: {
+  secondbest: '1',
+  alldebrid: '****oAMc',
+  fallback: '1',
+  include_nuvio: '1'
+}
+[rrrtja7ts] [SEARCH] Validating IMDB ID: tt13303478:1:11
+[rrrtja7ts] [LOCATION] Stream request: series/tt13303478:1:11
+[rrrtja7ts] [DEBUG] secondBest query: "", default: "undefined", enabled: true
+[rrrtja7ts] [LAUNCH] Fetching streams from sources...
+[rrrtja7ts] [CONFIG] Metadata result: name="We Baby Bears", timeout=false
+[rrrtja7ts] [STATS] Active Sources: Nuvio(1), Comet(31), MediaFusion(6)
+[rrrtja7ts] [PERF] Using cached validation for [object Object] (no API call)
+[rrrtja7ts] � Debrid mode: selected top stream for processing, 22 total available for additional stream selection
+[rrrtja7ts] [SECOND] Found 2nd best stream: [AD⚡] Comet 1080p...
+[rrrtja7ts] [SEARCH] Looking for backup stream: primary is 1080p, seeking 720p
+[rrrtja7ts] [OK] Found backup stream: MediaFusion | ElfHosted AD 720P ⏳...
+[rrrtja7ts] [TARGET] Processed 3 streams total (1 primary + 2 additional)
+Preloading next episode: tt13303478:1:12
+[rrrtja7ts] [CONTROL] Showing 3 streams (2ndBest=true, Additional=true)
+[rrrtja7ts] [DEBUG] Cleaning 3 streams for Stremio...
+[rrrtja7ts] [DEBUG] Stream 0: name="AutoStream (AD)", url=YES, desc=We Baby Bears S1E11 - 1080p...
+[rrrtja7ts] [DEBUG] Stream 1: name="AutoStream (AD)", url=YES, desc=We Baby Bears S1E11 - 1080p...
+[rrrtja7ts] [DEBUG] Stream 2: name="AutoStream", url=YES, desc=We Baby Bears S1E11 - 720p...
+[rrrtja7ts] ◆ Sending 3 stream(s) to Stremio (cache: 3600s)
+[OK] Episode S1E12 exists for series tt13303478, attempting preload of tt13303478:1:12
+Cached 1 streams for episode tt13303478:1:11
+[INFO] PATH-BASED STREAM: Configuration path: secondBest=1&alldebrid=oEvvPkMgD2Z9aDfNoAMc&fallback=1&include_nuvio=1
+[DEBUG] PATH-BASED STREAM: Parsed params: [ 'secondbest', 'alldebrid', 'fallback', 'include_nuvio' ]
+[PLAY] [rrrtja7ts] ===== STREAM REQUEST START =====
+[rrrtja7ts] [TV] Type: series, ID: tt13303478:1:11
+[rrrtja7ts] [DEVICE] Device Type: web
+[rrrtja7ts] [WEB] User Agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36 Edg/143.0.0.0"
+[rrrtja7ts] [LINK] Full URL: undefined
+[rrrtja7ts] [STATS] Query Params: {
+  secondbest: '1',
+  alldebrid: '****oAMc',
+  fallback: '1',
+  include_nuvio: '1'
+}
+[rrrtja7ts] [SEARCH] Validating IMDB ID: tt13303478:1:11
+[rrrtja7ts] [LOCATION] Stream request: series/tt13303478:1:11
+[rrrtja7ts] [DEBUG] secondBest query: "", default: "undefined", enabled: true
+[rrrtja7ts] [LAUNCH] Fetching streams from sources...
+[rrrtja7ts] [CONFIG] Metadata result: name="We Baby Bears", timeout=false
+[rrrtja7ts] [STATS] Active Sources: Nuvio(1), Comet(31), MediaFusion(6)
+[rrrtja7ts] [PERF] Using cached validation for [object Object] (no API call)
+[rrrtja7ts] � Debrid mode: selected top stream for processing, 22 total available for additional stream selection
+[rrrtja7ts] [SECOND] Found 2nd best stream: [AD⚡] Comet 1080p...
+[rrrtja7ts] [SEARCH] Looking for backup stream: primary is 1080p, seeking 720p
+[rrrtja7ts] [OK] Found backup stream: MediaFusion | ElfHosted AD 720P ⏳...
+[rrrtja7ts] [TARGET] Processed 3 streams total (1 primary + 2 additional)
+Preloading next episode: tt13303478:1:12
+[rrrtja7ts] [CONTROL] Showing 3 streams (2ndBest=true, Additional=true)
+[rrrtja7ts] [DEBUG] Cleaning 3 streams for Stremio...
+[rrrtja7ts] [DEBUG] Stream 0: name="AutoStream (AD)", url=YES, desc=We Baby Bears S1E11 - 1080p...
+[rrrtja7ts] [DEBUG] Stream 1: name="AutoStream (AD)", url=YES, desc=We Baby Bears S1E11 - 1080p...
+[rrrtja7ts] [DEBUG] Stream 2: name="AutoStream", url=YES, desc=We Baby Bears S1E11 - 720p...
+[rrrtja7ts] ◆ Sending 3 stream(s) to Stremio (cache: 3600s)
+[OK] Episode S1E12 exists for series tt13303478, attempting preload of tt13303478:1:12
+Cached 1 streams for episode tt13303478:1:12
