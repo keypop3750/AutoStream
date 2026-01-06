@@ -724,9 +724,9 @@ function beautifyStreamNames(streams) {
 async function validateAllDebridKey(apiKey) {
  if (!apiKey) return false;
  
- // Check cache first (valid for 5 minutes)
+ // Check cache first (valid for 30 minutes - API keys rarely change mid-session)
  const cached = adKeyValidationCache.get(apiKey);
- if (cached && (Date.now() - cached.timestamp) < 5 * 60 * 1000) {
+ if (cached && (Date.now() - cached.timestamp) < 30 * 60 * 1000) {
  return cached.isValid;
  }
  
@@ -756,7 +756,7 @@ async function validateDebridKey(provider, apiKey) {
  
  const cacheKey = `${provider}:${apiKey}`;
  const cached = adKeyValidationCache.get(cacheKey);
- if (cached && (Date.now() - cached.timestamp) < 5 * 60 * 1000) {
+ if (cached && (Date.now() - cached.timestamp) < 30 * 60 * 1000) {
  return cached.isValid;
  }
  
@@ -1562,31 +1562,65 @@ function startServer(port = PORT) {
 
  // Extract debrid credentials early for Comet/MediaFusion (they need it for config)
  // This is a preliminary extraction - full validation happens later in the debrid section
- const providerKeysEarly = getProviderKeys();
+ // First check all short-form and long-form provider keys
  let earlyDebridProvider = null;
  let earlyDebridApiKey = null;
- for (const key of providerKeysEarly) {
-  const value = getQ(q, key) || '';
+ 
+ // Short-form to long-form mapping for debrid providers
+ const shortFormMapping = {
+  'ad': 'alldebrid',
+  'rd': 'realdebrid', 
+  'pm': 'premiumize',
+  'tb': 'torbox',
+  'oc': 'offcloud',
+  'ed': 'easydebrid',
+  'dl': 'debridlink',
+  'pu': 'putio'
+ };
+ 
+ // Check short forms first (most commonly used in path config)
+ for (const [shortKey, fullKey] of Object.entries(shortFormMapping)) {
+  const value = getQ(q, shortKey) || '';
   if (value) {
-   earlyDebridProvider = key;
+   earlyDebridProvider = fullKey;
    earlyDebridApiKey = value;
+   log(`[DEBRID] Found short-form key "${shortKey}" -> provider: ${fullKey}`);
    break;
   }
  }
+ 
+ // Then check full provider keys
+ if (!earlyDebridApiKey) {
+  const providerKeysEarly = getProviderKeys();
+  for (const key of providerKeysEarly) {
+   const value = getQ(q, key) || '';
+   if (value) {
+    earlyDebridProvider = key;
+    earlyDebridApiKey = value;
+    log(`[DEBRID] Found full key "${key}"`);
+    break;
+   }
+  }
+ }
+ 
  // Also check legacy AllDebrid params
  if (!earlyDebridApiKey) {
-  const legacyAd = getQ(q,'ad') || getQ(q,'apikey') || getQ(q,'alldebrid') || getQ(q,'ad_apikey') || '';
+  const legacyAd = getQ(q,'apikey') || getQ(q,'alldebrid') || getQ(q,'ad_apikey') || '';
   if (legacyAd) {
    earlyDebridProvider = 'alldebrid';
    earlyDebridApiKey = legacyAd;
+   log(`[DEBRID] Found legacy AllDebrid key`);
   }
  }
+ 
+ log(`[DEBRID] Early extraction result: provider=${earlyDebridProvider}, hasKey=${!!earlyDebridApiKey}`);
  
  // Build source options with debrid config for Comet/MediaFusion
  const cometMfOptions = earlyDebridApiKey ? {
   debridProvider: earlyDebridProvider,
   debridApiKey: earlyDebridApiKey
  } : {};
+
 
  // fetch sources (no debrid here) - parallel execution with timeout for faster response
  // NOTE: Torrentio, TPB, and MediaFusion disabled - they return 403 from cloud IPs
@@ -1736,7 +1770,8 @@ function startServer(port = PORT) {
  log(`[SEARCH] Pre-filtering for S${seasonNum}E${episodeNum} before scoring...`);
  
  const episodeFilteredStreams = combined.filter((stream, index) => {
- const streamText = `${stream.title || ''} ${stream.name || ''}`.toLowerCase();
+ // Include description and filename for Comet streams (episode info is often there)
+ const streamText = `${stream.title || ''} ${stream.name || ''} ${stream.description || ''} ${stream.behaviorHints?.filename || ''}`.toLowerCase();
  
  // Episode matching patterns - more permissive to catch PROPER, v2, multi-episode releases
  const patterns = [
@@ -1894,13 +1929,33 @@ function startServer(port = PORT) {
  Object.keys(providerConfig).forEach(key => providerConfig[key] = ''); // Force no debrid for ALL users
  }
  
- // Validate configured debrid providers in parallel
+ // PERFORMANCE OPTIMIZATION: Skip API key validation during stream requests
+ // API keys were already validated during manifest generation and are cached for 30 minutes
+ // Trust the API key and let the actual debrid resolution handle any errors
+ // This removes 1-3 HTTP calls per stream request (up to 5 seconds of latency)
  const providersToValidate = Object.entries(providerConfig)
  .filter(([_, token]) => token)
  .map(([key, token]) => ({ key, provider: getProvider(key), token }));
  
+ // Check cache first - if key was validated recently, trust it
  const validators = { validateAllDebridKey, validateDebridKey };
- const workingProviders = await validateProvidersParallel(providersToValidate, validators);
+ let workingProviders = [];
+ 
+ for (const pv of providersToValidate) {
+ // Check if this key is in the validation cache (valid for 30 min)
+ const cacheKey = pv.key === 'alldebrid' || pv.key === 'ad' ? pv.token : `${pv.key}:${pv.token}`;
+ const cached = adKeyValidationCache.get(cacheKey);
+ 
+ if (cached && cached.isValid && (Date.now() - cached.timestamp) < 30 * 60 * 1000) {
+ // Cache hit - trust the key without API call
+ workingProviders.push(pv);
+ console.log(`[${requestId}] [PERF] Using cached validation for ${pv.provider} (no API call)`);
+ } else if (!cached || (Date.now() - cached.timestamp) >= 30 * 60 * 1000) {
+ // Cache miss or expired - need to validate (this updates the cache)
+ workingProviders = await validateProvidersParallel(providersToValidate, validators);
+ break; // validateProvidersParallel handles all at once
+ }
+ }
  
  // Use the first working provider as primary
  const primaryProvider = workingProviders.length > 0 ? workingProviders[0] : null;

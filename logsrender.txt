@@ -1,3 +1,7 @@
+Self-ping successful (200) - 59ms
+Self-ping successful (200) - 60ms
+Self-ping successful (200) - 61ms
+Self-ping successful (200) - 63ms
 [INFO] PATH-BASED: Processing configuration: secondBest=1&alldebrid=oEvvPkMgD2Z9aDfNoAMc&fallback=1&include_nuvio=1
 [DEBUG] PATH-BASED: Parsed params: {
   secondbest: '1',
@@ -9,129 +13,75 @@
 [OK] AllDebrid API key validated successfully
 [INFO] PATH-BASED STREAM: Configuration path: secondBest=1&alldebrid=oEvvPkMgD2Z9aDfNoAMc&fallback=1&include_nuvio=1
 [DEBUG] PATH-BASED STREAM: Parsed params: [ 'secondbest', 'alldebrid', 'fallback', 'include_nuvio' ]
-[PLAY] [7bphwe0wo] ===== STREAM REQUEST START =====
-[7bphwe0wo] [TV] Type: movie, ID: tt31227572
-[7bphwe0wo] [DEVICE] Device Type: web
-[7bphwe0wo] [WEB] User Agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36 Edg/143.0.0.0"
-[7bphwe0wo] [LINK] Full URL: undefined
-[7bphwe0wo] [STATS] Query Params: {
+[PLAY] [u2ihhnq0m] ===== STREAM REQUEST START =====
+[u2ihhnq0m] [TV] Type: movie, ID: tt31193180
+[u2ihhnq0m] [DEVICE] Device Type: web
+[u2ihhnq0m] [WEB] User Agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36 Edg/143.0.0.0"
+[u2ihhnq0m] [LINK] Full URL: undefined
+[u2ihhnq0m] [STATS] Query Params: {
   secondbest: '1',
   alldebrid: '****oAMc',
   fallback: '1',
   include_nuvio: '1'
 }
-[7bphwe0wo] [SEARCH] Validating IMDB ID: tt31227572
-[7bphwe0wo] [LOCATION] Stream request: movie/tt31227572
-[7bphwe0wo] [DEBUG] secondBest query: "1", default: "1", enabled: true
-[SEARCH] Validating IMDB ID: tt31227572
-[7bphwe0wo] [LAUNCH] Fetching streams from sources...
-[WARN] Suspicious metadata for tt31227572: empty or generic data
-[7bphwe0wo] [CONFIG] Metadata result: name="Predator: Badlands", timeout=false
-[7bphwe0wo] [STATS] Active Sources: Nuvio(0), Comet(133)
+[u2ihhnq0m] [SEARCH] Validating IMDB ID: tt31193180
+[u2ihhnq0m] [LOCATION] Stream request: movie/tt31193180
+[u2ihhnq0m] [DEBUG] secondBest query: "", default: "undefined", enabled: true
+[SEARCH] Validating IMDB ID: tt31193180
+[u2ihhnq0m] [LAUNCH] Fetching streams from sources...
+[WARN] Suspicious metadata for tt31193180: empty or generic data
+[u2ihhnq0m] [CONFIG] Metadata result: name="Sinners", timeout=false
+[u2ihhnq0m] [STATS] Active Sources: Nuvio(29), Comet(382)
 [SEARCH] Validating AllDebrid API key...
 [OK] AllDebrid API key validated successfully
-[7bphwe0wo] � Debrid mode: selected top stream for processing, 133 total available for additional stream selection
-[7bphwe0wo] [SECOND] Found 2nd best stream: [AD⬇️] Comet 2160p...
-[7bphwe0wo] [SEARCH] Looking for backup stream: primary is 2160p, seeking 1080p
-[7bphwe0wo] [OK] Found backup stream: [AD⬇️] Comet 1080p...
-[7bphwe0wo] [TARGET] Processed 3 streams total (1 primary + 2 additional)
-[7bphwe0wo] [CONTROL] Showing 3 streams (2ndBest=true, Additional=true)
-[7bphwe0wo] [DEBUG] Cleaning 3 streams for Stremio...
-[7bphwe0wo] [DEBUG] Stream 0: name="AutoStream (AD)", url=YES, desc=📄 Black Panther Wakanda Forever 2022 4K...
-[7bphwe0wo] [DEBUG] Stream 1: name="AutoStream (AD)", url=YES, desc=📄 Predator.Badlands.2025.2160p.Upscaled...
-[7bphwe0wo] [DEBUG] Stream 2: name="AutoStream (AD)", url=YES, desc=📄 Predator.Badlands.2025.1080p.WEB-DL.H...
-[7bphwe0wo] ◆ Sending 3 stream(s) to Stremio (cache: 3600s)
-[CONFIG] MANIFEST REQUEST: {
-  pathname: '/manifest.json',
-  queryString: 'alldebrid=oEvvPkMgD2Z9aDfNoAMc&fallback=1&secondBest=1',
-  paramsCount: 3,
-  paramKeys: [ 'alldebrid', 'fallback', 'secondBest' ],
-  userAgent: 'Mozilla/5.0 (Windows NT; Windows NT 10.0; en-GB) WindowsPowerShell/5.1.26100.7462',
-  referer: 'no referer'
-}
-[STATS] MANIFEST: Saving configuration with params: [ 'alldebrid', 'fallback', 'secondBest' ]
-[STATS] MANIFEST: Parameter values (redacted): { alldebrid: '[REDACTED]', fallback: '1', secondBest: '1' }
-[SEARCH] Validating AllDebrid API key...
-[OK] AllDebrid API key validated successfully
-[CONFIG] MANIFEST REQUEST: {
-  pathname: '/manifest.json',
-  queryString: 'alldebrid=oEvvPkMgD2Z9aDfNoAMc&fallback=1&secondBest=1&_t=1767640391.68319',
-  paramsCount: 4,
-  paramKeys: [ 'alldebrid', 'fallback', 'secondBest', '_t' ],
-  userAgent: 'Mozilla/5.0 (Windows NT; Windows NT 10.0; en-GB) WindowsPowerShell/5.1.26100.7462',
-  referer: 'no referer'
-}
-[STATS] MANIFEST: Saving configuration with params: [ 'alldebrid', 'fallback', 'secondBest', '_t' ]
-[STATS] MANIFEST: Parameter values (redacted): {
-  alldebrid: '[REDACTED]',
-  fallback: '1',
-  secondBest: '1',
-  _t: '1767640391.68319'
-}
-[SEARCH] Validating AllDebrid API key...
-[OK] AllDebrid API key validated successfully
-[CONFIG] MANIFEST REQUEST: {
-  pathname: '/manifest.json',
-  queryString: 'alldebrid=oEvvPkMgD2Z9aDfNoAMc&fallback=1&secondBest=1',
-  paramsCount: 3,
-  paramKeys: [ 'alldebrid', 'fallback', 'secondBest' ],
-  userAgent: 'Mozilla/5.0 (Windows NT; Windows NT 10.0; en-GB) WindowsPowerShell/5.1.26100.7462',
-  referer: 'no referer'
-}
-[STATS] MANIFEST: Saving configuration with params: [ 'alldebrid', 'fallback', 'secondBest' ]
-[STATS] MANIFEST: Parameter values (redacted): { alldebrid: '[REDACTED]', fallback: '1', secondBest: '1' }
-[SEARCH] Validating AllDebrid API key...
-[OK] AllDebrid API key validated successfully
-==> Your service is live 🎉
-==> 
-==> ///////////////////////////////////////////////////////////
-==> 
-==> Available at your primary URL https://autostreamtest.onrender.com
-==> 
-==> ///////////////////////////////////////////////////////////
-[CONFIG] MANIFEST REQUEST: {
-  pathname: '/manifest.json',
-  queryString: 'alldebrid=oEvvPkMgD2Z9aDfNoAMc&fallback=1&secondBest=1',
-  paramsCount: 3,
-  paramKeys: [ 'alldebrid', 'fallback', 'secondBest' ],
-  userAgent: 'Mozilla/5.0 (Windows NT; Windows NT 10.0; en-GB) WindowsPowerShell/5.1.26100.7462',
-  referer: 'no referer'
-}
-[STATS] MANIFEST: Saving configuration with params: [ 'alldebrid', 'fallback', 'secondBest' ]
-[STATS] MANIFEST: Parameter values (redacted): { alldebrid: '[REDACTED]', fallback: '1', secondBest: '1' }
-[SEARCH] Validating AllDebrid API key...
-[OK] AllDebrid API key validated successfully
+[u2ihhnq0m] � Debrid mode: selected top stream for processing, 407 total available for additional stream selection
+[u2ihhnq0m] [SECOND] Found 2nd best stream: [AD⬇️] Comet 2160p...
+[u2ihhnq0m] [SEARCH] Looking for backup stream: primary is 2160p, seeking 1080p
+[u2ihhnq0m] [OK] Found backup stream: [AD⬇️] Comet 1080p...
+[u2ihhnq0m] [TARGET] Processed 3 streams total (1 primary + 2 additional)
+[u2ihhnq0m] [CONTROL] Showing 3 streams (2ndBest=true, Additional=true)
+[u2ihhnq0m] [DEBUG] Cleaning 3 streams for Stremio...
+[u2ihhnq0m] [DEBUG] Stream 0: name="AutoStream (AD)", url=YES, desc=Sinners (2025) - 4K...
+[u2ihhnq0m] [DEBUG] Stream 1: name="AutoStream (AD)", url=YES, desc=Sinners (2025) - 4K...
+[u2ihhnq0m] [DEBUG] Stream 2: name="AutoStream (AD)", url=YES, desc=Sinners (2025) - 4K...
+[u2ihhnq0m] ◆ Sending 3 stream(s) to Stremio (cache: 3600s)
 [INFO] PATH-BASED STREAM: Configuration path: secondBest=1&alldebrid=oEvvPkMgD2Z9aDfNoAMc&fallback=1&include_nuvio=1
 [DEBUG] PATH-BASED STREAM: Parsed params: [ 'secondbest', 'alldebrid', 'fallback', 'include_nuvio' ]
-[PLAY] [4vw4nvwar] ===== STREAM REQUEST START =====
-[4vw4nvwar] [TV] Type: movie, ID: tt10374610
-[4vw4nvwar] [DEVICE] Device Type: web
-[4vw4nvwar] [WEB] User Agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36 Edg/143.0.0.0"
-[4vw4nvwar] [LINK] Full URL: undefined
-[4vw4nvwar] [STATS] Query Params: {
+[PLAY] [eqw7mew9q] ===== STREAM REQUEST START =====
+[eqw7mew9q] [TV] Type: series, ID: tt13303478:1:16
+[eqw7mew9q] [DEVICE] Device Type: web
+[eqw7mew9q] [WEB] User Agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36 Edg/143.0.0.0"
+[eqw7mew9q] [LINK] Full URL: undefined
+[eqw7mew9q] [STATS] Query Params: {
   secondbest: '1',
   alldebrid: '****oAMc',
   fallback: '1',
   include_nuvio: '1'
 }
-[4vw4nvwar] [SEARCH] Validating IMDB ID: tt10374610
-[4vw4nvwar] [LOCATION] Stream request: movie/tt10374610
-[4vw4nvwar] [DEBUG] secondBest query: "1", default: "1", enabled: true
-[SEARCH] Validating IMDB ID: tt10374610
-[4vw4nvwar] [LAUNCH] Fetching streams from sources...
-[WARN] Suspicious metadata for tt10374610: empty or generic data
-[4vw4nvwar] [CONFIG] Metadata result: name="The Long Walk", timeout=false
-[4vw4nvwar] [STATS] Active Sources: Nuvio(3), Comet(270)
-[SEARCH] Validating AllDebrid API key...
-[OK] AllDebrid API key validated successfully
-[4vw4nvwar] � Debrid mode: selected top stream for processing, 273 total available for additional stream selection
-[4vw4nvwar] [SECOND] Found 2nd best stream: [AD⬇️] Comet 2160p...
-[4vw4nvwar] [SEARCH] Looking for backup stream: primary is 2160p, seeking 1080p
-[4vw4nvwar] [OK] Found backup stream: [AD⬇️] Comet 1080p...
-[4vw4nvwar] [TARGET] Processed 3 streams total (1 primary + 2 additional)
-[4vw4nvwar] [CONTROL] Showing 3 streams (2ndBest=true, Additional=true)
-[4vw4nvwar] [DEBUG] Cleaning 3 streams for Stremio...
-[4vw4nvwar] [DEBUG] Stream 0: name="AutoStream (AD)", url=YES, desc=📄 The.Long.Walk.2025.CUSTOM.HYBRID.MULT...
-[4vw4nvwar] [DEBUG] Stream 1: name="AutoStream (AD)", url=YES, desc=📄 The Long Walk 2025 Hybrid 2160p UHD B...
-[4vw4nvwar] [DEBUG] Stream 2: name="AutoStream (AD)", url=YES, desc=📄 The Long Walk 2025 Hybrid 1080p UHD B...
-[4vw4nvwar] ◆ Sending 3 stream(s) to Stremio (cache: 3600s)
+[eqw7mew9q] [SEARCH] Validating IMDB ID: tt13303478:1:16
+[eqw7mew9q] [LOCATION] Stream request: series/tt13303478:1:16
+[eqw7mew9q] [DEBUG] secondBest query: "", default: "undefined", enabled: true
+[SEARCH] Validating IMDB ID: tt13303478
+[eqw7mew9q] [LAUNCH] Fetching streams from sources...
+[OK] Valid metadata: "We Baby Bears" (undefined)
+[eqw7mew9q] [CONFIG] Metadata result: name="We Baby Bears", timeout=false
+[eqw7mew9q] [STATS] Active Sources: Nuvio(0), Comet(27)
+[INFO] PATH-BASED STREAM: Configuration path: secondBest=1&alldebrid=oEvvPkMgD2Z9aDfNoAMc&fallback=1&include_nuvio=1
+[DEBUG] PATH-BASED STREAM: Parsed params: [ 'secondbest', 'alldebrid', 'fallback', 'include_nuvio' ]
+[PLAY] [mmmolaa7o] ===== STREAM REQUEST START =====
+[mmmolaa7o] [TV] Type: series, ID: tt13303478:1:17
+[mmmolaa7o] [DEVICE] Device Type: web
+[mmmolaa7o] [WEB] User Agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36 Edg/143.0.0.0"
+[mmmolaa7o] [LINK] Full URL: undefined
+[mmmolaa7o] [STATS] Query Params: {
+  secondbest: '1',
+  alldebrid: '****oAMc',
+  fallback: '1',
+  include_nuvio: '1'
+}
+[mmmolaa7o] [SEARCH] Validating IMDB ID: tt13303478:1:17
+[mmmolaa7o] [LOCATION] Stream request: series/tt13303478:1:17
+[mmmolaa7o] [DEBUG] secondBest query: "", default: "undefined", enabled: true
+[mmmolaa7o] [LAUNCH] Fetching streams from sources...
+[mmmolaa7o] [CONFIG] Metadata result: name="We Baby Bears", timeout=false
+[mmmolaa7o] [STATS] Active Sources: Nuvio(0), Comet(28)

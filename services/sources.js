@@ -14,7 +14,7 @@ const {
 
 const torrentioCache = new TTLCache({ max: 500, ttlMs: 60 * 60 * 1000 });
 const tpbCache = new TTLCache({ max: 300, ttlMs: 60 * 60 * 1000 });
-const nuvioCache = new TTLCache({ max: 500, ttlMs: 12 * 60 * 1000 });
+const nuvioCache = new TTLCache({ max: 500, ttlMs: 60 * 60 * 1000 }); // Increased from 12 min to 60 min
 const mediafusionCache = new TTLCache({ max: 500, ttlMs: 60 * 60 * 1000 });
 const cometCache = new TTLCache({ max: 500, ttlMs: 60 * 60 * 1000 });
 
@@ -168,6 +168,7 @@ function preserveStreamMetadata(stream, source = 'unknown') {
  // Quality information for TV codec decisions
  originalTitle: stream.title || '',
  originalName: stream.name || '',
+ originalDescription: stream.description || '', // Preserve for cache status detection
  
  // Source tracking
  source: source,

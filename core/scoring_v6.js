@@ -235,6 +235,21 @@ function computeCometStreamScore(stream, req, opts = {}) {
  bonuses.push('debrid_resolved(+35)');
  breakdown.debrid = { score: 35, reason: 'comet_debrid' };
 
+ // === CACHE STATUS BONUS (+50 for cached/instant streams) ===
+ // Comet marks cached streams with ⚡ and uncached with ⬇️
+ const isCached = name.includes('⚡');
+ const isUncached = name.includes('⬇️');
+ if (isCached) {
+ score += 50;
+ bonuses.push('cached_instant(+50)');
+ breakdown.cache = { score: 50, reason: 'instant_playback' };
+ } else if (isUncached) {
+ // Slight penalty for uncached - requires download time
+ score -= 20;
+ penalties.push('uncached(-20)');
+ breakdown.cache = { score: -20, reason: 'requires_download' };
+ }
+
  return {
  score,
  reason: 'comet_scored',
