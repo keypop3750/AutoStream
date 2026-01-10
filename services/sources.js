@@ -541,16 +541,26 @@ async function fetchMediaFusionStreams(type, id, options = {}, log = ()=>{}) {
 async function fetchCometStreams(type, id, options = {}, log = ()=>{}) {
  // Build config with debrid credentials if provided
  let config = options.cometConfig;
- if (!config && options.debridProvider && options.debridApiKey) {
+ const hasDebridOptions = !!(options.debridProvider && options.debridApiKey);
+ 
+ if (!config && hasDebridOptions) {
   config = buildCometConfig(options.debridProvider, options.debridApiKey);
+  log('comet', `Building debrid config for provider: ${options.debridProvider}`);
  }
+ 
+ const usingDebrid = config && config !== COMET_DEFAULT_CONFIG;
  config = config || COMET_DEFAULT_CONFIG;
+ 
+ log('comet', `Using debrid: ${usingDebrid}, hasDebridOptions: ${hasDebridOptions}, provider: ${options.debridProvider || 'none'}`);
  
  const url = buildCometUrl(BASE_COMET, type, id, config);
  const cached = cometCache.get(url);
- if (cached) return cached;
+ if (cached) {
+  log('comet', 'Returning cached result');
+  return cached;
+ }
  
- log('comet', 'Fetching from:', url);
+ log('comet', 'Fetching from:', url.substring(0, 80) + '...');
  
  // Comet doesn't need proxy - ElfHosted generally allows cloud IPs
  const result = await fetchJson(url, 15000, (m,...a)=>log('comet',m,...a), false);

@@ -1127,8 +1127,15 @@ function startServer(port = PORT) {
 
  try {
  const start = Date.now();
- const comet = await fetchCometStreams(testType, testId, testOptions, (m,...a) => results.errors.push(['comet', m, ...a]));
- results.comet = { count: comet.length, time: Date.now() - start, sample: comet[0]?.title?.substring(0,50) };
+ const cometLogs = [];
+ const comet = await fetchCometStreams(testType, testId, testOptions, (m,...a) => cometLogs.push([m, ...a]));
+ results.comet = { 
+ count: comet.length, 
+ time: Date.now() - start, 
+ sample: comet[0]?.title?.substring(0,50) || comet[0]?.name?.substring(0,50),
+ optionsPassed: { debridProvider: testOptions.debridProvider, hasKey: !!testOptions.debridApiKey },
+ logs: cometLogs
+ };
  } catch (e) { results.comet = { error: e.message }; }
  
  return writeJson(res, results, 200);
