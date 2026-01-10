@@ -584,4 +584,4 @@ async function fetchCometStreams(type, id, options = {}, log = ()=>{}) {
  return preservedStreams;
 }
 
-module.exports = { fetchTorrentioStreams, fetchTPBStreams, fetchNuvioStreams, fetchMediaFusionStreams, fetchCometStreams };
+module.exports = { fetchTorrentioStreams, fetchTPBStreams, fetchNuvioStreams, fetchCometStreams };
